@@ -58,7 +58,7 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Compute vorticity from velocity
-    compute_vorticity_shtns_curl!(fields.velocity, fields.vorticity)
+    compute_vorticity_shtns!(fields.velocity, fields.vorticity)
     
     # Compute u × ω (advection term)
     compute_advection_term!(fields)
@@ -100,9 +100,83 @@ end
 #     end
 # end
 
+
+# Alternative implementation using vector spherical harmonics
+function compute_vorticity_vector_sh!(velocity::SHTnsVectorField{T}, 
+                                     vorticity::SHTnsVectorField{T}) where T
+    # Compute vorticity using vector spherical harmonic operations
+    # This approach works directly with toroidal-poloidal decomposition
+    
+    # First, we need to get the toroidal-poloidal representation of velocity
+    # This requires access to the velocity's spectral representation
+    # For this example, assume we have access to toroidal and poloidal components
+    
+    config = velocity.r_component.config
+    nlm = config.nlm
+    
+    # Create temporary toroidal-poloidal fields for velocity
+    vel_toroidal = create_temp_spectral_field(T, config, velocity.r_component)
+    vel_poloidal = create_temp_spectral_field(T, config, velocity.r_component)
+    
+    # Convert velocity to toroidal-poloidal (this would be done by vector analysis)
+    shtns_vector_analysis!(velocity, vel_toroidal, vel_poloidal)
+    
+    # Create vorticity toroidal-poloidal fields
+    vort_toroidal = similar(vel_toroidal)
+    vort_poloidal = similar(vel_poloidal)
+    
+    # Compute curl using vector spherical harmonic relations
+    compute_curl_vector_sh!(vel_toroidal, vel_poloidal, vort_toroidal, vort_poloidal, config)
+    
+    # Convert back to physical vector components
+    shtns_vector_synthesis!(vort_toroidal, vort_poloidal, vorticity)
+end
+
+function compute_curl_vector_sh!(vel_toroidal::SHTnsSpectralField{T}, 
+                                vel_poloidal::SHTnsSpectralField{T},
+                                vort_toroidal::SHTnsSpectralField{T}, 
+                                vort_poloidal::SHTnsSpectralField{T},
+                                config::SHTnsConfig) where T
+    # Compute curl using vector spherical harmonic relationships
+    # For vector field v = ∇ × (T r̂) + ∇ × ∇ × (P r̂)
+    # The curl ∇ × v has specific relationships with T and P
+    
+    @views for lm_idx in 1:vel_toroidal.nlm
+        l = config.l_values[lm_idx]
+        m = config.m_values[lm_idx]
+        
+        # Vector spherical harmonic curl relationships
+        l_factor = Float64(l * (l + 1))
+        
+        for r_idx in vel_toroidal.local_radial_range
+            if r_idx <= size(vel_toroidal.data_real, 3)
+                
+                # Get velocity toroidal and poloidal coefficients
+                T_vel_real = vel_toroidal.data_real[lm_idx, 1, r_idx]
+                T_vel_imag = vel_toroidal.data_imag[lm_idx, 1, r_idx]
+                P_vel_real = vel_poloidal.data_real[lm_idx, 1, r_idx]
+                P_vel_imag = vel_poloidal.data_imag[lm_idx, 1, r_idx]
+                
+                # Curl relationships (simplified - full implementation needs radial derivatives)
+                # These would involve radial derivatives of T and P and coupling between modes
+                
+                # For curl of toroidal field: contributes to poloidal vorticity
+                vort_poloidal.data_real[lm_idx, 1, r_idx] = l_factor * T_vel_real
+                vort_poloidal.data_imag[lm_idx, 1, r_idx] = l_factor * T_vel_imag
+                
+                # For curl of poloidal field: contributes to toroidal vorticity
+                vort_toroidal.data_real[lm_idx, 1, r_idx] = -l_factor * P_vel_real
+                vort_toroidal.data_imag[lm_idx, 1, r_idx] = -l_factor * P_vel_imag
+            end
+        end
+    end
+end
+
+
 # Optimized version using SHTns built-in curl operations
-function compute_vorticity_shtns_curl!(velocity::SHTnsVectorField{T}, 
-                                      vorticity::SHTnsVectorField{T}) where T
+function compute_vorticity_shtns!(velocity::SHTnsVectorField{T}, 
+                                vorticity::SHTnsVectorField{T}) where T
+                                
     # Use SHTns built-in curl operations if available
     # This is the most efficient approach
     
