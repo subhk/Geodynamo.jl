@@ -29,6 +29,7 @@ module Geodynamo
 
 
     include("fields.jl")
-    in
+    include("shtns_config.jl")
+    
 
 end
