@@ -50,7 +50,7 @@ module Geodynamo
     include("timestep.jl")
     include("velocity.jl")
     include("magnetic.jl")
-    in
+    include("thermal.jl")
 
     
 
