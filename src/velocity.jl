@@ -410,6 +410,52 @@ function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64},
     return analysis(sht, j_φ_phys)
 end
 
+function compute_cross_product_jxB!(current::SHTnsVectorField{T}, 
+                                   magnetic::SHTnsVectorField{T},
+                                   velocity::SHTnsVectorField{T}) where T
+    # Compute Lorentz force: F = j × B
+    # F_r = j_θ B_φ - j_φ B_θ
+    # F_θ = j_φ B_r - j_r B_φ  
+    # F_φ = j_r B_θ - j_θ B_r
+    
+    for r_idx in current.r_component.local_radial_range
+        if (r_idx <= size(current.r_component.data_r, 3) && 
+            r_idx <= size(magnetic.r_component.data_r, 3) &&
+            r_idx <= size(velocity.r_component.data_r, 3))
+            
+            for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
+                if (i_theta <= size(current.r_component.data_r, 1) && 
+                    j_phi <= size(current.r_component.data_r, 2) &&
+                    i_theta <= size(magnetic.r_component.data_r, 1) && 
+                    j_phi <= size(magnetic.r_component.data_r, 2) &&
+                    i_theta <= size(velocity.r_component.data_r, 1) && 
+                    j_phi <= size(velocity.r_component.data_r, 2))
+                    
+                    # Current density components
+                    j_r = current.r_component.data_r[i_theta, j_phi, r_idx]
+                    j_θ = current.θ_component.data_r[i_theta, j_phi, r_idx]
+                    j_φ = current.φ_component.data_r[i_theta, j_phi, r_idx]
+                    
+                    # Magnetic field components
+                    B_r = magnetic.r_component.data_r[i_theta, j_phi, r_idx]
+                    B_θ = magnetic.θ_component.data_r[i_theta, j_phi, r_idx]
+                    B_φ = magnetic.φ_component.data_r[i_theta, j_phi, r_idx]
+                    
+                    # Compute cross product j × B
+                    F_r = j_θ * B_φ - j_φ * B_θ
+                    F_θ = j_φ * B_r - j_r * B_φ
+                    F_φ = j_r * B_θ - j_θ * B_r
+                    
+                    # Add to velocity equation (momentum equation)
+                    velocity.r_component.data_r[i_theta, j_phi, r_idx] += F_r
+                    velocity.θ_component.data_r[i_theta, j_phi, r_idx] += F_θ
+                    velocity.φ_component.data_r[i_theta, j_phi, r_idx] += F_φ
+                end
+            end
+        end
+    end
+end
+
 
 
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
