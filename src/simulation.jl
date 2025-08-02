@@ -126,8 +126,8 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
             end
             
             # Compute convergence error
-            error_vel = compute_timestep_error(state.velocity.toroidal, prev_velocity)
-            error_mag = compute_timestep_error(state.magnetic.toroidal, prev_magnetic)
+            error_vel  = compute_timestep_error(state.velocity.toroidal, prev_velocity)
+            error_mag  = compute_timestep_error(state.magnetic.toroidal, prev_magnetic)
             error_temp = compute_timestep_error(state.temperature.spectral, prev_temperature)
             
             state.timestep_state.error = max(error_vel, error_mag, error_temp)
@@ -347,26 +347,26 @@ function update_implicit_matrices!(state::SHTnsSimulationState{T}) where T
         state.shtns_config, state.radial_domain, 1.0/d_Pr, dt)
 end
 
-function output_shtns_fields!(state::SHTnsSimulationState{T}) where T
-    # Output fields to HDF5 files using collective I/O
-    filename = "geodynamo_shtns_step_$(lpad(state.timestep_state.step, 6, '0')).h5"
+# function output_shtns_fields!(state::SHTnsSimulationState{T}) where T
+#     # Output fields to HDF5 files using collective I/O
+#     filename = "geodynamo_shtns_step_$(lpad(state.timestep_state.step, 6, '0')).h5"
     
-    rank = MPI.Comm_rank(comm)
+#     rank = MPI.Comm_rank(comm)
     
-    # Convert spectral fields to physical space for output
-    shtns_spectral_to_physical!(state.temperature.spectral, state.temperature.temperature)
-    shtns_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity)
-    shtns_vector_synthesis!(state.magnetic.toroidal, state.magnetic.poloidal, state.magnetic.magnetic)
+#     # Convert spectral fields to physical space for output
+#     shtns_spectral_to_physical!(state.temperature.spectral, state.temperature.temperature)
+#     shtns_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity)
+#     shtns_vector_synthesis!(state.magnetic.toroidal, state.magnetic.poloidal, state.magnetic.magnetic)
     
-    if rank == 0
-        println("Writing output file: $filename")
-    end
+#     if rank == 0
+#         println("Writing output file: $filename")
+#     end
     
-    # Use HDF5 collective I/O for parallel output
-    # This is a placeholder - would implement proper parallel HDF5 output
+#     # Use HDF5 collective I/O for parallel output
+#     # This is a placeholder - would implement proper parallel HDF5 output
     
-    state.output_counter += 1
-end
+#     state.output_counter += 1
+# end
 
 # Main entry point
 function run_shtns_geodynamo_simulation()
