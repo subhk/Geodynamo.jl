@@ -94,7 +94,9 @@ function apply_explicit_operator!(output::SHTnsSpectralField{T},
                                     nonlinear::SHTnsSpectralField{T}, 
                                     domain::RadialDomain,
                                     diffusivity::Float64, dt::Float64) where T
-    # Explicit operator: (1/dt + diffusivity * (1-implicit_factor) * L_l) * input + nonlinear
+
+    # Explicit operator: 
+    # (1/dt + diffusivity * (1-implicit_factor) * L_l) * input + nonlinear
     
     @views for lm_idx in 1:input.nlm
         l = input.config.l_values[lm_idx]
@@ -129,6 +131,7 @@ end
 function solve_implicit_step!(solution::SHTnsSpectralField{T}, 
                                 rhs::SHTnsSpectralField{T},
                                 matrices::SHTnsImplicitMatrices{T}) where T
+                                
     # Solve implicit system for each mode
     @views for lm_idx in 1:solution.nlm
         l = solution.config.l_values[lm_idx]
