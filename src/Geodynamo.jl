@@ -32,6 +32,7 @@ module Geodynamo
     include("shtns_config.jl")
     include("shtns_transforms.jl")
     include("linear_algebra.jl")
+    include("pencil_decomps.jl")
     
 
 end
