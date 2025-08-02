@@ -58,7 +58,7 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Compute vorticity from velocity
-    compute_vorticity!(fields.velocity, fields.vorticity)
+    compute_vorticity_shtns_curl!(fields.velocity, fields.vorticity)
     
     # Compute u × ω (advection term)
     compute_advection_term!(fields)
@@ -100,6 +100,7 @@ end
 #     end
 # end
 
+# Optimized version using SHTns built-in curl operations
 function compute_vorticity_shtns_curl!(velocity::SHTnsVectorField{T}, 
                                       vorticity::SHTnsVectorField{T}) where T
     # Use SHTns built-in curl operations if available
