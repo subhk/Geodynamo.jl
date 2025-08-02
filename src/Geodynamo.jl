@@ -31,6 +31,7 @@ module Geodynamo
     include("fields.jl")
     include("shtns_config.jl")
     include("shtns_transforms.jl")
+    include("linear_algebra.jl")
     
 
 end
