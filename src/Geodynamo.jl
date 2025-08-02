@@ -30,6 +30,9 @@ module Geodynamo
     export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices
     export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
+    # exports velocity.jl
+    
+
 
     include("fields.jl")
     include("shtns_config.jl")
@@ -37,6 +40,7 @@ module Geodynamo
     include("linear_algebra.jl")
     include("pencil_decomps.jl")
     include("timestep.jl")
+    include("velocity.jl")
     
 
 end
