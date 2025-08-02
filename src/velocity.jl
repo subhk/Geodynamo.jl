@@ -476,6 +476,29 @@ function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float
 end
 
 
+# Additional utility function for computing radial derivatives needed in curl
+function compute_radial_derivative!(input_field::SHTnsSpectralField{T}, 
+                                   output_field::SHTnsSpectralField{T},
+                                   domain::RadialDomain) where T
+    # Compute radial derivative using finite differences
+    # This is used in the curl computation where spectral methods don't apply (radial direction)
+    
+    dr_matrix = create_derivative_matrix(1, domain)
+    
+    # Apply radial derivative matrix to each spectral mode
+    @views for lm_idx in 1:input_field.nlm
+        # Real part
+        apply_banded_vector!(output_field.data_real[lm_idx, 1, :], 
+                           dr_matrix, input_field.data_real[lm_idx, 1, :])
+        
+        # Imaginary part
+        apply_banded_vector!(output_field.data_imag[lm_idx, 1, :], 
+                           dr_matrix, input_field.data_imag[lm_idx, 1, :])
+    end
+end
+
+
+
 
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
