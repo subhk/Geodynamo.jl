@@ -10,8 +10,11 @@ module Geodynamo
     using SHTnsSpheres
 
 
-    # export shtns_config.jl
+    # exports shtns_config.jl
     export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
+
+    # exports pencil_decomps.jl
+    export create_pencil_topology, create_transforms, comm
 
     
 
