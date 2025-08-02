@@ -31,7 +31,7 @@ module Geodynamo
     export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
     # exports velocity.jl
-    
+    export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
 
     include("fields.jl")

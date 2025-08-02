@@ -162,7 +162,7 @@ end
 
 function add_thermal_buoyancy!(fields::SHTnsVelocityFields{T}, temp_field) where T
     # Add thermal buoyancy: Ra_T * Pr * T * ê_r
-    
+
     if temp_field !== nothing
         buoyancy_factor = d_Ra * d_Pr
         vel = fields.velocity
@@ -215,6 +215,6 @@ function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
     end
 end
 
-export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
+# export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
 #end
