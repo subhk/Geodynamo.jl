@@ -100,6 +100,68 @@ function compute_vorticity!(velocity::SHTnsVectorField{T}, vorticity::SHTnsVecto
     end
 end
 
+
+function compute_vorticity_shtns_curl!(velocity::SHTnsVectorField{T}, 
+                                      vorticity::SHTnsVectorField{T}) where T
+    # Use SHTns built-in curl operations if available
+    # This is the most efficient approach
+    
+    config = velocity.r_component.config
+    sht = config.sht
+    
+    for r_idx in velocity.r_component.local_radial_range
+        if r_idx <= size(velocity.r_component.data_r, 3)
+            
+            # Extract velocity field at this radial level
+            v_theta = zeros(ComplexF64, config.nlat, config.nlon)
+            v_phi = zeros(ComplexF64, config.nlat, config.nlon)
+            
+            for j_phi in 1:config.nlon, i_theta in 1:config.nlat
+                if (i_theta <= size(velocity.θ_component.data_r, 1) && 
+                    j_phi <= size(velocity.θ_component.data_r, 2))
+                    
+                    v_theta[i_theta, j_phi] = complex(velocity.θ_component.data_r[i_theta, j_phi, r_idx])
+                    v_phi[i_theta, j_phi] = complex(velocity.φ_component.data_r[i_theta, j_phi, r_idx])
+                end
+            end
+            
+            # Use SHTns vector analysis to get toroidal-poloidal
+            tor_coeffs, pol_coeffs = vector_analysis(sht, v_theta, v_phi)
+            
+            # Apply curl operation in spectral space
+            # This would use proper vector spherical harmonic curl relations
+            curl_tor_coeffs = similar(tor_coeffs)
+            curl_pol_coeffs = similar(pol_coeffs)
+            
+            for lm_idx in 1:length(tor_coeffs)
+                l = config.l_values[lm_idx]
+                l_factor = Float64(l * (l + 1))
+                
+                # Simplified curl (full implementation needs radial derivatives)
+                curl_pol_coeffs[lm_idx] = l_factor * tor_coeffs[lm_idx]
+                curl_tor_coeffs[lm_idx] = -l_factor * pol_coeffs[lm_idx]
+            end
+            
+            # Convert back to physical space
+            omega_theta, omega_phi = vector_synthesis(sht, curl_tor_coeffs, curl_pol_coeffs)
+            
+            # Store vorticity components
+            for j_phi in 1:config.nlon, i_theta in 1:config.nlat
+                if (i_theta <= size(vorticity.θ_component.data_r, 1) && 
+                    j_phi <= size(vorticity.θ_component.data_r, 2))
+                    
+                    vorticity.θ_component.data_r[i_theta, j_phi, r_idx] = real(omega_theta[i_theta, j_phi])
+                    vorticity.φ_component.data_r[i_theta, j_phi, r_idx] = real(omega_phi[i_theta, j_phi])
+                end
+            end
+            
+            # Radial component would need additional computation
+            compute_radial_vorticity_component!(velocity, vorticity, r_idx, config)
+        end
+    end
+end
+
+
 function compute_advection_term!(fields::SHTnsVelocityFields{T}) where T
     # Compute u × ω in physical space
     vel = fields.velocity
@@ -208,297 +270,297 @@ function add_compositional_buoyancy!(fields::SHTnsVelocityFields{T}, comp_field)
     end
 end
 
-function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
-    # Add Lorentz force: j × B = (∇ × B) × B
-    # This is the magnetic force per unit volume in the momentum equation
+# function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
+#     # Add Lorentz force: j × B = (∇ × B) × B
+#     # This is the magnetic force per unit volume in the momentum equation
     
-    if mag_field === nothing
-        return  # No magnetic field, no Lorentz force
-    end
+#     if mag_field === nothing
+#         return  # No magnetic field, no Lorentz force
+#     end
     
-    # Ensure magnetic field is in physical space
-    shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
+#     # Ensure magnetic field is in physical space
+#     shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
     
-    # Compute current density j = ∇ × B using SHTns spectral derivatives
-    compute_current_density_shtns!(mag_field.magnetic, mag_field.current)
+#     # Compute current density j = ∇ × B using SHTns spectral derivatives
+#     compute_current_density_shtns!(mag_field.magnetic, mag_field.current)
     
-    # Compute Lorentz force j × B in physical space
-    compute_cross_product_jxB!(mag_field.current, mag_field.magnetic, fields.velocity)
+#     # Compute Lorentz force j × B in physical space
+#     compute_cross_product_jxB!(mag_field.current, mag_field.magnetic, fields.velocity)
     
-    # Scale by magnetic interaction parameter
-    scale_lorentz_force!(fields.velocity, 1.0 / d_Pm)  # Inverse magnetic Reynolds number
-end
+#     # Scale by magnetic interaction parameter
+#     scale_lorentz_force!(fields.velocity, 1.0 / d_Pm)  # Inverse magnetic Reynolds number
+# end
 
 
-function compute_current_density_shtns!(magnetic::SHTnsVectorField{T}, 
-                                current::SHTnsVectorField{T}) where T
+# function compute_current_density_shtns!(magnetic::SHTnsVectorField{T}, 
+#                                 current::SHTnsVectorField{T}) where T
 
-    # Compute current density j = ∇ × B using SHTns spectral operations
-    # This is more accurate than finite differences for smooth fields
+#     # Compute current density j = ∇ × B using SHTns spectral operations
+#     # This is more accurate than finite differences for smooth fields
     
-    config = magnetic.r_component.config
-    sht = config.sht
-    nlm = config.nlm
+#     config = magnetic.r_component.config
+#     sht = config.sht
+#     nlm = config.nlm
     
-    # Create temporary spectral fields for each magnetic component
-    B_r_spec = create_shtns_spectral_field(T, config, 
-                                          RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-                                                      [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-                                          magnetic.r_component.data_r)
-    B_θ_spec = create_shtns_spectral_field(T, config, 
-                                          RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-                                                      [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-                                          magnetic.θ_component.data_r)
-    B_φ_spec = create_shtns_spectral_field(T, config, 
-                                          RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-                                                      [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-                                          magnetic.φ_component.data_r)
+#     # Create temporary spectral fields for each magnetic component
+#     B_r_spec = create_shtns_spectral_field(T, config, 
+#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
+#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
+#                                           magnetic.r_component.data_r)
+#     B_θ_spec = create_shtns_spectral_field(T, config, 
+#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
+#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
+#                                           magnetic.θ_component.data_r)
+#     B_φ_spec = create_shtns_spectral_field(T, config, 
+#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
+#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
+#                                           magnetic.φ_component.data_r)
     
-    # Convert magnetic components to spectral space
-    shtns_physical_to_spectral!(magnetic.r_component, B_r_spec)
-    shtns_physical_to_spectral!(magnetic.θ_component, B_θ_spec)
-    shtns_physical_to_spectral!(magnetic.φ_component, B_φ_spec)
+#     # Convert magnetic components to spectral space
+#     shtns_physical_to_spectral!(magnetic.r_component, B_r_spec)
+#     shtns_physical_to_spectral!(magnetic.θ_component, B_θ_spec)
+#     shtns_physical_to_spectral!(magnetic.φ_component, B_φ_spec)
     
-    # Process each radial level
-    @views for r_idx in magnetic.r_component.local_radial_range
-        if r_idx <= size(B_r_spec.data_real, 3)
+#     # Process each radial level
+#     @views for r_idx in magnetic.r_component.local_radial_range
+#         if r_idx <= size(B_r_spec.data_real, 3)
             
-            # Get radius for this level
-            r = magnetic.r_component.config.theta_grid[1]  # Placeholder - would get from domain
-            r_inv = 1.0 / max(r, 1e-10)
+#             # Get radius for this level
+#             r = magnetic.r_component.config.theta_grid[1]  # Placeholder - would get from domain
+#             r_inv = 1.0 / max(r, 1e-10)
             
-            # Prepare spectral coefficients for this radial level
-            B_r_coeffs = zeros(ComplexF64, nlm)
-            B_θ_coeffs = zeros(ComplexF64, nlm)
-            B_φ_coeffs = zeros(ComplexF64, nlm)
+#             # Prepare spectral coefficients for this radial level
+#             B_r_coeffs = zeros(ComplexF64, nlm)
+#             B_θ_coeffs = zeros(ComplexF64, nlm)
+#             B_φ_coeffs = zeros(ComplexF64, nlm)
             
-            for lm_idx in 1:nlm
-                B_r_coeffs[lm_idx] = complex(B_r_spec.data_real[lm_idx, 1, r_idx], 
-                                           B_r_spec.data_imag[lm_idx, 1, r_idx])
-                B_θ_coeffs[lm_idx] = complex(B_θ_spec.data_real[lm_idx, 1, r_idx], 
-                                           B_θ_spec.data_imag[lm_idx, 1, r_idx])
-                B_φ_coeffs[lm_idx] = complex(B_φ_spec.data_real[lm_idx, 1, r_idx], 
-                                           B_φ_spec.data_imag[lm_idx, 1, r_idx])
-            end
+#             for lm_idx in 1:nlm
+#                 B_r_coeffs[lm_idx] = complex(B_r_spec.data_real[lm_idx, 1, r_idx], 
+#                                            B_r_spec.data_imag[lm_idx, 1, r_idx])
+#                 B_θ_coeffs[lm_idx] = complex(B_θ_spec.data_real[lm_idx, 1, r_idx], 
+#                                            B_θ_spec.data_imag[lm_idx, 1, r_idx])
+#                 B_φ_coeffs[lm_idx] = complex(B_φ_spec.data_real[lm_idx, 1, r_idx], 
+#                                            B_φ_spec.data_imag[lm_idx, 1, r_idx])
+#             end
             
-            # Compute curl components using SHTns spectral derivatives
-            # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
-            j_r_coeffs = compute_curl_r_component(sht, B_θ_coeffs, B_φ_coeffs, r_inv)
+#             # Compute curl components using SHTns spectral derivatives
+#             # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
+#             j_r_coeffs = compute_curl_r_component(sht, B_θ_coeffs, B_φ_coeffs, r_inv)
             
-            # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
-            j_θ_coeffs = compute_curl_theta_component(sht, B_r_coeffs, B_φ_coeffs, r, r_inv)
+#             # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
+#             j_θ_coeffs = compute_curl_theta_component(sht, B_r_coeffs, B_φ_coeffs, r, r_inv)
             
-            # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
-            j_φ_coeffs = compute_curl_phi_component(sht, B_r_coeffs, B_θ_coeffs, r, r_inv)
+#             # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
+#             j_φ_coeffs = compute_curl_phi_component(sht, B_r_coeffs, B_θ_coeffs, r, r_inv)
             
-            # Convert back to physical space and store
-            j_r_phys = synthesis(sht, j_r_coeffs)
-            j_θ_phys = synthesis(sht, j_θ_coeffs)
-            j_φ_phys = synthesis(sht, j_φ_coeffs)
+#             # Convert back to physical space and store
+#             j_r_phys = synthesis(sht, j_r_coeffs)
+#             j_θ_phys = synthesis(sht, j_θ_coeffs)
+#             j_φ_phys = synthesis(sht, j_φ_coeffs)
             
-            # Store in current field
-            for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
-                if (i_theta <= size(current.r_component.data_r, 1) && 
-                    j_phi <= size(current.r_component.data_r, 2))
+#             # Store in current field
+#             for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
+#                 if (i_theta <= size(current.r_component.data_r, 1) && 
+#                     j_phi <= size(current.r_component.data_r, 2))
                     
-                    current.r_component.data_r[i_theta, j_phi, r_idx] = real(j_r_phys[i_theta, j_phi])
-                    current.θ_component.data_r[i_theta, j_phi, r_idx] = real(j_θ_phys[i_theta, j_phi])
-                    current.φ_component.data_r[i_theta, j_phi, r_idx] = real(j_φ_phys[i_theta, j_phi])
-                end
-            end
-        end
-    end
-end
+#                     current.r_component.data_r[i_theta, j_phi, r_idx] = real(j_r_phys[i_theta, j_phi])
+#                     current.θ_component.data_r[i_theta, j_phi, r_idx] = real(j_θ_phys[i_theta, j_phi])
+#                     current.φ_component.data_r[i_theta, j_phi, r_idx] = real(j_φ_phys[i_theta, j_phi])
+#                 end
+#             end
+#         end
+#     end
+# end
 
 
-function compute_curl_r_component(sht, B_θ_coeffs::Vector{ComplexF64}, 
-                                 B_φ_coeffs::Vector{ComplexF64}, r_inv::Float64)
-    # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
+# function compute_curl_r_component(sht, B_θ_coeffs::Vector{ComplexF64}, 
+#                                  B_φ_coeffs::Vector{ComplexF64}, r_inv::Float64)
+#     # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
     
-    # Compute ∂B_φ/∂θ using SHTns
-    dB_φ_dtheta_phys = synthesis_dtheta(sht, B_φ_coeffs)
+#     # Compute ∂B_φ/∂θ using SHTns
+#     dB_φ_dtheta_phys = synthesis_dtheta(sht, B_φ_coeffs)
     
-    # Compute ∂(sin θ B_θ)/∂φ
-    # First convert B_θ to physical space, multiply by sin θ, then take ∂/∂φ
-    B_θ_phys = synthesis(sht, B_θ_coeffs)
+#     # Compute ∂(sin θ B_θ)/∂φ
+#     # First convert B_θ to physical space, multiply by sin θ, then take ∂/∂φ
+#     B_θ_phys = synthesis(sht, B_θ_coeffs)
     
-    # Get grid information
-    nlat, nlon = size(B_θ_phys)
-    theta_grid = get_theta_array(sht)
+#     # Get grid information
+#     nlat, nlon = size(B_θ_phys)
+#     theta_grid = get_theta_array(sht)
     
-    # Multiply by sin θ
-    sinθ_B_θ = zeros(ComplexF64, nlat, nlon)
-    for i_theta in 1:nlat
-        sin_theta = sin(theta_grid[i_theta])
-        for j_phi in 1:nlon
-            sinθ_B_θ[i_theta, j_phi] = sin_theta * B_θ_phys[i_theta, j_phi]
-        end
-    end
+#     # Multiply by sin θ
+#     sinθ_B_θ = zeros(ComplexF64, nlat, nlon)
+#     for i_theta in 1:nlat
+#         sin_theta = sin(theta_grid[i_theta])
+#         for j_phi in 1:nlon
+#             sinθ_B_θ[i_theta, j_phi] = sin_theta * B_θ_phys[i_theta, j_phi]
+#         end
+#     end
     
-    # Convert back to spectral and take φ derivative
-    sinθ_B_θ_coeffs = analysis(sht, sinθ_B_θ)
-    d_sinθB_θ_dphi_phys = synthesis_dphi(sht, sinθ_B_θ_coeffs)
+#     # Convert back to spectral and take φ derivative
+#     sinθ_B_θ_coeffs = analysis(sht, sinθ_B_θ)
+#     d_sinθB_θ_dphi_phys = synthesis_dphi(sht, sinθ_B_θ_coeffs)
     
-    # Compute j_r
-    j_r_phys = zeros(ComplexF64, nlat, nlon)
-    for i_theta in 1:nlat
-        sin_theta = sin(theta_grid[i_theta])
-        sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-        for j_phi in 1:nlon
-            j_r_phys[i_theta, j_phi] = r_inv * sin_theta_inv * 
-                (dB_φ_dtheta_phys[i_theta, j_phi] - d_sinθB_θ_dphi_phys[i_theta, j_phi])
-        end
-    end
+#     # Compute j_r
+#     j_r_phys = zeros(ComplexF64, nlat, nlon)
+#     for i_theta in 1:nlat
+#         sin_theta = sin(theta_grid[i_theta])
+#         sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+#         for j_phi in 1:nlon
+#             j_r_phys[i_theta, j_phi] = r_inv * sin_theta_inv * 
+#                 (dB_φ_dtheta_phys[i_theta, j_phi] - d_sinθB_θ_dphi_phys[i_theta, j_phi])
+#         end
+#     end
     
-    # Convert back to spectral coefficients
-    return analysis(sht, j_r_phys)
-end
+#     # Convert back to spectral coefficients
+#     return analysis(sht, j_r_phys)
+# end
 
 
-function compute_curl_theta_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-                                     B_φ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-    # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
+# function compute_curl_theta_component(sht, B_r_coeffs::Vector{ComplexF64}, 
+#                                      B_φ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
+#     # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
     
-    # Get grid
-    nlat, nlon = size(synthesis(sht, B_r_coeffs))
-    theta_grid = get_theta_array(sht)
+#     # Get grid
+#     nlat, nlon = size(synthesis(sht, B_r_coeffs))
+#     theta_grid = get_theta_array(sht)
     
-    # Compute ∂B_r/∂φ
-    dB_r_dphi_phys = synthesis_dphi(sht, B_r_coeffs)
+#     # Compute ∂B_r/∂φ
+#     dB_r_dphi_phys = synthesis_dphi(sht, B_r_coeffs)
     
-    # Divide by sin θ
-    dB_r_dphi_over_sinθ = zeros(ComplexF64, nlat, nlon)
-    for i_theta in 1:nlat
-        sin_theta = sin(theta_grid[i_theta])
-        sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-        for j_phi in 1:nlon
-            dB_r_dphi_over_sinθ[i_theta, j_phi] = sin_theta_inv * dB_r_dphi_phys[i_theta, j_phi]
-        end
-    end
+#     # Divide by sin θ
+#     dB_r_dphi_over_sinθ = zeros(ComplexF64, nlat, nlon)
+#     for i_theta in 1:nlat
+#         sin_theta = sin(theta_grid[i_theta])
+#         sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+#         for j_phi in 1:nlon
+#             dB_r_dphi_over_sinθ[i_theta, j_phi] = sin_theta_inv * dB_r_dphi_phys[i_theta, j_phi]
+#         end
+#     end
     
-    # For ∂(r B_φ)/∂r, we need radial derivative
-    # This requires finite differences in radial direction
-    # For now, approximate as r * ∂B_φ/∂r + B_φ ≈ B_φ (simplified)
-    B_φ_phys = synthesis(sht, B_φ_coeffs)
+#     # For ∂(r B_φ)/∂r, we need radial derivative
+#     # This requires finite differences in radial direction
+#     # For now, approximate as r * ∂B_φ/∂r + B_φ ≈ B_φ (simplified)
+#     B_φ_phys = synthesis(sht, B_φ_coeffs)
     
-    # Compute j_θ  
-    j_θ_phys = zeros(ComplexF64, nlat, nlon)
-    for i_theta in 1:nlat, j_phi in 1:nlon
-        j_θ_phys[i_theta, j_phi] = r_inv * 
-            (dB_r_dphi_over_sinθ[i_theta, j_phi] - B_φ_phys[i_theta, j_phi])
-    end
+#     # Compute j_θ  
+#     j_θ_phys = zeros(ComplexF64, nlat, nlon)
+#     for i_theta in 1:nlat, j_phi in 1:nlon
+#         j_θ_phys[i_theta, j_phi] = r_inv * 
+#             (dB_r_dphi_over_sinθ[i_theta, j_phi] - B_φ_phys[i_theta, j_phi])
+#     end
     
-    return analysis(sht, j_θ_phys)
-end
+#     return analysis(sht, j_θ_phys)
+# end
 
 
-function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-                                   B_θ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-    # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
+# function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64}, 
+#                                    B_θ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
+#     # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
     
-    # Compute ∂B_r/∂θ
-    dB_r_dtheta_phys = synthesis_dtheta(sht, B_r_coeffs)
+#     # Compute ∂B_r/∂θ
+#     dB_r_dtheta_phys = synthesis_dtheta(sht, B_r_coeffs)
     
-    # For ∂(r B_θ)/∂r, approximate as B_θ (simplified)
-    B_θ_phys = synthesis(sht, B_θ_coeffs)
+#     # For ∂(r B_θ)/∂r, approximate as B_θ (simplified)
+#     B_θ_phys = synthesis(sht, B_θ_coeffs)
     
-    # Compute j_φ
-    nlat, nlon = size(B_θ_phys)
-    j_φ_phys = zeros(ComplexF64, nlat, nlon)
-    for i_theta in 1:nlat, j_phi in 1:nlon
-        j_φ_phys[i_theta, j_phi] = r_inv * 
-            (B_θ_phys[i_theta, j_phi] - dB_r_dtheta_phys[i_theta, j_phi])
-    end
+#     # Compute j_φ
+#     nlat, nlon = size(B_θ_phys)
+#     j_φ_phys = zeros(ComplexF64, nlat, nlon)
+#     for i_theta in 1:nlat, j_phi in 1:nlon
+#         j_φ_phys[i_theta, j_phi] = r_inv * 
+#             (B_θ_phys[i_theta, j_phi] - dB_r_dtheta_phys[i_theta, j_phi])
+#     end
     
-    return analysis(sht, j_φ_phys)
-end
+#     return analysis(sht, j_φ_phys)
+# end
 
-function compute_cross_product_jxB!(current::SHTnsVectorField{T}, 
-                                   magnetic::SHTnsVectorField{T},
-                                   velocity::SHTnsVectorField{T}) where T
-    # Compute Lorentz force: F = j × B
-    # F_r = j_θ B_φ - j_φ B_θ
-    # F_θ = j_φ B_r - j_r B_φ  
-    # F_φ = j_r B_θ - j_θ B_r
+# function compute_cross_product_jxB!(current::SHTnsVectorField{T}, 
+#                                    magnetic::SHTnsVectorField{T},
+#                                    velocity::SHTnsVectorField{T}) where T
+#     # Compute Lorentz force: F = j × B
+#     # F_r = j_θ B_φ - j_φ B_θ
+#     # F_θ = j_φ B_r - j_r B_φ  
+#     # F_φ = j_r B_θ - j_θ B_r
     
-    for r_idx in current.r_component.local_radial_range
-        if (r_idx <= size(current.r_component.data_r, 3) && 
-            r_idx <= size(magnetic.r_component.data_r, 3) &&
-            r_idx <= size(velocity.r_component.data_r, 3))
+#     for r_idx in current.r_component.local_radial_range
+#         if (r_idx <= size(current.r_component.data_r, 3) && 
+#             r_idx <= size(magnetic.r_component.data_r, 3) &&
+#             r_idx <= size(velocity.r_component.data_r, 3))
             
-            for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
-                if (i_theta <= size(current.r_component.data_r, 1) && 
-                    j_phi <= size(current.r_component.data_r, 2) &&
-                    i_theta <= size(magnetic.r_component.data_r, 1) && 
-                    j_phi <= size(magnetic.r_component.data_r, 2) &&
-                    i_theta <= size(velocity.r_component.data_r, 1) && 
-                    j_phi <= size(velocity.r_component.data_r, 2))
+#             for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
+#                 if (i_theta <= size(current.r_component.data_r, 1) && 
+#                     j_phi <= size(current.r_component.data_r, 2) &&
+#                     i_theta <= size(magnetic.r_component.data_r, 1) && 
+#                     j_phi <= size(magnetic.r_component.data_r, 2) &&
+#                     i_theta <= size(velocity.r_component.data_r, 1) && 
+#                     j_phi <= size(velocity.r_component.data_r, 2))
                     
-                    # Current density components
-                    j_r = current.r_component.data_r[i_theta, j_phi, r_idx]
-                    j_θ = current.θ_component.data_r[i_theta, j_phi, r_idx]
-                    j_φ = current.φ_component.data_r[i_theta, j_phi, r_idx]
+#                     # Current density components
+#                     j_r = current.r_component.data_r[i_theta, j_phi, r_idx]
+#                     j_θ = current.θ_component.data_r[i_theta, j_phi, r_idx]
+#                     j_φ = current.φ_component.data_r[i_theta, j_phi, r_idx]
                     
-                    # Magnetic field components
-                    B_r = magnetic.r_component.data_r[i_theta, j_phi, r_idx]
-                    B_θ = magnetic.θ_component.data_r[i_theta, j_phi, r_idx]
-                    B_φ = magnetic.φ_component.data_r[i_theta, j_phi, r_idx]
+#                     # Magnetic field components
+#                     B_r = magnetic.r_component.data_r[i_theta, j_phi, r_idx]
+#                     B_θ = magnetic.θ_component.data_r[i_theta, j_phi, r_idx]
+#                     B_φ = magnetic.φ_component.data_r[i_theta, j_phi, r_idx]
                     
-                    # Compute cross product j × B
-                    F_r = j_θ * B_φ - j_φ * B_θ
-                    F_θ = j_φ * B_r - j_r * B_φ
-                    F_φ = j_r * B_θ - j_θ * B_r
+#                     # Compute cross product j × B
+#                     F_r = j_θ * B_φ - j_φ * B_θ
+#                     F_θ = j_φ * B_r - j_r * B_φ
+#                     F_φ = j_r * B_θ - j_θ * B_r
                     
-                    # Add to velocity equation (momentum equation)
-                    velocity.r_component.data_r[i_theta, j_phi, r_idx] += F_r
-                    velocity.θ_component.data_r[i_theta, j_phi, r_idx] += F_θ
-                    velocity.φ_component.data_r[i_theta, j_phi, r_idx] += F_φ
-                end
-            end
-        end
-    end
-end
+#                     # Add to velocity equation (momentum equation)
+#                     velocity.r_component.data_r[i_theta, j_phi, r_idx] += F_r
+#                     velocity.θ_component.data_r[i_theta, j_phi, r_idx] += F_θ
+#                     velocity.φ_component.data_r[i_theta, j_phi, r_idx] += F_φ
+#                 end
+#             end
+#         end
+#     end
+# end
 
-function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float64) where T
-    # Scale the Lorentz force by the magnetic interaction parameter
-    # Typically 1/Pm (inverse magnetic Reynolds number) or Ha²/Re (Hartmann number squared / Reynolds number)
+# function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float64) where T
+#     # Scale the Lorentz force by the magnetic interaction parameter
+#     # Typically 1/Pm (inverse magnetic Reynolds number) or Ha²/Re (Hartmann number squared / Reynolds number)
     
-    for r_idx in velocity.r_component.local_radial_range
-        if r_idx <= size(velocity.r_component.data_r, 3)
-            for j_phi in 1:velocity.r_component.nlon, i_theta in 1:velocity.r_component.nlat
-                if (i_theta <= size(velocity.r_component.data_r, 1) && 
-                    j_phi <= size(velocity.r_component.data_r, 2))
+#     for r_idx in velocity.r_component.local_radial_range
+#         if r_idx <= size(velocity.r_component.data_r, 3)
+#             for j_phi in 1:velocity.r_component.nlon, i_theta in 1:velocity.r_component.nlat
+#                 if (i_theta <= size(velocity.r_component.data_r, 1) && 
+#                     j_phi <= size(velocity.r_component.data_r, 2))
                     
-                    velocity.r_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-                    velocity.θ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-                    velocity.φ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-                end
-            end
-        end
-    end
-end
+#                     velocity.r_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+#                     velocity.θ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+#                     velocity.φ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+#                 end
+#             end
+#         end
+#     end
+# end
 
 
-# Additional utility function for computing radial derivatives needed in curl
-function compute_radial_derivative!(input_field::SHTnsSpectralField{T}, 
-                                   output_field::SHTnsSpectralField{T},
-                                   domain::RadialDomain) where T
-    # Compute radial derivative using finite differences
-    # This is used in the curl computation where spectral methods don't apply (radial direction)
+# # Additional utility function for computing radial derivatives needed in curl
+# function compute_radial_derivative!(input_field::SHTnsSpectralField{T}, 
+#                                    output_field::SHTnsSpectralField{T},
+#                                    domain::RadialDomain) where T
+#     # Compute radial derivative using finite differences
+#     # This is used in the curl computation where spectral methods don't apply (radial direction)
     
-    dr_matrix = create_derivative_matrix(1, domain)
+#     dr_matrix = create_derivative_matrix(1, domain)
     
-    # Apply radial derivative matrix to each spectral mode
-    @views for lm_idx in 1:input_field.nlm
-        # Real part
-        apply_banded_vector!(output_field.data_real[lm_idx, 1, :], 
-                           dr_matrix, input_field.data_real[lm_idx, 1, :])
+#     # Apply radial derivative matrix to each spectral mode
+#     @views for lm_idx in 1:input_field.nlm
+#         # Real part
+#         apply_banded_vector!(output_field.data_real[lm_idx, 1, :], 
+#                            dr_matrix, input_field.data_real[lm_idx, 1, :])
         
-        # Imaginary part
-        apply_banded_vector!(output_field.data_imag[lm_idx, 1, :], 
-                           dr_matrix, input_field.data_imag[lm_idx, 1, :])
-    end
-end
+#         # Imaginary part
+#         apply_banded_vector!(output_field.data_imag[lm_idx, 1, :], 
+#                            dr_matrix, input_field.data_imag[lm_idx, 1, :])
+#     end
+# end
 
 
 # Alternative implementation using vector spherical harmonic transforms
