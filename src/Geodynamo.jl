@@ -26,6 +26,9 @@ module Geodynamo
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
 
+    # exports timestep.jl
+    export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices
+    export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
 
     include("fields.jl")
@@ -33,6 +36,7 @@ module Geodynamo
     include("shtns_transforms.jl")
     include("linear_algebra.jl")
     include("pencil_decomps.jl")
+    include("timestep.jl")
     
 
 end
