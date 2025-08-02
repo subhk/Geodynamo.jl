@@ -33,6 +33,8 @@ module Geodynamo
     # exports velocity.jl
     export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
+    # exports
+
 
     include("fields.jl")
     include("shtns_config.jl")
