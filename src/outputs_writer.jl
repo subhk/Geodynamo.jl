@@ -1,56 +1,4 @@
-function write_netcdf_restart!(state, tracker::OutputTimeTracker, 
-                                  config::NetCDFOutputConfig = default_netcdf_config())
-        rank = MPI.Comm_rank(comm)
-        current_time = state.timestep_state.time
-        
-        # Use spectral-only output for restart files (more compact and exact)
-        restart_config = NetCDFOutputConfig(
-            SPECTRAL_ONLY, RANK_STEP, config.output_dir, "restart",
-            9, true, true, false, Float64, -1, true, true,
-            config.restart_interval, config.restart_interval, Inf, config.time_tolerance
-        )
-        
-        filename = generate_netcdf_filename(restart_config, current_time, state.timestep_state.step, rank)
-        println("Rank $rank: Writing restart file $filename")
-        
-        # Extract spectral field information
-        spec_info = extract_spectral_info(state.temperature.spectral, state.shtns_config, 
-                                        state.radial_domain, -1)  # All modes for restart
-        
-        # Create restart file
-        nc_file = create_netcdf_file(filename, restart_config, spec_info, state)
-        
-        try
-            # Add coordinate variables (spectral modes and radial)
-            add_coordinate_variables!(nc_file, spec_info, restart_config)
-            
-            # Add all spectral field variables for exact restart
-            temp_vars = add_spectral_variables!(nc_file, "temperature", spec_info, restart_config,
-                                              "temperature_spectral_coefficients")
-            
-            vel_tor_vars = add_spectral_variables!(nc_file, "velocity_toroidal", spec_info, restart_config,
-                                                 "velocity_toroidal_coefficients")
-            
-            vel_pol_vars = add_spectral_variables!(nc_file, "velocity_poloidal", spec_info, restart_config,
-                                                 "velocity_poloidal_coefficients")
-            
-            mag_tor_vars = add_spectral_variables!(nc_file, "magnetic_toroidal", spec_info, restart_config,
-                                                 "magnetic_toroidal_coefficients")
-            
-            mag_pol_vars = add_spectral_variables!(nc_file, "magnetic_poloidal", spec_info, restart_config,
-                                                 "magnetic_poloidal_coefficients")
-            
-            # Add timestepping state variables
-            scalar_dim = NetCDF.defDim(nc_file, "scalar", 1)
-            
-            time_var = NetCDF.defVar(nc_file, "current_time", Float64, (scalar_dim,))
-            step_var = NetCDF.defVar(nc_file, "current_step", Int32, (scalar_dim,))
-            dt_var = NetCDF.defVar(nc_file, "current_dt", Float64, (scalar_dim,))
-            error_var = NetCDF.defVar(nc_file, "current_error", Float64, (scalar_dim,))
-            iteration_var = NetCDF.defVar(nc_file, "current_iteration", Int32, (scalar_dim,))
-            
-            # Add output tracker state for perfect restart
-            last_output_var = NetCDF.# ============================================================================
+# ============================================================================
 # SHTns Geodynamo NetCDF Output Module - Distributed Files
 # Each MPI process writes its own NetCDF file with local data
 # ============================================================================
@@ -104,12 +52,6 @@ module SHTnsNetCDFOutput
         spectral_lmax_output::Int      # Maximum l for spectral output (-1 = all)
         add_timestamp::Bool            # Add timestamp to filename
         overwrite_files::Bool          # Overwrite existing files
-        
-        # Time-based output control
-        output_interval::Float64       # Time interval between outputs
-        restart_interval::Float64      # Time interval between restart files
-        max_output_time::Float64       # Maximum simulation time for output
-        time_tolerance::Float64        # Tolerance for time comparisons
     end
     
     function default_netcdf_config()
@@ -125,75 +67,13 @@ module SHTnsNetCDFOutput
             Float64,            # output_precision
             -1,                 # spectral_lmax_output (-1 = all modes)
             false,              # add_timestamp
-            true,               # overwrite_files
-            0.1,                # output_interval (save every 0.1 time units)
-            1.0,                # restart_interval (restart every 1.0 time units)
-            Inf,                # max_output_time (no limit)
-            1e-10               # time_tolerance for comparisons
+            true                # overwrite_files
         )
     end
     
     # ============================================================================
-    # Time-Based Output Control
+    # Local Data Structures
     # ============================================================================
-    
-    mutable struct OutputTimeTracker
-        last_output_time::Float64
-        last_restart_time::Float64
-        output_count::Int
-        restart_count::Int
-        next_output_time::Float64
-        next_restart_time::Float64
-    end
-    
-    function create_output_tracker(config::NetCDFOutputConfig, start_time::Float64 = 0.0)
-        return OutputTimeTracker(
-            start_time - config.output_interval,  # Force first output
-            start_time - config.restart_interval, # Force first restart
-            0,                                     # output_count
-            0,                                     # restart_count
-            start_time,                           # next_output_time
-            start_time                            # next_restart_time
-        )
-    end
-    
-    function should_output_now(tracker::OutputTimeTracker, current_time::Float64, 
-                              config::NetCDFOutputConfig)
-        # Check if we should output based on time interval
-        time_since_output = current_time - tracker.last_output_time
-        return (time_since_output >= config.output_interval - config.time_tolerance &&
-                current_time <= config.max_output_time)
-    end
-    
-    function should_restart_now(tracker::OutputTimeTracker, current_time::Float64,
-                               config::NetCDFOutputConfig)
-        # Check if we should write restart based on time interval
-        time_since_restart = current_time - tracker.last_restart_time
-        return time_since_restart >= config.restart_interval - config.time_tolerance
-    end
-    
-    function update_output_tracker!(tracker::OutputTimeTracker, current_time::Float64,
-                                   config::NetCDFOutputConfig, did_output::Bool, did_restart::Bool)
-        if did_output
-            tracker.last_output_time = current_time
-            tracker.output_count += 1
-            tracker.next_output_time = current_time + config.output_interval
-        end
-        
-        if did_restart
-            tracker.last_restart_time = current_time
-            tracker.restart_count += 1
-            tracker.next_restart_time = current_time + config.restart_interval
-        end
-    end
-    
-    function time_to_next_output(tracker::OutputTimeTracker, current_time::Float64,
-                                config::NetCDFOutputConfig)
-        # Calculate time until next output (useful for adaptive timestepping)
-        time_to_output = tracker.next_output_time - current_time
-        time_to_restart = tracker.next_restart_time - current_time
-        return min(time_to_output, time_to_restart, config.output_interval)
-    end
     
     struct LocalFieldInfo
         # Local array dimensions and ranges
@@ -295,33 +175,29 @@ module SHTnsNetCDFOutput
     # Filename Generation
     # ============================================================================
     
-    function generate_netcdf_filename(config::NetCDFOutputConfig, time::Float64, step::Int, rank::Int)
+    function generate_netcdf_filename(config::NetCDFOutputConfig, step::Int, rank::Int)
         timestamp = if config.add_timestamp
             Dates.format(now(), "yyyymmdd_HHMMSS")
         else
             ""
         end
         
-        # Format time for filename (remove decimals, pad with zeros)
-        time_str = @sprintf("%.6f", time)
-        time_str = replace(time_str, "." => "p")  # Replace . with p for filesystem compatibility
-        
         filename = if config.naming_scheme == RANK_STEP
             if config.add_timestamp
-                "$(config.filename_prefix)_$(timestamp)_rank_$(lpad(rank, 4, '0'))_time_$(time_str)_step_$(lpad(step, 6, '0')).nc"
+                "$(config.filename_prefix)_$(timestamp)_rank_$(lpad(rank, 4, '0'))_step_$(lpad(step, 6, '0')).nc"
             else
-                "$(config.filename_prefix)_rank_$(lpad(rank, 4, '0'))_time_$(time_str)_step_$(lpad(step, 6, '0')).nc"
+                "$(config.filename_prefix)_rank_$(lpad(rank, 4, '0'))_step_$(lpad(step, 6, '0')).nc"
             end
         elseif config.naming_scheme == STEP_RANK
             if config.add_timestamp
-                "$(config.filename_prefix)_$(timestamp)_time_$(time_str)_step_$(lpad(step, 6, '0'))_rank_$(lpad(rank, 4, '0')).nc"
+                "$(config.filename_prefix)_$(timestamp)_step_$(lpad(step, 6, '0'))_rank_$(lpad(rank, 4, '0')).nc"
             else
-                "$(config.filename_prefix)_time_$(time_str)_step_$(lpad(step, 6, '0'))_rank_$(lpad(rank, 4, '0')).nc"
+                "$(config.filename_prefix)_step_$(lpad(step, 6, '0'))_rank_$(lpad(rank, 4, '0')).nc"
             end
         elseif config.naming_scheme == TIMESTAMP_RANK
-            "$(config.filename_prefix)_$(timestamp)_time_$(time_str)_rank_$(lpad(rank, 4, '0')).nc"
+            "$(config.filename_prefix)_$(timestamp)_rank_$(lpad(rank, 4, '0')).nc"
         else
-            "$(config.filename_prefix)_rank_$(lpad(rank, 4, '0'))_time_$(time_str)_step_$(lpad(step, 6, '0')).nc"
+            "$(config.filename_prefix)_rank_$(lpad(rank, 4, '0'))_step_$(lpad(step, 6, '0')).nc"
         end
         
         return joinpath(config.output_dir, filename)
@@ -642,7 +518,6 @@ module SHTnsNetCDFOutput
     # ============================================================================
     # Diagnostics Computation and Output
     # ============================================================================
-    
     function compute_local_diagnostics(state, field_info::LocalFieldInfo)
         diagnostics = Dict{String, Float64}()
         
@@ -690,9 +565,9 @@ module SHTnsNetCDFOutput
         T_data = state.temperature.temperature.data_r
         if !isempty(T_data)
             diagnostics["local_temp_mean"] = mean(T_data)
-            diagnostics["local_temp_std"] = std(T_data)
-            diagnostics["local_temp_min"] = minimum(T_data)
-            diagnostics["local_temp_max"] = maximum(T_data)
+            diagnostics["local_temp_std"]  = std(T_data)
+            diagnostics["local_temp_min"]  = minimum(T_data)
+            diagnostics["local_temp_max"]  = maximum(T_data)
         end
         
         # Local velocity statistics
@@ -739,23 +614,9 @@ module SHTnsNetCDFOutput
     # Main Output Function
     # ============================================================================
     
-    # ============================================================================
-    # Main Output Function with Time-Based Control
-    # ============================================================================
-    
-    function output_netcdf_fields!(state, tracker::OutputTimeTracker, 
-                                  config::NetCDFOutputConfig = default_netcdf_config())
+    function output_netcdf_fields!(state, config::NetCDFOutputConfig = default_netcdf_config())
         rank = MPI.Comm_rank(comm)
         nprocs = MPI.Comm_size(comm)
-        current_time = state.timestep_state.time
-        
-        # Check if we should output now
-        should_output = should_output_now(tracker, current_time, config)
-        should_restart = should_restart_now(tracker, current_time, config)
-        
-        if !should_output && !should_restart
-            return false  # No output needed
-        end
         
         # Create output directory (only rank 0)
         if rank == 0
@@ -767,175 +628,185 @@ module SHTnsNetCDFOutput
         MPI.Barrier(comm)  # Wait for directory creation
         
         # Convert spectral fields to physical space if needed
-        if should_output && (config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES)
+        if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
             # These functions should exist in the main simulation module
             # shtns_spectral_to_physical!(state.temperature.spectral, state.temperature.temperature)
             # shtns_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity)
             # shtns_vector_synthesis!(state.magnetic.toroidal, state.magnetic.poloidal, state.magnetic.magnetic)
             
-            if rank == 0
-                println("Time $(current_time): Converting spectral to physical space...")
-            end
+            println("Rank $rank: Converting spectral to physical space...")
         end
         
-        # Regular output
-        if should_output
-            # Generate filename for this rank with time
-            filename = generate_netcdf_filename(config, current_time, state.timestep_state.step, rank)
-            
-            if rank == 0
-                println("Time $(current_time): Writing output files (interval: $(config.output_interval))")
-            end
-            println("Rank $rank: Writing file $filename")
-            
-            # Extract local field information
-            local_info = if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
-                extract_local_info(state.temperature.temperature, state.shtns_config, state.radial_domain)
-            else
-                extract_spectral_info(state.temperature.spectral, state.shtns_config, 
-                                    state.radial_domain, config.spectral_lmax_output)
-            end
-            
-            # Compute local diagnostics
-            local_diagnostics = compute_local_diagnostics(state, local_info)
-            
-            # Add time-based diagnostics
-            local_diagnostics["output_time"] = current_time
-            local_diagnostics["time_since_last_output"] = current_time - tracker.last_output_time
-            local_diagnostics["output_number"] = tracker.output_count + 1
-            
-            # Create NetCDF file
-            nc_file = create_netcdf_file(filename, config, local_info, state)
-            
-            try
-                # Add coordinate variables
-                add_coordinate_variables!(nc_file, local_info, config)
-                
-                # Define field variables based on output space
-                if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
-                    # Physical space variables
-                    temp_var = add_scalar_variable!(nc_file, "temperature", local_info, config,
-                                                  "temperature", "dimensionless")
-                    
-                    vel_vars = add_vector_variables!(nc_file, "velocity", local_info, config,
-                                                   "velocity", "dimensionless")
-                    
-                    mag_vars = add_vector_variables!(nc_file, "magnetic_field", local_info, config,
-                                                   "magnetic_field", "dimensionless")
-                end
-                
-                if config.output_space == SPECTRAL_ONLY || config.output_space == BOTH_SPACES
-                    # Spectral space variables
-                    temp_spec_vars = add_spectral_variables!(nc_file, "temperature_spectral", local_info,
-                                                           config, "temperature_spectral_coefficients")
-                    
-                    vel_tor_vars = add_spectral_variables!(nc_file, "velocity_toroidal", local_info,
-                                                         config, "velocity_toroidal_coefficients")
-                    
-                    vel_pol_vars = add_spectral_variables!(nc_file, "velocity_poloidal", local_info,
-                                                         config, "velocity_poloidal_coefficients")
-                    
-                    mag_tor_vars = add_spectral_variables!(nc_file, "magnetic_toroidal", local_info,
-                                                         config, "magnetic_toroidal_coefficients")
-                    
-                    mag_pol_vars = add_spectral_variables!(nc_file, "magnetic_poloidal", local_info,
-                                                         config, "magnetic_poloidal_coefficients")
-                end
-                
-                # Add diagnostics variables
-                add_diagnostics_variables!(nc_file, local_diagnostics, config)
-                
-                # Add time variables with enhanced attributes
-                time_dim = NetCDF.defDim(nc_file, "time", 1)
-                time_var = NetCDF.defVar(nc_file, "time", config.output_precision, (time_dim,))
-                NetCDF.putatt(nc_file, time_var, "long_name", "simulation_time")
-                NetCDF.putatt(nc_file, time_var, "units", "dimensionless_time_units")
-                NetCDF.putatt(nc_file, time_var, "standard_name", "time")
-                
-                step_var = NetCDF.defVar(nc_file, "step", Int32, (time_dim,))
-                NetCDF.putatt(nc_file, step_var, "long_name", "simulation_step_number")
-                NetCDF.putatt(nc_file, step_var, "units", "1")
-                
-                # Add output timing information
-                output_num_var = NetCDF.defVar(nc_file, "output_number", Int32, (time_dim,))
-                NetCDF.putatt(nc_file, output_num_var, "long_name", "output_file_sequence_number")
-                NetCDF.putatt(nc_file, output_num_var, "description", "Sequential number of this output file")
-                
-                # End definition mode
-                NetCDF.endDef(nc_file)
-                
-                # Write coordinate data
-                write_coordinate_data!(nc_file, local_info)
-                
-                # Write field data
-                if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
-                    write_scalar_field!(nc_file, "temperature", state.temperature.temperature, config)
-                    write_vector_field!(nc_file, "velocity", state.velocity.velocity, config)
-                    write_vector_field!(nc_file, "magnetic_field", state.magnetic.magnetic, config)
-                end
-                
-                if config.output_space == SPECTRAL_ONLY || config.output_space == BOTH_SPACES
-                    write_spectral_field!(nc_file, "temperature_spectral", state.temperature.spectral, config)
-                    write_spectral_field!(nc_file, "velocity_toroidal", state.velocity.toroidal, config)
-                    write_spectral_field!(nc_file, "velocity_poloidal", state.velocity.poloidal, config)
-                    write_spectral_field!(nc_file, "magnetic_toroidal", state.magnetic.toroidal, config)
-                    write_spectral_field!(nc_file, "magnetic_poloidal", state.magnetic.poloidal, config)
-                end
-                
-                # Write time information
-                NetCDF.putvar(nc_file, "time", [config.output_precision(current_time)])
-                NetCDF.putvar(nc_file, "step", [Int32(state.timestep_state.step)])
-                NetCDF.putvar(nc_file, "output_number", [Int32(tracker.output_count + 1)])
-                
-                # Write diagnostics
-                write_diagnostics!(nc_file, local_diagnostics, config)
-                
-                println("Rank $rank: Successfully wrote NetCDF file at time $current_time")
-                
-            catch e
-                @error "Rank $rank: Error writing NetCDF file" exception=e
-                rethrow(e)
-            finally
-                NetCDF.close(nc_file)
-            end
+        # Generate filename for this rank
+        filename = generate_netcdf_filename(config, state.timestep_state.step, rank)
+        println("Rank $rank: Writing file $filename")
+        
+        # Extract local field information
+        local_info = if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
+            extract_local_info(state.temperature.temperature, state.shtns_config, state.radial_domain)
+        else
+            extract_spectral_info(state.temperature.spectral, state.shtns_config, 
+                                state.radial_domain, config.spectral_lmax_output)
         end
         
-        # Restart file
-        if should_restart
-            if rank == 0
-                println("Time $(current_time): Writing restart files (interval: $(config.restart_interval))")
+        # Compute local diagnostics
+        local_diagnostics = compute_local_diagnostics(state, local_info)
+        
+        # Create NetCDF file
+        nc_file = create_netcdf_file(filename, config, local_info, state)
+        
+        try
+            # Add coordinate variables
+            add_coordinate_variables!(nc_file, local_info, config)
+            
+            # Define field variables based on output space
+            if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
+                # Physical space variables
+                temp_var = add_scalar_variable!(nc_file, "temperature", local_info, config,
+                                              "temperature", "dimensionless")
+                
+                vel_vars = add_vector_variables!(nc_file, "velocity", local_info, config,
+                                               "velocity", "dimensionless")
+                
+                mag_vars = add_vector_variables!(nc_file, "magnetic_field", local_info, config,
+                                               "magnetic_field", "dimensionless")
             end
-            write_netcdf_restart!(state, tracker, config)
+            
+            if config.output_space == SPECTRAL_ONLY || config.output_space == BOTH_SPACES
+                # Spectral space variables
+                temp_spec_vars = add_spectral_variables!(nc_file, "temperature_spectral", local_info,
+                                                       config, "temperature_spectral_coefficients")
+                
+                vel_tor_vars = add_spectral_variables!(nc_file, "velocity_toroidal", local_info,
+                                                     config, "velocity_toroidal_coefficients")
+                
+                vel_pol_vars = add_spectral_variables!(nc_file, "velocity_poloidal", local_info,
+                                                     config, "velocity_poloidal_coefficients")
+                
+                mag_tor_vars = add_spectral_variables!(nc_file, "magnetic_toroidal", local_info,
+                                                     config, "magnetic_toroidal_coefficients")
+                
+                mag_pol_vars = add_spectral_variables!(nc_file, "magnetic_poloidal", local_info,
+                                                     config, "magnetic_poloidal_coefficients")
+            end
+            
+            # Add diagnostics variables
+            add_diagnostics_variables!(nc_file, local_diagnostics, config)
+            
+            # Add time variables
+            time_dim = NetCDF.defDim(nc_file, "time", 1)
+            time_var = NetCDF.defVar(nc_file, "time", config.output_precision, (time_dim,))
+            NetCDF.putatt(nc_file, time_var, "long_name", "simulation_time")
+            NetCDF.putatt(nc_file, time_var, "units", "dimensionless_time_units")
+            NetCDF.putatt(nc_file, time_var, "standard_name", "time")
+            
+            step_var = NetCDF.defVar(nc_file, "step", Int32, (time_dim,))
+            NetCDF.putatt(nc_file, step_var, "long_name", "simulation_step_number")
+            NetCDF.putatt(nc_file, step_var, "units", "1")
+            
+            # End definition mode
+            NetCDF.endDef(nc_file)
+            
+            # Write coordinate data
+            write_coordinate_data!(nc_file, local_info)
+            
+            # Write field data
+            if config.output_space == PHYSICAL_ONLY || config.output_space == BOTH_SPACES
+                println("Rank $rank: Writing physical space data...")
+                
+                write_scalar_field!(nc_file, "temperature", state.temperature.temperature, config)
+                write_vector_field!(nc_file, "velocity", state.velocity.velocity, config)
+                write_vector_field!(nc_file, "magnetic_field", state.magnetic.magnetic, config)
+            end
+            
+            if config.output_space == SPECTRAL_ONLY || config.output_space == BOTH_SPACES
+                println("Rank $rank: Writing spectral data...")
+                
+                write_spectral_field!(nc_file, "temperature_spectral", state.temperature.spectral, config)
+                write_spectral_field!(nc_file, "velocity_toroidal", state.velocity.toroidal, config)
+                write_spectral_field!(nc_file, "velocity_poloidal", state.velocity.poloidal, config)
+                write_spectral_field!(nc_file, "magnetic_toroidal", state.magnetic.toroidal, config)
+                write_spectral_field!(nc_file, "magnetic_poloidal", state.magnetic.poloidal, config)
+            end
+            
+            # Write time information
+            NetCDF.putvar(nc_file, "time", [config.output_precision(state.timestep_state.time)])
+            NetCDF.putvar(nc_file, "step", [Int32(state.timestep_state.step)])
+            
+            # Write diagnostics
+            write_diagnostics!(nc_file, local_diagnostics, config)
+            
+            println("Rank $rank: Successfully wrote NetCDF file")
+            
+        catch e
+            @error "Rank $rank: Error writing NetCDF file" exception=e
+            rethrow(e)
+        finally
+            NetCDF.close(nc_file)
         end
         
-        # Update tracker
-        update_output_tracker!(tracker, current_time, config, should_output, should_restart)
-        
-        # Update state output counter if we did output
-        if should_output
-            state.output_counter += 1
-        end
+        # Update output counter
+        state.output_counter += 1
         
         # Synchronize all processes
         MPI.Barrier(comm)
         
-        if rank == 0 && should_output
-            println("All ranks completed NetCDF output at time $current_time (output #$(tracker.output_count))")
-            println("Next output scheduled for time: $(tracker.next_output_time)")
+        if rank == 0
+            println("All ranks completed NetCDF output for step $(state.timestep_state.step)")
         end
-        
-        return should_output || should_restart
     end
     
     # ============================================================================
     # Restart File Functions
     # ============================================================================
     
-            # Add output tracker state for perfect restart
-            last_output_var = NetCDF.defVar(nc_file, "last_output_time", Float64, (scalar_dim,))
-            last_restart_var = NetCDF.defVar(nc_file, "last_restart_time", Float64, (scalar_dim,))
-            output_count_var = NetCDF.defVar(nc_file, "output_count", Int32, (scalar_dim,))
-            restart_count_var = NetCDF.defVar(nc_file, "restart_count", Int32, (scalar_dim,))
+    function write_netcdf_restart!(state, config::NetCDFOutputConfig = default_netcdf_config())
+        rank = MPI.Comm_rank(comm)
+        
+        # Use spectral-only output for restart files (more compact and exact)
+        restart_config = NetCDFOutputConfig(
+            SPECTRAL_ONLY, RANK_STEP, config.output_dir, "restart",
+            9, true, true, false, Float64, -1, true, true
+        )
+        
+        filename = generate_netcdf_filename(restart_config, state.timestep_state.step, rank)
+        println("Rank $rank: Writing restart file $filename")
+        
+        # Extract spectral field information
+        spec_info = extract_spectral_info(state.temperature.spectral, state.shtns_config, 
+                                        state.radial_domain, -1)  # All modes for restart
+        
+        # Create restart file
+        nc_file = create_netcdf_file(filename, restart_config, spec_info, state)
+        
+        try
+            # Add coordinate variables (spectral modes and radial)
+            add_coordinate_variables!(nc_file, spec_info, restart_config)
+            
+            # Add all spectral field variables for exact restart
+            temp_vars = add_spectral_variables!(nc_file, "temperature", spec_info, restart_config,
+                                              "temperature_spectral_coefficients")
+            
+            vel_tor_vars = add_spectral_variables!(nc_file, "velocity_toroidal", spec_info, restart_config,
+                                                 "velocity_toroidal_coefficients")
+            
+            vel_pol_vars = add_spectral_variables!(nc_file, "velocity_poloidal", spec_info, restart_config,
+                                                 "velocity_poloidal_coefficients")
+            
+            mag_tor_vars = add_spectral_variables!(nc_file, "magnetic_toroidal", spec_info, restart_config,
+                                                 "magnetic_toroidal_coefficients")
+            
+            mag_pol_vars = add_spectral_variables!(nc_file, "magnetic_poloidal", spec_info, restart_config,
+                                                 "magnetic_poloidal_coefficients")
+            
+            # Add timestepping state variables
+            scalar_dim = NetCDF.defDim(nc_file, "scalar", 1)
+            
+            time_var = NetCDF.defVar(nc_file, "current_time", Float64, (scalar_dim,))
+            step_var = NetCDF.defVar(nc_file, "current_step", Int32, (scalar_dim,))
+            dt_var = NetCDF.defVar(nc_file, "current_dt", Float64, (scalar_dim,))
+            error_var = NetCDF.defVar(nc_file, "current_error", Float64, (scalar_dim,))
+            iteration_var = NetCDF.defVar(nc_file, "current_iteration", Int32, (scalar_dim,))
             
             # End definition mode
             NetCDF.endDef(nc_file)
@@ -951,39 +822,25 @@ module SHTnsNetCDFOutput
             write_spectral_field!(nc_file, "magnetic_poloidal", state.magnetic.poloidal, restart_config)
             
             # Write timestepping state
-            NetCDF.putvar(nc_file, "current_time", [current_time])
+            NetCDF.putvar(nc_file, "current_time", [state.timestep_state.time])
             NetCDF.putvar(nc_file, "current_step", [Int32(state.timestep_state.step)])
             NetCDF.putvar(nc_file, "current_dt", [state.timestep_state.dt])
             NetCDF.putvar(nc_file, "current_error", [state.timestep_state.error])
             NetCDF.putvar(nc_file, "current_iteration", [Int32(state.timestep_state.iteration)])
             
-            # Write output tracker state
-            NetCDF.putvar(nc_file, "last_output_time", [tracker.last_output_time])
-            NetCDF.putvar(nc_file, "last_restart_time", [tracker.last_restart_time])
-            NetCDF.putvar(nc_file, "output_count", [Int32(tracker.output_count)])
-            NetCDF.putvar(nc_file, "restart_count", [Int32(tracker.restart_count)])
-            
-            println("Rank $rank: Successfully wrote restart file at time $current_time")
+            println("Rank $rank: Successfully wrote restart file")
             
         finally
             NetCDF.close(nc_file)
         end
     end
     
-    function read_netcdf_restart!(state, tracker::OutputTimeTracker, restart_dir::String, 
-                                 restart_time::Float64, config::NetCDFOutputConfig)
+    function read_netcdf_restart!(state, restart_dir::String, step::Int)
         rank = MPI.Comm_rank(comm)
         nprocs = MPI.Comm_size(comm)
         
-        # Find restart file closest to requested time
-        restart_files = find_restart_files_at_time(restart_dir, restart_time, rank)
-        
-        if isempty(restart_files)
-            error("Rank $rank: No restart files found near time $restart_time in $restart_dir")
-        end
-        
-        # Use the closest file
-        filename = restart_files[1]
+        # Generate restart filename for this rank
+        filename = joinpath(restart_dir, "restart_rank_$(lpad(rank, 4, '0'))_step_$(lpad(step, 6, '0')).nc")
         
         if !isfile(filename)
             error("Rank $rank: Restart file not found: $filename")
@@ -1001,18 +858,6 @@ module SHTnsNetCDFOutput
                 state.timestep_state.dt = NetCDF.readvar(nc_file, "current_dt")[1]
                 state.timestep_state.error = NetCDF.readvar(nc_file, "current_error")[1]
                 state.timestep_state.iteration = NetCDF.readvar(nc_file, "current_iteration")[1]
-            end
-            
-            # Read output tracker state
-            if rank == 0
-                tracker.last_output_time = NetCDF.readvar(nc_file, "last_output_time")[1]
-                tracker.last_restart_time = NetCDF.readvar(nc_file, "last_restart_time")[1]
-                tracker.output_count = NetCDF.readvar(nc_file, "output_count")[1]
-                tracker.restart_count = NetCDF.readvar(nc_file, "restart_count")[1]
-                
-                # Update next output/restart times
-                tracker.next_output_time = tracker.last_output_time + config.output_interval
-                tracker.next_restart_time = tracker.last_restart_time + config.restart_interval
             end
             
             # Read local spectral data for this rank
@@ -1070,56 +915,9 @@ module SHTnsNetCDFOutput
         state.timestep_state.error = MPI.bcast(state.timestep_state.error, 0, comm)
         state.timestep_state.iteration = MPI.bcast(state.timestep_state.iteration, 0, comm)
         
-        # Broadcast tracker state to all ranks
-        tracker.last_output_time = MPI.bcast(tracker.last_output_time, 0, comm)
-        tracker.last_restart_time = MPI.bcast(tracker.last_restart_time, 0, comm)
-        tracker.output_count = MPI.bcast(tracker.output_count, 0, comm)
-        tracker.restart_count = MPI.bcast(tracker.restart_count, 0, comm)
-        tracker.next_output_time = MPI.bcast(tracker.next_output_time, 0, comm)
-        tracker.next_restart_time = MPI.bcast(tracker.next_restart_time, 0, comm)
-        
         if rank == 0
-            println("Restart completed from time $(state.timestep_state.time)")
-            println("Next output scheduled for time: $(tracker.next_output_time)")
-            println("Next restart scheduled for time: $(tracker.next_restart_time)")
+            println("Restart completed from step $(state.timestep_state.step) at time $(state.timestep_state.time)")
         end
-    end
-    
-    function find_restart_files_at_time(restart_dir::String, target_time::Float64, rank::Int)
-        # Find restart files near the target time for this rank
-        files = readdir(restart_dir)
-        restart_files = filter(f -> endswith(f, ".nc") && contains(f, "restart") && 
-                              contains(f, "rank_$(lpad(rank, 4, '0'))"), files)
-        
-        if isempty(restart_files)
-            return String[]
-        end
-        
-        # Extract times from filenames and find closest
-        time_pattern = r"time_(\d+p\d+)"
-        file_times = Tuple{String, Float64}[]
-        
-        for file in restart_files
-            m = match(time_pattern, file)
-            if m !== nothing
-                time_str = replace(m.captures[1], "p" => ".")
-                try
-                    file_time = parse(Float64, time_str)
-                    push!(file_times, (joinpath(restart_dir, file), file_time))
-                catch
-                    continue
-                end
-            end
-        end
-        
-        if isempty(file_times)
-            return String[]
-        end
-        
-        # Sort by time difference from target
-        sort!(file_times, by = x -> abs(x[2] - target_time))
-        
-        return [ft[1] for ft in file_times]
     end
     
     # ============================================================================
@@ -1266,34 +1064,30 @@ module SHTnsNetCDFOutput
     export RANK_STEP, STEP_RANK, TIMESTAMP_RANK
     export default_netcdf_config
     
-    export OutputTimeTracker, create_output_tracker
-    export should_output_now, should_restart_now, update_output_tracker!
-    export time_to_next_output
-    
     export LocalFieldInfo, extract_local_info, extract_spectral_info
     
     export output_netcdf_fields!
     export write_netcdf_restart!, read_netcdf_restart!
     
     export create_file_list, validate_netcdf_output, cleanup_old_netcdf_files
-    export get_netcdf_info, find_restart_files_at_time
+    export get_netcdf_info
 
 end  # module SHTnsNetCDFOutput
 
 # ============================================================================
-# Example Usage with Time-Based Output Control
+# Example Usage and Integration
 # ============================================================================
 
 """
-Example usage of the time-based SHTns NetCDF Output module:
+Example usage of the SHTns NetCDF Output module:
 
 ```julia
 using .SHTnsNetCDFOutput
 
-# Create time-based NetCDF output configuration
+# Create custom NetCDF output configuration
 config = NetCDFOutputConfig(
     BOTH_SPACES,          # Output both physical and spectral data
-    RANK_STEP,            # Naming: rank_XXXX_time_X.XXXXXX_step_YYYYYY.nc
+    RANK_STEP,            # Naming: rank_XXXX_step_YYYYYY.nc
     "./netcdf_output",    # Output directory
     "geodynamo_run01",    # Filename prefix
     6,                    # Compression level (0-9)
@@ -1303,87 +1097,47 @@ config = NetCDFOutputConfig(
     Float32,              # Use single precision for smaller files
     16,                   # Output spectral modes up to l=16
     false,                # Don't add timestamp to filename
-    true,                 # Overwrite existing files
-    0.05,                 # Output every 0.05 time units
-    0.5,                  # Restart every 0.5 time units
-    10.0,                 # Stop output after time 10.0
-    1e-12                 # Time tolerance for comparisons
+    true                  # Overwrite existing files
 )
 
-# Initialize output time tracker
-tracker = create_output_tracker(config, 0.0)  # Start at time 0.0
-
-# Main simulation loop with time-based output
-simulation_state = initialize_simulation()
-max_time = 5.0
-
-while simulation_state.timestep_state.time < max_time
-    # Perform one timestep
-    advance_timestep!(simulation_state)
+# Output fields during simulation loop
+for step in 1:1000
+    # ... simulation code ...
     
-    # Check if we should output (time-based, not iteration-based)
-    did_output = output_netcdf_fields!(simulation_state, tracker, config)
-    
-    if did_output
-        current_time = simulation_state.timestep_state.time
-        println("Output written at time: $current_time")
-        println("Next output at time: $(tracker.next_output_time)")
-        println("Next restart at time: $(tracker.next_restart_time)")
+    if step % 100 == 0  # Output every 100 steps
+        output_netcdf_fields!(simulation_state, config)
     end
     
-    # Adaptive timestepping can use time to next output
-    time_to_next = time_to_next_output(tracker, simulation_state.timestep_state.time, config)
-    
-    # Adjust timestep to hit output times exactly (optional)
-    if time_to_next < simulation_state.timestep_state.dt
-        simulation_state.timestep_state.dt = time_to_next
+    if step % 1000 == 0  # Write restart every 1000 steps
+        write_netcdf_restart!(simulation_state, config)
     end
 end
 
-# Manual output at specific times
-output_netcdf_fields!(simulation_state, tracker, config)  # Force output now
+# Post-processing utilities
+create_file_list("./netcdf_output", 1000, 64)  # Create file list for step 1000
+cleanup_old_netcdf_files("./netcdf_output", 5)  # Keep only last 5 timesteps
 
-# Manual restart save
-write_netcdf_restart!(simulation_state, tracker, config)
-
-# Restart from specific time (finds closest restart file)
-restart_state = initialize_simulation()
-restart_tracker = create_output_tracker(config, 0.0)
-read_netcdf_restart!(restart_state, restart_tracker, "./netcdf_output", 2.5, config)
-
-# Check output timing
-current_time = restart_state.timestep_state.time
-println("Restarted at time: $current_time")
-if should_output_now(restart_tracker, current_time, config)
-    println("Should output immediately after restart")
+# Validate output
+filename = "geodynamo_run01_rank_0000_step_001000.nc"
+if validate_netcdf_output(filename)
+    info = get_netcdf_info(filename)
+    println("File info: ", info)
 end
 
-# Post-processing utilities still work
-create_file_list("./netcdf_output", current_time, 64)  # List files for this time
-cleanup_old_netcdf_files("./netcdf_output", 10)        # Keep only 10 most recent outputs
+# Restart from checkpoint
+read_netcdf_restart!(simulation_state, "./netcdf_output", 1000)
 ```
 
-Key improvements for time-based output:
+Key advantages of this NetCDF approach:
 
-1. **Time Intervals**: Output controlled by actual simulation time, not iteration count
-2. **Flexible Timing**: Separate intervals for regular output and restart files  
-3. **Adaptive Timesteps**: Can query time to next output for optimal timestep sizing
-4. **Exact Timing**: Optional adjustment to hit output times precisely
-5. **Time-based Restart**: Find and load restart files by simulation time
-6. **Output Tracking**: Complete state tracking for perfect restart capability
-7. **Time Tolerance**: Configurable tolerance for floating-point time comparisons
+1. **Simplicity**: Each process writes independently, no complex coordination
+2. **Reliability**: Less prone to MPI I/O issues than collective approaches
+3. **Flexibility**: Easy to read individual files for debugging or analysis
+4. **Standard Format**: NetCDF is widely supported by analysis tools
+5. **Self-Describing**: Files contain complete metadata and coordinate information
+6. **Compression**: Built-in compression reduces file sizes significantly
+7. **CF Compliance**: Follows Climate & Forecast metadata conventions
 
-Benefits:
-
-- **Consistent Output**: Regular time intervals regardless of timestep variations
-- **Better Analysis**: Uniform temporal sampling for post-processing
-- **Restart Flexibility**: Restart from any time, not just specific iteration numbers
-- **Adaptive Friendly**: Works well with adaptive timestepping algorithms
-- **Resource Control**: Predictable output frequency independent of computational efficiency
-
-This approach is especially useful for geodynamo simulations where:
-- Physical time intervals are more meaningful than iteration counts
-- Adaptive timestepping is used for stability and efficiency
-- Long-term evolution needs uniform temporal sampling
-- Restart capability at specific physical times is required
+The distributed file approach scales well and is often more robust than
+collective I/O for large-scale simulations.
 """
