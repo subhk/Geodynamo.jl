@@ -28,6 +28,7 @@ module Geodynamo
 
 
 
-    
+    include("fields.jl")
+    in
 
 end
