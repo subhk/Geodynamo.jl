@@ -456,6 +456,25 @@ function compute_cross_product_jxB!(current::SHTnsVectorField{T},
     end
 end
 
+function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float64) where T
+    # Scale the Lorentz force by the magnetic interaction parameter
+    # Typically 1/Pm (inverse magnetic Reynolds number) or Ha²/Re (Hartmann number squared / Reynolds number)
+    
+    for r_idx in velocity.r_component.local_radial_range
+        if r_idx <= size(velocity.r_component.data_r, 3)
+            for j_phi in 1:velocity.r_component.nlon, i_theta in 1:velocity.r_component.nlat
+                if (i_theta <= size(velocity.r_component.data_r, 1) && 
+                    j_phi <= size(velocity.r_component.data_r, 2))
+                    
+                    velocity.r_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+                    velocity.θ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+                    velocity.φ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
+                end
+            end
+        end
+    end
+end
+
 
 
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
