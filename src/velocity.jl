@@ -207,12 +207,23 @@ end
 
 function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
     # Add Lorentz force: j × B = (∇ × B) × B
-    # This requires magnetic field and current density
-    # Placeholder implementation
-    if mag_field !== nothing
-        # Would compute current density j = ∇ × B
-        # Then compute j × B using SHTns operations
+    # This is the magnetic force per unit volume in the momentum equation
+    
+    if mag_field === nothing
+        return  # No magnetic field, no Lorentz force
     end
+    
+    # Ensure magnetic field is in physical space
+    shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
+    
+    # Compute current density j = ∇ × B using SHTns spectral derivatives
+    compute_current_density_shtns!(mag_field.magnetic, mag_field.current)
+    
+    # Compute Lorentz force j × B in physical space
+    compute_cross_product_jxB!(mag_field.current, mag_field.magnetic, fields.velocity)
+    
+    # Scale by magnetic interaction parameter
+    scale_lorentz_force!(fields.velocity, 1.0 / d_Pm)  # Inverse magnetic Reynolds number
 end
 
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
