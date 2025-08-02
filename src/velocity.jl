@@ -82,24 +82,23 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     shtns_vector_analysis!(fields.velocity, fields.nl_toroidal, fields.nl_poloidal)
 end
 
-function compute_vorticity!(velocity::SHTnsVectorField{T}, vorticity::SHTnsVectorField{T}) where T
-    # Compute vorticity = ∇ × u using SHTns
-    # This would use SHTns curl operations
+# function compute_vorticity!(velocity::SHTnsVectorField{T}, vorticity::SHTnsVectorField{T}) where T
+#     # Compute vorticity = ∇ × u using SHTns
+#     # This would use SHTns curl operations
     
-    # Simplified implementation - would use proper SHTns curl
-    config = velocity.r_component.config
+#     # Simplified implementation - would use proper SHTns curl
+#     config = velocity.r_component.config
     
-    # For now, copy structure (placeholder)
-    for r_idx in velocity.r_component.local_radial_range
-        # Compute curl components using SHTns operators
-        # ω_r = (1/sin θ)(∂v_φ/∂θ - ∂(sin θ v_θ)/∂φ)
-        # ω_θ = (1/sin θ)(∂v_r/∂φ) - ∂v_φ/∂r
-        # ω_φ = ∂v_θ/∂r - (1/r)(∂v_r/∂θ)
+#     # For now, copy structure (placeholder)
+#     for r_idx in velocity.r_component.local_radial_range
+#         # Compute curl components using SHTns operators
+#         # ω_r = (1/sin θ)(∂v_φ/∂θ - ∂(sin θ v_θ)/∂φ)
+#         # ω_θ = (1/sin θ)(∂v_r/∂φ) - ∂v_φ/∂r
+#         # ω_φ = ∂v_θ/∂r - (1/r)(∂v_r/∂θ)
         
-        # This requires spectral differentiation - placeholder
-    end
-end
-
+#         # This requires spectral differentiation - placeholder
+#     end
+# end
 
 function compute_vorticity_shtns_curl!(velocity::SHTnsVectorField{T}, 
                                       vorticity::SHTnsVectorField{T}) where T
@@ -157,6 +156,57 @@ function compute_vorticity_shtns_curl!(velocity::SHTnsVectorField{T},
             
             # Radial component would need additional computation
             compute_radial_vorticity_component!(velocity, vorticity, r_idx, config)
+        end
+    end
+end
+
+
+function compute_radial_vorticity_component!(velocity::SHTnsVectorField{T}, 
+                                           vorticity::SHTnsVectorField{T}, 
+                                           r_idx::Int, config::SHTnsConfig) where T
+    # Compute radial component of vorticity
+    # ω_r = (1/(r sin θ)) * [∂u_φ/∂θ - ∂(sin θ u_θ)/∂φ]
+    
+    sht = config.sht
+    
+    # Extract u_θ and u_φ at this radial level
+    u_theta = zeros(ComplexF64, config.nlat, config.nlon)
+    u_phi = zeros(ComplexF64, config.nlat, config.nlon)
+    
+    for j_phi in 1:config.nlon, i_theta in 1:config.nlat
+        if (i_theta <= size(velocity.θ_component.data_r, 1) && 
+            j_phi <= size(velocity.θ_component.data_r, 2))
+            
+            u_theta[i_theta, j_phi] = complex(velocity.θ_component.data_r[i_theta, j_phi, r_idx])
+            u_phi[i_theta, j_phi] = complex(velocity.φ_component.data_r[i_theta, j_phi, r_idx])
+        end
+    end
+    
+    # Analyze to get spectral coefficients
+    u_theta_coeffs = analysis(sht, u_theta)
+    u_phi_coeffs = analysis(sht, u_phi)
+    
+    # Compute derivatives
+    du_phi_dtheta = synthesis_dtheta(sht, u_phi_coeffs)
+    du_theta_dphi = synthesis_dphi(sht, u_theta_coeffs)
+    
+    # Compute radial vorticity component
+    r = 1.0  # Would get from radial domain
+    r_inv = 1.0 / max(r, 1e-10)
+    
+    for j_phi in 1:config.nlon, i_theta in 1:config.nlat
+        if (i_theta <= size(vorticity.r_component.data_r, 1) && 
+            j_phi <= size(vorticity.r_component.data_r, 2))
+            
+            theta = config.theta_grid[i_theta]
+            sin_theta = sin(theta)
+            sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+            
+            omega_r = r_inv * sin_theta_inv * 
+                     (real(du_phi_dtheta[i_theta, j_phi]) - 
+                      sin_theta * real(du_theta_dphi[i_theta, j_phi]))
+            
+            vorticity.r_component.data_r[i_theta, j_phi, r_idx] = omega_r
         end
     end
 end
