@@ -307,6 +307,50 @@ function compute_current_density_shtns!(magnetic::SHTnsVectorField{T},
     end
 end
 
+
+function compute_curl_r_component(sht, B_θ_coeffs::Vector{ComplexF64}, 
+                                 B_φ_coeffs::Vector{ComplexF64}, r_inv::Float64)
+    # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
+    
+    # Compute ∂B_φ/∂θ using SHTns
+    dB_φ_dtheta_phys = synthesis_dtheta(sht, B_φ_coeffs)
+    
+    # Compute ∂(sin θ B_θ)/∂φ
+    # First convert B_θ to physical space, multiply by sin θ, then take ∂/∂φ
+    B_θ_phys = synthesis(sht, B_θ_coeffs)
+    
+    # Get grid information
+    nlat, nlon = size(B_θ_phys)
+    theta_grid = get_theta_array(sht)
+    
+    # Multiply by sin θ
+    sinθ_B_θ = zeros(ComplexF64, nlat, nlon)
+    for i_theta in 1:nlat
+        sin_theta = sin(theta_grid[i_theta])
+        for j_phi in 1:nlon
+            sinθ_B_θ[i_theta, j_phi] = sin_theta * B_θ_phys[i_theta, j_phi]
+        end
+    end
+    
+    # Convert back to spectral and take φ derivative
+    sinθ_B_θ_coeffs = analysis(sht, sinθ_B_θ)
+    d_sinθB_θ_dphi_phys = synthesis_dphi(sht, sinθ_B_θ_coeffs)
+    
+    # Compute j_r
+    j_r_phys = zeros(ComplexF64, nlat, nlon)
+    for i_theta in 1:nlat
+        sin_theta = sin(theta_grid[i_theta])
+        sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+        for j_phi in 1:nlon
+            j_r_phys[i_theta, j_phi] = r_inv * sin_theta_inv * 
+                (dB_φ_dtheta_phys[i_theta, j_phi] - d_sinθB_θ_dphi_phys[i_theta, j_phi])
+        end
+    end
+    
+    # Convert back to spectral coefficients
+    return analysis(sht, j_r_phys)
+end
+
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
 #end
