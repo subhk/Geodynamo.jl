@@ -49,7 +49,9 @@ module Geodynamo
     include("pencil_decomps.jl")
     include("timestep.jl")
     include("velocity.jl")
-    
+    include("magnetic.jl")
+    in
+
     
 
 end
