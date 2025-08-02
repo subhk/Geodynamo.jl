@@ -33,7 +33,13 @@ module Geodynamo
     # exports velocity.jl
     export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
-    # exports
+    # exports magnetic.jl
+    export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
+
+    # exports thermal.jl
+    export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
+
+
 
 
     include("fields.jl")
@@ -43,6 +49,7 @@ module Geodynamo
     include("pencil_decomps.jl")
     include("timestep.jl")
     include("velocity.jl")
+    
     
 
 end
