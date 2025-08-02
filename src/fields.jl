@@ -131,7 +131,7 @@ function create_radial_domain(pencil_r)
     return RadialDomain(N, local_range, r, dr_matrices, radial_laplacian, integration_weights)
 end
 
-export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
-export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
-export create_shtns_vector_field, create_radial_domain
+# export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
+# export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
+# export create_shtns_vector_field, create_radial_domain
 # end
