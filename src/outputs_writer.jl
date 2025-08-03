@@ -1052,3 +1052,17 @@ geodynamo_mixed_output_rank_0000_time_1p500000.nc
               magnetic_poloidal_real/imag[spectral_mode,r] (spectral)
 ```
 """
+
+
+# # Get all files for a specific time
+# time_val = 1.5
+# nprocs = 4
+# files = []
+# for rank in 0:(nprocs-1)
+#     filename = "geodynamo_output_rank_$(lpad(rank, 4, '0'))_time_1p500000.nc"
+#     push!(files, filename)
+# end
+
+# # Read and combine data from all processors
+# global_temperature = combine_temperature_data(files)
+# global_velocity_spectral = combine_spectral_data(files, "velocity_toroidal")
