@@ -367,27 +367,22 @@ function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field)
     end
 end
 
-
-function add_compositional_buoyancy!(fields::SHTnsVelocityFields{T}, comp_field) where T
+function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
     # Add compositional buoyancy: Ra_C * Pr * C * ê_r  
-    buoyancy_factor = d_Ra * d_Pr  # Should be separate Ra_C parameter
-    vel = fields.velocity
-    
-    for r_idx in vel.r_component.local_radial_range
-        if r_idx <= size(vel.r_component.data_r, 3) && r_idx <= size(comp_field.data_r, 3)
-            for j_phi in 1:vel.r_component.nlon, i_theta in 1:vel.r_component.nlat
-                if (i_theta <= size(vel.r_component.data_r, 1) && 
-                    j_phi <= size(vel.r_component.data_r, 2) &&
-                    i_theta <= size(comp_field.data_r, 1) && 
-                    j_phi <= size(comp_field.data_r, 2))
-                    
-                    vel.r_component.data_r[i_theta, j_phi, r_idx] += 
-                        buoyancy_factor * comp_field.data_r[i_theta, j_phi, r_idx]
-                end
+
+    if temp_field !== nothing
+        buoyancy_factor = d_Ra * d_Pr   # Should be separate Ra_C parameter
+        vel_r = parent(fields.velocity.r_component.data)
+        temp = parent(temp_field.data)
+        
+        for idx in eachindex(vel_r)
+            if idx <= length(temp)
+                vel_r[idx] += buoyancy_factor * temp[idx]
             end
         end
     end
 end
+
 
 # function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
 #     # Add Lorentz force: j × B = (∇ × B) × B
