@@ -238,7 +238,7 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
     pol_imag = parent(pol_spec.data_imag)
     
     v_theta = parent(vec_phys.θ_component.data)
-    v_phi = parent(vec_phys.φ_component.data)
+    v_phi   = parent(vec_phys.φ_component.data)
     
     # Get local ranges
     r_range = get_local_range(tor_spec.pencil, 3)
@@ -340,7 +340,7 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
     pol_imag = parent(pol_spec.data_imag)
     
     # Get local ranges
-    r_range = get_local_range(vec_phys.θ_component.pencil, 3)
+    r_range  = get_local_range(vec_phys.θ_component.pencil, 3)
     lm_range = get_local_range(tor_spec.pencil, 1)
     
     # Pre-allocate work arrays for vector components
@@ -351,9 +351,9 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
     
     # Process each radial level
     process_vector_analysis!(sht, v_theta, v_phi,
-                                      tor_real, tor_imag, pol_real, pol_imag,
-                                      r_range, lm_range, vt_work, vp_work, 
-                                      tor_spec.config)
+                            tor_real, tor_imag, pol_real, pol_imag,
+                            r_range, lm_range, vt_work, vp_work, 
+                            tor_spec.config)
 end
 
 
@@ -361,7 +361,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
                                 tor_real, tor_imag, 
                                 pol_real, pol_imag,
                                 r_range, lm_range, vt_work, vp_work, config)
-                                
+
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
@@ -407,6 +407,36 @@ end
                 tor_imag[local_lm, 1, local_r] = 0.0
                 pol_imag[local_lm, 1, local_r] = 0.0
             end
+        end
+    end
+end
+
+
+
+# =============================
+# Batched Transform Operations
+# =============================
+function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
+                                    physs::Vector{SHTnsPhysicalField{T}}) where T
+    # Process multiple fields efficiently
+    @assert length(specs) == length(physs)
+    
+    if isempty(specs)
+        return
+    end
+    
+    sht = specs[1].config.sht
+    manager = get_transform_manager(T, specs[1].config, specs[1].pencil)
+    
+    # Process all fields at each radial level
+    r_range = get_local_range(specs[1].pencil, 3)
+    lm_range = get_local_range(specs[1].pencil, 1)
+    
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        for (spec, phys) in zip(specs, physs)
+            process_single_level_s2p!(sht, spec, phys, local_r, lm_range, manager)
         end
     end
 end

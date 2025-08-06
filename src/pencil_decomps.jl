@@ -8,7 +8,6 @@
 # using ..Parameters
 # using ..SHTnsSetup
 
-# MPI communicator
 # MPI communicator - make it a function to avoid initialization issues
 function get_comm()
     if !MPI.Initialized()
