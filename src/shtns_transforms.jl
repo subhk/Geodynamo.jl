@@ -330,11 +330,10 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                tor_spec::SHTnsSpectralField{T}, 
                                pol_spec::SHTnsSpectralField{T}) where T
     sht = tor_spec.config.sht
-    manager = get_transform_manager(T, tor_spec.config, tor_spec.pencil)
     
     # Get local data views
-    v_theta = parent(vec_phys.θ_component.data)
-    v_phi = parent(vec_phys.φ_component.data)
+    v_theta  = parent(vec_phys.θ_component.data)
+    v_phi    = parent(vec_phys.φ_component.data)
     tor_real = parent(tor_spec.data_real)
     tor_imag = parent(tor_spec.data_imag)
     pol_real = parent(pol_spec.data_real)
@@ -344,11 +343,17 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
     r_range = get_local_range(vec_phys.θ_component.pencil, 3)
     lm_range = get_local_range(tor_spec.pencil, 1)
     
-    # Process
+    # Pre-allocate work arrays for vector components
+    nlat = vec_phys.θ_component.config.nlat
+    nlon = vec_phys.θ_component.config.nlon
+    vt_work = zeros(ComplexF64, nlat, nlon)
+    vp_work = zeros(ComplexF64, nlat, nlon)
+    
+    # Process each radial level
     process_vector_analysis!(sht, v_theta, v_phi,
-                            tor_real, tor_imag, 
-                            pol_real, pol_imag,
-                            r_range, lm_range, manager, tor_spec.config)
+                                      tor_real, tor_imag, pol_real, pol_imag,
+                                      r_range, lm_range, vt_work, vp_work, 
+                                      tor_spec.config)
 end
 
 
