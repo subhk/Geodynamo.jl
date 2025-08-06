@@ -257,7 +257,7 @@ end
                                           v_theta, v_phi, r_range, lm_range, manager)
     tor_coeffs = manager.coeffs_full
     pol_coeffs = manager.coeffs_work
-    
+
     vt_work = manager.vt_work
     vp_work = manager.vp_work
     
@@ -283,7 +283,7 @@ end
                 @simd for i in 1:size(v_theta, 1)
                     if i <= size(vt_work, 1) && j <= size(vt_work, 2)
                         v_theta[i, j, local_r] = real(vt_work[i, j])
-                        v_phi[i, j, local_r] = real(vp_work[i, j])
+                          v_phi[i, j, local_r] = real(vp_work[i, j])
                     end
                 end
             end
