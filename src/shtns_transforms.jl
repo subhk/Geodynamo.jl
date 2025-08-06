@@ -440,7 +440,7 @@ function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
     manager = get_transform_manager(T, specs[1].config, specs[1].pencil)
     
     # Process all fields at each radial level
-    r_range = get_local_range(specs[1].pencil, 3)
+    r_range  = get_local_range(specs[1].pencil, 3)
     lm_range = get_local_range(specs[1].pencil, 1)
     
     for r_idx in r_range
