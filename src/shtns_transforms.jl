@@ -507,7 +507,7 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
             
             # Compute both derivatives
             dtheta = synthesis_dtheta(sht, manager.coeffs_full)
-            dphi = synthesis_dphi(sht, manager.coeffs_full)
+            dphi   = synthesis_dphi(sht, manager.coeffs_full)
             
             # Store results
             @simd for idx in eachindex(dtheta)
@@ -539,3 +539,13 @@ function analysis!(output::Vector{ComplexF64},
     output .= result
     return nothing #output
 end
+
+
+# # Export functions
+# export shtns_spectral_to_physical!, shtns_physical_to_spectral!
+# export shtns_vector_synthesis!, shtns_vector_analysis!
+# export batch_spectral_to_physical!
+# export shtns_spectral_to_physical_async!, wait_transform
+# export shtns_compute_gradient!
+# export clear_transform_cache!, get_transform_statistics
+# export SHTnsTransformManager, get_transform_manager
