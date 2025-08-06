@@ -198,48 +198,52 @@ end
 end
 
 
+@inline function store_spectral_coefficients!(spec_real, spec_imag, coeffs,
+                                             local_r, lm_range, config)
+    @inbounds @simd for lm_idx in lm_range
+        if lm_idx <= length(coeffs)
+            local_lm = lm_idx - first(lm_range) + 1
+            if local_lm <= size(spec_real, 1)
+                spec_real[local_lm, 1, local_r] = real(coeffs[lm_idx])
+                spec_imag[local_lm, 1, local_r] = imag(coeffs[lm_idx])
+                
+                # Ensure m=0 modes are real
+                m = config.m_values[lm_idx]
+                if m == 0
+                    spec_imag[local_lm, 1, local_r] = 0.0
+                end
+            end
+        end
+    end
+end
+
+
 
 # Vector synthesis for PencilArrays
 function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
                                 pol_spec::SHTnsSpectralField{T},
                                 vec_phys::SHTnsVectorField{T}) where T
     sht = tor_spec.config.sht
-    nlm = tor_spec.config.nlm
+    manager = get_transform_manager(T, tor_spec.config, tor_spec.pencil)
     
-    # Process each component
-    for r_idx in get_local_range(tor_spec.pencil, 3)
-        # Gather toroidal and poloidal coefficients
-        tor_coeffs = zeros(ComplexF64, nlm)
-        pol_coeffs = zeros(ComplexF64, nlm)
-        
-        # Fill local portions
-        lm_range = get_local_range(tor_spec.pencil, 1)
-        for lm_idx in lm_range
-            if lm_idx <= nlm
-                local_lm = lm_idx - first(lm_range) + 1
-                local_r = r_idx - first(get_local_range(tor_spec.pencil, 3)) + 1
-                
-                tor_coeffs[lm_idx] = complex(parent(tor_spec.data_real)[local_lm, 1, local_r],
-                                            parent(tor_spec.data_imag)[local_lm, 1, local_r])
-                pol_coeffs[lm_idx] = complex(parent(pol_spec.data_real)[local_lm, 1, local_r],
-                                            parent(pol_spec.data_imag)[local_lm, 1, local_r])
-            end
-        end
-        
-        # Gather from all processes
-        tor_coeffs = MPI.Allreduce(tor_coeffs, MPI.SUM, get_comm())
-        pol_coeffs = MPI.Allreduce(pol_coeffs, MPI.SUM, get_comm())
-        
-        # Vector synthesis
-        v_theta, v_phi = vector_synthesis(sht, tor_coeffs, pol_coeffs)
-        
-        # Store in local portions of vector field
-        local_r = r_idx - first(get_local_range(vec_phys.θ_component.pencil, 3)) + 1
-        if local_r <= size(parent(vec_phys.θ_component.data), 3)
-            parent(vec_phys.θ_component.data)[:, :, local_r] = real(v_theta)
-            parent(vec_phys.φ_component.data)[:, :, local_r] = real(v_phi)
-        end
-    end
+    # Get local data views
+    tor_real = parent(tor_spec.data_real)
+    tor_imag = parent(tor_spec.data_imag)
+    pol_real = parent(pol_spec.data_real)
+    pol_imag = parent(pol_spec.data_imag)
+    
+    v_theta = parent(vec_phys.θ_component.data)
+    v_phi = parent(vec_phys.φ_component.data)
+    
+    # Get local ranges
+    r_range = get_local_range(tor_spec.pencil, 3)
+    lm_range = get_local_range(tor_spec.pencil, 1)
+    
+    # Process with dual coefficient arrays
+    process_vector_synthesis!(sht, tor_real, tor_imag, 
+                            pol_real, pol_imag,
+                            v_theta, v_phi, 
+                            r_range, lm_range, manager)
 end
 
 
