@@ -45,8 +45,6 @@ module Geodynamo
     export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
 
 
-
-
     include("fields.jl")
     include("shtns_config.jl")
     include("shtns_transforms.jl")

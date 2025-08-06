@@ -172,26 +172,30 @@ function solve_implicit_step!(solution::SHTnsSpectralField{T},
     end
 end
 
+
 function compute_timestep_error(new_field::SHTnsSpectralField{T}, 
-                                old_field::SHTnsSpectralField{T}) where T
+                               old_field::SHTnsSpectralField{T}) where T
     error = zero(Float64)
     
-    for lm_idx in 1:new_field.nlm
-        for r_idx in new_field.local_radial_range
-            if r_idx <= size(new_field.data_real, 3)
-                diff_real = new_field.data_real[lm_idx, 1, r_idx] - old_field.data_real[lm_idx, 1, r_idx]
-                diff_imag = new_field.data_imag[lm_idx, 1, r_idx] - old_field.data_imag[lm_idx, 1, r_idx]
-                error += diff_real^2 + diff_imag^2
-            end
-        end
+    # Get local data
+    new_real = parent(new_field.data_real)
+    new_imag = parent(new_field.data_imag)
+    old_real = parent(old_field.data_real)
+    old_imag = parent(old_field.data_imag)
+    
+    # Compute local error
+    for idx in eachindex(new_real)
+        diff_real = new_real[idx] - old_real[idx]
+        diff_imag = new_imag[idx] - old_imag[idx]
+        error += diff_real^2 + diff_imag^2
     end
     
-    # Global reduction across all processes
-    global_error = MPI.Allreduce(error, MPI.SUM, PencilSetup.comm)
+    # Global reduction
+    global_error = MPI.Allreduce(error, MPI.SUM, get_comm())
     return sqrt(global_error)
 end
+
 
 export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices
 export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
-# end

@@ -54,6 +54,7 @@ end
 
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
                                     temp_field, comp_field, mag_field) where T
+
     # Convert spectral toroidal/poloidal to physical velocity
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
@@ -316,63 +317,56 @@ function compute_advection_term!(fields::SHTnsVelocityFields{T}) where T
     end
 end
 
-function add_coriolis_force!(fields::SHTnsVelocityFields{T}) where T
+
+function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
     # Coriolis force: -2Ω × u assuming rotation about z-axis
     # In spherical coordinates: Ω = Ω(cos θ ê_r - sin θ ê_θ)
+
+    vel_r = parent(fields.velocity.r_component.data)
+    vel_θ = parent(fields.velocity.θ_component.data)
+    vel_φ = parent(fields.velocity.φ_component.data)
     
-    vel = fields.velocity
-    config = vel.r_component.config
+    config = fields.velocity.r_component.config
+    theta_grid = config.theta_grid
     
-    for r_idx in vel.r_component.local_radial_range
-        if r_idx <= size(vel.r_component.data_r, 3)
-            for j_phi in 1:vel.r_component.nlon, i_theta in 1:vel.r_component.nlat
-                if i_theta <= size(vel.r_component.data_r, 1) && j_phi <= size(vel.r_component.data_r, 2)
-                    # Get θ coordinate from SHTns grid
-                    theta = config.theta_grid[i_theta]
-                    cos_theta = cos(theta)
-                    sin_theta = sin(theta)
-                    
-                    u_r = vel.r_component.data_r[i_theta, j_phi, r_idx]
-                    u_θ = vel.θ_component.data_r[i_theta, j_phi, r_idx]
-                    u_φ = vel.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    # Coriolis force components
-                    coriolis_r = -2.0 * (-sin_theta * u_φ)
-                    coriolis_θ = -2.0 * (cos_theta * u_φ)
-                    coriolis_φ = -2.0 * (-cos_theta * u_θ + sin_theta * u_r)
-                    
-                    vel.r_component.data_r[i_theta, j_phi, r_idx] += coriolis_r
-                    vel.θ_component.data_r[i_theta, j_phi, r_idx] += coriolis_θ
-                    vel.φ_component.data_r[i_theta, j_phi, r_idx] += coriolis_φ
-                end
-            end
+    # Get local indices
+    local_size = size(vel_r)
+    
+    for k in 1:local_size[3], j in 1:local_size[2], i in 1:local_size[1]
+        if i <= length(theta_grid)
+            theta = theta_grid[i]
+            cos_theta = cos(theta)
+            sin_theta = sin(theta)
+            
+            u_r = vel_r[i, j, k]
+            u_θ = vel_θ[i, j, k]
+            u_φ = vel_φ[i, j, k]
+            
+            vel_r[i, j, k] += -2.0 * (-sin_theta * u_φ)
+            vel_θ[i, j, k] += -2.0 * (cos_theta  * u_φ)
+            vel_φ[i, j, k] += -2.0 * (-cos_theta * u_θ + sin_theta * u_r)
         end
     end
 end
 
-function add_thermal_buoyancy!(fields::SHTnsVelocityFields{T}, temp_field) where T
+
+function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
     # Add thermal buoyancy: Ra_T * Pr * T * ê_r
 
     if temp_field !== nothing
         buoyancy_factor = d_Ra * d_Pr
-        vel = fields.velocity
+        vel_r = parent(fields.velocity.r_component.data)
+
+        temp = parent(temp_field.data)
         
-        for r_idx in vel.r_component.local_radial_range
-            if r_idx <= size(vel.r_component.data_r, 3) && r_idx <= size(temp_field.data_r, 3)
-                for j_phi in 1:vel.r_component.nlon, i_theta in 1:vel.r_component.nlat
-                    if (i_theta <= size(vel.r_component.data_r, 1) && 
-                        j_phi <= size(vel.r_component.data_r, 2) &&
-                        i_theta <= size(temp_field.data_r, 1) && 
-                        j_phi <= size(temp_field.data_r, 2))
-                        
-                        vel.r_component.data_r[i_theta, j_phi, r_idx] += 
-                            buoyancy_factor * temp_field.data_r[i_theta, j_phi, r_idx]
-                    end
-                end
+        for idx in eachindex(vel_r)
+            if idx <= length(temp)
+                vel_r[idx] += buoyancy_factor * temp[idx]
             end
         end
     end
 end
+
 
 function add_compositional_buoyancy!(fields::SHTnsVelocityFields{T}, comp_field) where T
     # Add compositional buoyancy: Ra_C * Pr * C * ê_r  
