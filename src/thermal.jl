@@ -119,7 +119,7 @@ function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) whe
             end
             
             # Compute horizontal gradients using SHTns
-            compute_horizontal_gradient_batch!(sht, coeffs, grad_θ, grad_φ, 
+            compute_horizontal_gradient!(sht, coeffs, grad_θ, grad_φ, 
                                               local_r, config)
         end
     end
@@ -128,6 +128,36 @@ function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) whe
     compute_radial_gradient!(temp_field)
 end
 
+
+function compute_horizontal_gradient!(sht, coeffs::Vector{ComplexF64},
+                                           grad_θ::AbstractArray{T,3}, 
+                                           grad_φ::AbstractArray{T,3},
+                                           local_r::Int, 
+                                           config::SHTnsConfig) where T
+    # Batch compute both derivatives
+    dT_dtheta = synthesis_dtheta(sht, coeffs)
+    dT_dphi   = synthesis_dphi(sht, coeffs)
+    
+    # Get geometric factors
+    r = 0.5 + 0.5 * cos(π * (local_r - 1) / (size(grad_θ, 3) - 1))
+    r_inv = 1.0 / max(r, 1e-10)
+    
+    theta_grid = config.theta_grid
+    nlat, nlon = size(dT_dtheta)
+    
+    # Vectorized update with geometric factors
+    @inbounds for j in 1:nlon
+        @simd for i in 1:nlat
+            if i <= size(grad_θ, 1) && j <= size(grad_θ, 2)
+                sin_theta = sin(theta_grid[i])
+                sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+                
+                grad_θ[i, j, local_r] = r_inv * real(dT_dtheta[i, j])
+                grad_φ[i, j, local_r] = r_inv * sin_theta_inv * real(dT_dphi[i, j])
+            end
+        end
+    end
+end
 
 function compute_radial_gradient!(temp_field::SHTnsTemperatureField{T}, 
                                            domain::RadialDomain) where T
@@ -237,31 +267,31 @@ end
 
 function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, vel_fields) where T
     # Compute -u · ∇T
-    vel = vel_fields.velocity
-    grad = temp_field.gradient
+    # vel = vel_fields.velocity
+    # grad = temp_field.gradient
+
+    # Get local data views
+    work_data = parent(temp_field.work_physical.data)
+    vel_r = parent(vel_fields.velocity.r_component.data)
+    vel_θ = parent(vel_fields.velocity.θ_component.data)
+    vel_φ = parent(vel_fields.velocity.φ_component.data)
+    grad_r = parent(temp_field.gradient.r_component.data)
+    grad_θ = parent(temp_field.gradient.θ_component.data)
+    grad_φ = parent(temp_field.gradient.φ_component.data)
     
-    for r_idx in temp_field.temperature.local_radial_range
-        if r_idx <= size(temp_field.temperature.data_r, 3)
-            for j_phi in 1:temp_field.temperature.nlon, i_theta in 1:temp_field.temperature.nlat
-                if (i_theta <= size(temp_field.temperature.data_r, 1) && 
-                    j_phi <= size(temp_field.temperature.data_r, 2) &&
-                    i_theta <= size(vel.r_component.data_r, 1) && 
-                    j_phi <= size(vel.r_component.data_r, 2) &&
-                    i_theta <= size(grad.r_component.data_r, 1) && 
-                    j_phi <= size(grad.r_component.data_r, 2))
-                    
-                    u_r = vel.r_component.data_r[i_theta, j_phi, r_idx]
-                    u_θ = vel.θ_component.data_r[i_theta, j_phi, r_idx]
-                    u_φ = vel.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    dT_dr     = grad.r_component.data_r[i_theta, j_phi, r_idx]
-                    dT_dtheta = grad.θ_component.data_r[i_theta, j_phi, r_idx]
-                    dT_dphi   = grad.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    advection = -(u_r * dT_dr + u_θ * dT_dtheta + u_φ * dT_dphi)
-                    temp_field.temperature.data_r[i_theta, j_phi, r_idx] = advection
-                end
-            end
+    # Get dimensions
+    local_size = size(work_data)
+    
+    # Get dimensions
+    local_size = size(work_data)
+    
+    # Fused loop for advection computation
+    @inbounds @simd for idx in eachindex(work_data)
+        if idx <= length(vel_r) && idx <= length(grad_r)
+            # Compute -u·∇T with fused operations
+            work_data[idx] = -(vel_r[idx] * grad_r[idx] + 
+                              vel_θ[idx] * grad_θ[idx] + 
+                              vel_φ[idx] * grad_φ[idx])
         end
     end
 end
@@ -301,6 +331,16 @@ function add_internal_sources_spectral!(temp_field::SHTnsTemperatureField{T}) wh
     end
 end
     
-#export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
 
-#end
+function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
+    # Efficiently zero work arrays
+    fill!(parent(temp_field.work_physical.data), zero(T))
+    fill!(parent(temp_field.work_spectral.data_real), zero(T))
+    fill!(parent(temp_field.work_spectral.data_imag), zero(T))
+end
+
+
+# # Export functions
+# export SHTnsTemperatureField, create_shtns_temperature_field
+# export compute_temperature_nonlinear!, compute_temperature_batch!
+# export zero_work_arrays!
