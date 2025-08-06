@@ -142,20 +142,21 @@ end
     end
 end
 
-
+# ======================================================
 # Transform from physical to spectral space using SHTns
+# ======================================================
 function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
-                                    spec::SHTnsSpectralField{T}) where T
-
-    sht = spec.config.sht
-    nlm = spec.config.nlm
-    
-    # Transpose if needed
+                                    spec::SHTnsSpectralField{T},
+                                    transpose_plan=nothing) where T
+    # Transpose first if needed
     if transpose_plan !== nothing
         transpose!(phys.data, transpose_plan)
     end
     
-    # Get local data
+    sht = spec.config.sht
+    manager = get_transform_manager(T, spec.config, spec.pencil)
+    
+    # Get local data views
     phys_data = parent(phys.data)
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
@@ -164,33 +165,11 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     r_range = get_local_range(phys.pencil, 3)
     lm_range = get_local_range(spec.pencil, 1)
     
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        
-        if local_r <= size(phys_data, 3)
-            # Extract and analyze
-            physical_data = complex.(view(phys_data, :, :, local_r))
-            coeffs = analysis(sht, physical_data)
-            
-            # Store spectral coefficients
-            @simd for lm_idx in lm_range
-                if lm_idx <= nlm
-                    local_lm = lm_idx - first(lm_range) + 1
-                    if local_lm <= size(spec_real, 1)
-                        spec_real[local_lm, 1, local_r] = real(coeffs[lm_idx])
-                        spec_imag[local_lm, 1, local_r] = imag(coeffs[lm_idx])
-                        
-                        # Ensure m=0 modes are real
-                        m = spec.config.m_values[lm_idx]
-                        if m == 0
-                            spec_imag[local_lm, 1, local_r] = zero(T)
-                        end
-                    end
-                end
-            end
-        end
-    end
+    # Process radial levels
+    process_radial_levels_p2s!(sht, phys_data, spec_real, spec_imag,
+                               r_range, lm_range, manager, spec.config)
 end
+
 
 # # Compute derivatives using SHTns
 # function shtns_compute_theta_derivative!(input::SHTnsSpectralField{T}, 
