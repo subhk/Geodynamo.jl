@@ -25,7 +25,7 @@ end
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
                                         domain::RadialDomain, 
-                                        pencils, pencil_spec) where 
+                                        pencils, pencil_spec) where T
                                         
     pencil_θ, pencil_φ, pencil_r = pencils
     
@@ -65,22 +65,6 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     # Transform to spectral space
     shtns_physical_to_spectral!(temp_field.temperature, temp_field.nonlinear)
 end
-
-# function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) where T
-#     # Compute gradient using SHTns spectral derivatives
-    
-#     # ∂T/∂θ
-#     shtns_compute_theta_derivative!(temp_field.spectral, temp_field.spectral)  # Placeholder
-    
-#     # ∂T/∂φ
-#     shtns_compute_phi_derivative!(temp_field.spectral, temp_field.spectral)   # Placeholder
-    
-#     # ∂T/∂r (using finite differences)
-#     # This would use radial derivative matrices
-    
-#     # Convert derivatives to physical space
-#     # This is simplified - would need proper implementation
-# end
 
 
 # Alternative implementation using SHTns built-in gradient operations
