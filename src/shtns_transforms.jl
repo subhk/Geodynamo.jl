@@ -10,6 +10,10 @@ struct SHTnsTransformManager{T}
     # Pre-allocated physical arrays
     phys_work::Matrix{ComplexF64}
     phys_real::Matrix{T}
+
+    # Vector work arrays
+    vt_work::Matrix{ComplexF64}
+    vp_work::Matrix{ComplexF64}
     
     # Communication buffers
     send_buffer::Vector{ComplexF64}
@@ -117,7 +121,6 @@ end
             
             # Copy to output with vectorization
             copy_physical_data!(phys_data, phys_work, local_r)
-        end
     end
 end
 
@@ -348,12 +351,38 @@ end
 
 
 
-# export shtns_spectral_to_physical!, shtns_physical_to_spectral!
-# export shtns_vector_synthesis!, shtns_vector_analysis!
-
-
-# export shtns_spectral_to_physical!, shtns_physical_to_spectral!
-# export shtns_compute_theta_derivative!, shtns_compute_phi_derivative!
-# export shtns_vector_synthesis!, shtns_vector_analysis!
-
-# end
+@inline function process_vector_analysis!(sht, v_theta, v_phi,
+                                         tor_real, tor_imag, pol_real, pol_imag,
+                                         r_range, lm_range, manager, config)
+    phys_work = manager.phys_work
+    tor_coeffs = manager.coeffs_full
+    pol_coeffs = manager.coeffs_work
+    
+    @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+        
+            if local_r <= size(v_theta, 3)
+                # Prepare complex velocity components
+                prepare_vector_physical!(phys_work, v_theta, v_phi, local_r)
+                
+                # Vector analysis (both components at once)
+                vt = view(phys_work, :, 1:size(v_theta, 2))
+                vp = view(phys_work, :, size(v_theta, 2)+1:end)
+                
+                # Copy v_theta to first half, v_phi to second half
+                @simd for j in 1:size(v_theta, 2)
+                    for i in 1:size(v_theta, 1)
+                        vt[i, j] = complex(v_theta[i, j, local_r])
+                        vp[i, j] = complex(v_phi[i, j, local_r])
+                    end
+                end
+                
+                tor_coeffs, pol_coeffs = vector_analysis(sht, vt, vp)
+                
+                # Store both components
+                store_vector_spectral!(tor_real, tor_imag, pol_real, pol_imag,
+                                    tor_coeffs, pol_coeffs, local_r, lm_range, config)
+            end
+        end
+    end
+end
