@@ -47,6 +47,8 @@ function create_transform_manager(::Type{T},
         zeros(ComplexF64, nlm),
         zeros(ComplexF64, nlat, nlon),
         zeros(T, nlat, nlon),
+        zeros(ComplexF64, nlat, nlon),  # vt_work
+        zeros(ComplexF64, nlat, nlon),  # vp_work
         zeros(ComplexF64, nlm),
         zeros(ComplexF64, nlm),
         MPI.Request[],
