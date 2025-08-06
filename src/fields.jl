@@ -99,22 +99,17 @@ function create_shtns_vector_field(::Type{T}, config::SHTnsSetup.SHTnsConfig,
 end
 
 
-function create_radial_domain(pencil_r)
-    # Get local radial range for this process
-    local_range = pencil_r.axes[3]
-    N = i_N
+function create_radial_domain(nr::Int=i_N)
+    N = nr
     
-    # Initialize radial points (Chebyshev-Gauss-Lobatto)
-    r = zeros(N, 7)  # r^p for p=-3:3
+    r = zeros(N, 7)
     for n in 1:N
-        r[n, 4] = 0.5 * (1.0 + cos(π * (N - n) / (N - 1)))  # r^1
+        r[n, 4] = 0.5 * (1.0 + cos(π * (N - n) / (N - 1)))
     end
     
-    # Map to spherical shell
     ri = d_rratio / (1.0 - d_rratio)
     r[:, 4] .+= ri
     
-    # Compute other powers
     for p in 1:7
         if p != 4
             power = p - 4
@@ -122,12 +117,38 @@ function create_radial_domain(pencil_r)
         end
     end
     
-    # Initialize matrices (simplified - full computation needed)
     dr_matrices = [zeros(2*i_KL+1, N) for _ in 1:3]
     radial_laplacian = zeros(2*i_KL+1, N)
     integration_weights = zeros(N)
     
-    return RadialDomain(N, local_range, r, dr_matrices, radial_laplacian, integration_weights)
+    return RadialDomain(N, r, dr_matrices, radial_laplacian, integration_weights)
+end
+
+# Helper functions for working with local portions of PencilArrays
+function get_local_range(pencil::Pencil{3}, dim::Int)
+    return range_local(pencil, dim)
+end
+
+function get_local_indices(pencil::Pencil{3})
+    return range_local(pencil)
+end
+
+# Access patterns for PencilArrays
+function local_data_size(field::SHTnsSpectralField{T}) where T
+    return size_local(field.pencil)
+end
+
+function local_data_size(field::SHTnsPhysicalField{T}) where T
+    return size_local(field.pencil)
+end
+
+# Safe accessors that respect PencilArray's local data
+function get_local_data(field::SHTnsSpectralField{T}) where T
+    return (real=parent(field.data_real), imag=parent(field.data_imag))
+end
+
+function get_local_data(field::SHTnsPhysicalField{T}) where T
+    return parent(field.data)
 end
 
 # export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
