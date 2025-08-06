@@ -329,7 +329,7 @@ end
 @inline function store_vector_components!(v_theta, v_phi, vt, vp, local_r)
     @inbounds @simd for idx in eachindex(vt)
         v_theta[idx, local_r] = real(vt[idx])
-        v_phi[idx, local_r] = real(vp[idx])
+          v_phi[idx, local_r] = real(vp[idx])
     end
 end
 
