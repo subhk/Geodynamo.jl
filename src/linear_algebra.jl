@@ -12,7 +12,7 @@ struct BandedMatrix{T}
     size::Int                 # Matrix size
 end
 
-function create_derivative_matrix(order::Int, domain::RadialDomain)
+function create_derivative_matrix(order::Int, domain::VariableTypes.RadialDomain)
     # Create finite difference matrix for given derivative order
     N = domain.N
     bandwidth = i_KL
@@ -56,7 +56,7 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
     return BandedMatrix(data, bandwidth, N)
 end
 
-function create_radial_laplacian(domain::RadialDomain)
+function create_radial_laplacian(domain::VariableTypes.RadialDomain)
     # d²/dr² + (2/r) d/dr
     d2_matrix = create_derivative_matrix(2, domain)
     d1_matrix = create_derivative_matrix(1, domain)
@@ -75,32 +75,53 @@ function create_radial_laplacian(domain::RadialDomain)
     return BandedMatrix(laplacian_data, i_KL, domain.N)
 end
 
-# Apply banded matrix to SHTns spectral field
-function apply_banded_matrix!(output::SHTnsSpectralField{T}, matrix::BandedMatrix{T}, 
-                                input::SHTnsSpectralField{T}) where T
-    # Apply matrix along radial direction (axis 3)
-    @views for lm_idx in 1:input.nlm, dummy_idx in 1:1
-        apply_banded_vector!(output.data_real[lm_idx, dummy_idx, :], matrix, 
-                            input.data_real[lm_idx, dummy_idx, :])
-        apply_banded_vector!(output.data_imag[lm_idx, dummy_idx, :], matrix, 
-                            input.data_imag[lm_idx, dummy_idx, :])
-    end
-end
-
-function apply_banded_vector!(output::AbstractVector{T}, matrix::BandedMatrix{T}, 
-                                input::AbstractVector{T}) where T
-    fill!(output, zero(T))
-    N = matrix.size
-    bandwidth = matrix.bandwidth
+# Apply banded matrix to PencilArray data
+function apply_banded_matrix!(output::VariableTypes.SHTnsSpectralField{T}, 
+                             matrix::BandedMatrix{T}, 
+                             input::VariableTypes.SHTnsSpectralField{T}) where T
+    # Get local data portions
+    out_real = parent(output.data_real)
+    out_imag = parent(output.data_imag)
+    in_real  = parent(input.data_real)
+    in_imag  = parent(input.data_imag)
     
-    for j in 1:N
-        for i in max(1, j - bandwidth):min(N, j + bandwidth)
-            band_row = bandwidth + 1 + i - j
-            output[i] += matrix.data[band_row, j] * input[j]
+    # Get local indices
+    local_indices = VariableTypes.get_local_indices(input.pencil)
+    
+    # Apply matrix only to local data
+    for idx in CartesianIndices(local_indices)
+        if idx[3] <= matrix.size  # Check radial dimension
+            # Apply to real part
+            apply_banded_vector_local!(view(out_real, idx[1], idx[2], :), 
+                                      matrix, 
+                                      view(in_real, idx[1], idx[2], :))
+            # Apply to imaginary part
+            apply_banded_vector_local!(view(out_imag, idx[1], idx[2], :), 
+                                      matrix, 
+                                      view(in_imag, idx[1], idx[2], :))
         end
     end
 end
 
-export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
+
+function apply_banded_vector_local!(output::AbstractVector{T}, 
+                                   matrix::BandedMatrix{T}, 
+                                   input::AbstractVector{T}) where T
+    fill!(output, zero(T))
+    N = min(matrix.size, length(input))
+    bandwidth = matrix.bandwidth
+    
+    for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            if i <= length(output)
+                band_row = bandwidth + 1 + i - j
+                output[i] += matrix.data[band_row, j] * input[j]
+            end
+        end
+    end
+end
+
+#export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
+
 
 #end
