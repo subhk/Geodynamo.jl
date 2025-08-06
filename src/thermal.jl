@@ -272,12 +272,13 @@ function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, ve
 
     # Get local data views
     work_data = parent(temp_field.work_physical.data)
-    vel_r = parent(vel_fields.velocity.r_component.data)
-    vel_θ = parent(vel_fields.velocity.θ_component.data)
-    vel_φ = parent(vel_fields.velocity.φ_component.data)
-    grad_r = parent(temp_field.gradient.r_component.data)
-    grad_θ = parent(temp_field.gradient.θ_component.data)
-    grad_φ = parent(temp_field.gradient.φ_component.data)
+    
+    vel_r   = parent(vel_fields.velocity.r_component.data)
+    vel_θ   = parent(vel_fields.velocity.θ_component.data)
+    vel_φ   = parent(vel_fields.velocity.φ_component.data)
+    grad_r  = parent(temp_field.gradient.r_component.data)
+    grad_θ  = parent(temp_field.gradient.θ_component.data)
+    grad_φ  = parent(temp_field.gradient.φ_component.data)
     
     # Get dimensions
     local_size = size(work_data)
