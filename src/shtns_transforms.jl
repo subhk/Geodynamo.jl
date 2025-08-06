@@ -65,63 +65,83 @@ function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}
     return TRANSFORM_MANAGERS[key]
 end
 
-
-
 # Transform from spectral to physical space using SHTns
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
-                                    phys::SHTnsPhysicalField{T}) where T
-
+                                    phys::SHTnsPhysicalField{T},
+                                    transpose_plan=nothing) where T
     sht = spec.config.sht
-    nlm = spec.config.nlm
+    manager = get_transform_manager(T, spec.config, spec.pencil)
     
-    # Get local data
+    # Get local data views once
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
     phys_data = parent(phys.data)
     
     # Get local ranges once
-    r_range = get_local_range(spec.pencil, 3)
+    r_range  = get_local_range(spec.pencil, 3)
     lm_range = get_local_range(spec.pencil, 1)
     
-    # Pre-allocate coefficient array
-    coeffs = zeros(ComplexF64, nlm)
+    # Process radial levels with optimized memory access
+    process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
+                               r_range, lm_range, manager)
     
-    # Process each local radial level
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            
-            if local_r <= size(spec_real, 3)
-                # Fill coefficients for this radial level
-                fill!(coeffs, zero(ComplexF64))
-                
-                @simd for lm_idx in lm_range
-                    if lm_idx <= nlm
-                        local_lm = lm_idx - first(lm_range) + 1
-                        coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
-                                                spec_imag[local_lm, 1, local_r])
-                    end
-                end
-                
-                # Single collective communication
-                if length(lm_range) < nlm
-                    coeffs = MPI.Allreduce(coeffs, MPI.SUM, get_comm())
-                end
-                
-                # Perform synthesis
-                physical_data = synthesis(sht, coeffs)
-                
-                # Store with optimized memory access
-                @inbounds @simd for idx in eachindex(physical_data)
-                    phys_data[idx, local_r] = real(physical_data[idx])
-                end
-            end
-        end
-    
-    # # Transpose if needed
-    # if transpose_plan !== nothing
-    #     transpose!(phys.data, transpose_plan)
-    # end
+    # Transpose if needed
+    if transpose_plan !== nothing
+        transpose!(phys.data, transpose_plan)
+    end
 end
+
+@inline function process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
+                                           r_range, lm_range, manager)
+    nlm = manager.nlm
+    coeffs = manager.coeffs_full
+    phys_work = manager.phys_work
+    
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        if local_r <= size(spec_real, 3)
+            # Fill coefficients efficiently
+            fill_coefficients_from_local!(coeffs, spec_real, spec_imag, 
+                                         local_r, lm_range)
+            
+            # Communication if needed (optimized)
+            if manager.needs_allreduce
+                MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
+            end
+            
+            # Synthesis with pre-allocated output
+            synthesis!(phys_work, sht, coeffs)
+            
+            # Copy to output with vectorization
+            copy_physical_data!(phys_data, phys_work, local_r)
+        end
+    end
+end
+
+@inline function fill_coefficients_from_local!(coeffs, spec_real, spec_imag, 
+                                              local_r, lm_range)
+    # Zero coefficients first (vectorized)
+    @simd for i in eachindex(coeffs)
+        coeffs[i] = zero(ComplexF64)
+    end
+    
+    # Fill from local data
+    @inbounds @simd for lm_idx in lm_range
+        if lm_idx <= length(coeffs)
+            local_lm = lm_idx - first(lm_range) + 1
+            coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                    spec_imag[local_lm, 1, local_r])
+        end
+    end
+end
+
+@inline function copy_physical_data!(phys_data, phys_work, local_r)
+    @inbounds @simd for idx in eachindex(phys_work)
+        phys_data[idx, local_r] = real(phys_work[idx])
+    end
+end
+
 
 # Transform from physical to spectral space using SHTns
 function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
