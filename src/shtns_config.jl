@@ -9,12 +9,12 @@ struct SHTnsConfig
     nlon::Int
     lmax::Int
     mmax::Int
-    nlm::Int                    # Number of (l,m) modes
-    l_values::Vector{Int}       # l values for each mode
-    m_values::Vector{Int}       # m values for each mode
-    theta_grid::Vector{Float64} # Colatitude grid points
-    phi_grid::Vector{Float64}   # Azimuth grid points
-    gauss_weights::Vector{Float64} # Gaussian quadrature weights
+    nlm::Int                        # Number of (l,m) modes
+    l_values::Vector{Int}           # l values for each mode
+    m_values::Vector{Int}           # m values for each mode
+    theta_grid::Vector{Float64}     # Colatitude grid points
+    phi_grid::Vector{Float64}       # Azimuth grid points
+    gauss_weights::Vector{Float64}  # Gaussian quadrature weights
 end
 
 function create_shtns_config()
@@ -46,12 +46,12 @@ function create_shtns_config()
                         nlon = nlon)
     
     # Get grid information
-    theta_grid = get_theta_array(sht)
-    phi_grid = get_phi_array(sht) 
+    theta_grid    = get_theta_array(sht)
+    phi_grid      = get_phi_array(sht) 
     gauss_weights = get_weights(sht)
     
     # Compute (l,m) mode information
-    nlm = get_nlm(sht)
+    nlm      = get_nlm(sht)
     l_values = zeros(Int, nlm)
     m_values = zeros(Int, nlm)
     

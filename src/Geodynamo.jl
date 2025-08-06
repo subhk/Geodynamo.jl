@@ -14,7 +14,7 @@ module Geodynamo
     export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
 
     # exports pencil_decomps.jl
-    export create_pencil_topology, create_transforms, comm
+    export get_comm, create_pencil_topology, create_transpose_plans
 
 
     # exports field.jl
