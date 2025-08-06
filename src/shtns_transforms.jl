@@ -182,7 +182,7 @@ end
 @inline function process_radial_levels_p2s!(sht, phys_data, spec_real, spec_imag,
                                            r_range, lm_range, manager, config)
     phys_work = manager.phys_work
-    coeffs = manager.coeffs_full
+    coeffs    = manager.coeffs_full
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
