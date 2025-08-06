@@ -63,7 +63,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Compute advection -u·∇T locally with fused operations
     if vel_fields !== nothing
-        compute_temperature_advection_fused!(temp_field, vel_fields)
+        compute_temperature_advection!(temp_field, vel_fields)
     end
     
     # Add internal heat sources
@@ -80,102 +80,94 @@ function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) whe
     # This leverages optimized SHTns routines
     
     config = temp_field.spectral.config
-    sht = config.sht
+    sht   = config.sht
+    nlm   = config.nlm
     
-    # Process each radial level
-    for r_idx in temp_field.spectral.local_radial_range
-        if r_idx <= size(temp_field.spectral.data_real, 3)
-            
-            # Extract temperature coefficients at this radial level
-            T_coeffs = extract_spectral_coefficients(temp_field.spectral, r_idx)
-            
-            # Use SHTns to compute horizontal gradient
-            compute_horizontal_gradient!(sht, T_coeffs, temp_field.gradient, r_idx, config)
-            
-            # Compute radial gradient using finite differences
-            compute_radial_gradient_at_level!(temp_field, r_idx)
-        end
-    end
-end
-
-function compute_horizontal_gradient!(sht, T_coeffs::Vector{ComplexF64}, 
-                                          gradient::SHTnsVectorField{T}, 
-                                          r_idx::Int, config::SHTnsConfig) where T
-    # Compute horizontal gradient components using SHTns
+    # Get local data views
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    grad_r    = parent(temp_field.gradient.r_component.data)
+    grad_θ    = parent(temp_field.gradient.θ_component.data)
+    grad_φ    = parent(temp_field.gradient.φ_component.data)
     
-    # Get radius for geometric factors
-    r = get_radius_at_level(r_idx)
-    r_inv = 1.0 / max(r, 1e-10)
+    # Get local ranges
+    r_range  = get_local_range(temp_field.spectral.pencil, 3)
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
     
-    # Compute ∂T/∂θ using SHTns
-    dT_dtheta_phys = synthesis_dtheta(sht, T_coeffs)
+    # Pre-allocate arrays
+    coeffs = zeros(ComplexF64, nlm)
     
-    # Compute ∂T/∂φ using SHTns  
-    dT_dphi_phys = synthesis_dphi(sht, T_coeffs)
-    
-    # Apply geometric factors and store
-    theta_grid = config.theta_grid
-    nlat, nlon = size(dT_dtheta_phys)
-    
-    for i_theta in 1:nlat, j_phi in 1:nlon
-        if (i_theta <= size(gradient.θ_component.data_r, 1) && 
-            j_phi <= size(gradient.θ_component.data_r, 2) &&
-            r_idx <= size(gradient.θ_component.data_r, 3))
+    # Process radial levels
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        if local_r <= size(spec_real, 3)
+            # Gather coefficients
+            fill!(coeffs, zero(ComplexF64))
             
-            theta = theta_grid[i_theta]
-            sin_theta = sin(theta)
-            sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-            
-            # Store gradient components with proper geometric factors
-            gradient.θ_component.data_r[i_theta, j_phi, r_idx] = 
-                r_inv * real(dT_dtheta_phys[i_theta, j_phi])
-            
-            gradient.φ_component.data_r[i_theta, j_phi, r_idx] = 
-                r_inv * sin_theta_inv * real(dT_dphi_phys[i_theta, j_phi])
-        end
-    end
-end
-
-
-function compute_radial_gradient_at_level!(temp_field::SHTnsTemperatureField{T}, r_idx::Int) where T
-    # Compute radial gradient at a specific radial level using finite differences
-    
-    # Get temperature values at neighboring radial points
-    N = size(temp_field.temperature.data_r, 3)
-    
-    for i_theta in 1:temp_field.temperature.nlat, j_phi in 1:temp_field.temperature.nlon
-        if (i_theta <= size(temp_field.temperature.data_r, 1) && 
-            j_phi <= size(temp_field.temperature.data_r, 2))
-            
-            # Extract radial profile at this (θ,φ) point
-            radial_profile = temp_field.temperature.data_r[i_theta, j_phi, :]
-            
-            # Compute radial derivative using finite differences
-            if r_idx == 1
-                # Forward difference at inner boundary
-                if N >= 2
-                    dT_dr = radial_profile[2] - radial_profile[1]
-                else
-                    dT_dr = zero(T)
+            @simd for lm_idx in lm_range
+                if lm_idx <= nlm
+                    local_lm = lm_idx - first(lm_range) + 1
+                    coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                            spec_imag[local_lm, 1, local_r])
                 end
-            elseif r_idx == N
-                # Backward difference at outer boundary
-                dT_dr = radial_profile[N] - radial_profile[N-1]
-            else
-                # Centered difference in interior
-                dT_dr = 0.5 * (radial_profile[r_idx+1] - radial_profile[r_idx-1])
             end
             
-            # Store radial gradient
-            if r_idx <= size(temp_field.gradient.r_component.data_r, 3)
-                temp_field.gradient.r_component.data_r[i_theta, j_phi, r_idx] = dT_dr
+            # Collective communication if needed
+            if length(lm_range) < nlm
+                coeffs = MPI.Allreduce(coeffs, MPI.SUM, get_comm())
             end
+            
+            # Compute horizontal gradients using SHTns
+            compute_horizontal_gradient_batch!(sht, coeffs, grad_θ, grad_φ, 
+                                              local_r, config)
         end
     end
+    
+    # Compute radial gradient using optimized finite differences
+    compute_radial_gradient!(temp_field)
 end
 
 
-function compute_radial_gradient_high_order!(temp_field::SHTnsTemperatureField{T}, 
+# function compute_radial_gradient_at_level!(temp_field::SHTnsTemperatureField{T}, r_idx::Int) where T
+#     # Compute radial gradient at a specific radial level using finite differences
+    
+#     # Get temperature values at neighboring radial points
+#     N = size(temp_field.temperature.data_r, 3)
+    
+#     for i_theta in 1:temp_field.temperature.nlat, j_phi in 1:temp_field.temperature.nlon
+#         if (i_theta <= size(temp_field.temperature.data_r, 1) && 
+#             j_phi <= size(temp_field.temperature.data_r, 2))
+            
+#             # Extract radial profile at this (θ,φ) point
+#             radial_profile = temp_field.temperature.data_r[i_theta, j_phi, :]
+            
+#             # Compute radial derivative using finite differences
+#             if r_idx == 1
+#                 # Forward difference at inner boundary
+#                 if N >= 2
+#                     dT_dr = radial_profile[2] - radial_profile[1]
+#                 else
+#                     dT_dr = zero(T)
+#                 end
+#             elseif r_idx == N
+#                 # Backward difference at outer boundary
+#                 dT_dr = radial_profile[N] - radial_profile[N-1]
+#             else
+#                 # Centered difference in interior
+#                 dT_dr = 0.5 * (radial_profile[r_idx+1] - radial_profile[r_idx-1])
+#             end
+            
+#             # Store radial gradient
+#             if r_idx <= size(temp_field.gradient.r_component.data_r, 3)
+#                 temp_field.gradient.r_component.data_r[i_theta, j_phi, r_idx] = dT_dr
+#             end
+#         end
+#     end
+# end
+
+
+function compute_radial_gradient!(temp_field::SHTnsTemperatureField{T}, 
                                            domain::RadialDomain) where T
     # Compute radial gradient using high-order finite difference matrices
     
