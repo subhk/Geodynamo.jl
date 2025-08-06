@@ -101,56 +101,73 @@ function apply_explicit_operator!(output::SHTnsSpectralField{T},
     # Explicit operator: 
     # (1/dt + diffusivity * (1-implicit_factor) * L_l) * input + nonlinear
     
-    @views for lm_idx in 1:input.nlm
-        l = input.config.l_values[lm_idx]
-        
-        # Create explicit operator for this l
-        laplacian = create_radial_laplacian(domain)
-        l_factor = Float64(l * (l + 1))
-        
-        # Apply to input
-        for r_idx in input.local_radial_range
-            if r_idx <= size(input.data_real, 3)
-                # Time derivative
-                output.data_real[lm_idx, 1, r_idx] = input.data_real[lm_idx, 1, r_idx] / dt
-                output.data_imag[lm_idx, 1, r_idx] = input.data_imag[lm_idx, 1, r_idx] / dt
+# Get local data
+    out_real = parent(output.data_real)
+    out_imag = parent(output.data_imag)
+    in_real  = parent(input.data_real)
+    in_imag  = parent(input.data_imag)
+    nl_real  = parent(nonlinear.data_real)
+    nl_imag  = parent(nonlinear.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(input.pencil, 1)
+    r_range  = get_local_range(input.pencil, 3)
+    
+    for lm_idx in lm_range
+        if lm_idx <= input.nlm
+            l = input.config.l_values[lm_idx]
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
                 
-                # Explicit diffusion (simplified application)
-                diffusion_real = zero(T)
-                diffusion_imag = zero(T)
-                
-                # Add diffusion terms (would use proper banded matrix multiplication)
-                output.data_real[lm_idx, 1, r_idx] += diffusion_real
-                output.data_imag[lm_idx, 1, r_idx] += diffusion_imag
-                
-                # Add nonlinear terms
-                output.data_real[lm_idx, 1, r_idx] += nonlinear.data_real[lm_idx, 1, r_idx]
-                output.data_imag[lm_idx, 1, r_idx] += nonlinear.data_imag[lm_idx, 1, r_idx]
+                if local_lm <= size(out_real, 1) && local_r <= size(out_real, 3)
+                    # Time derivative
+                    out_real[local_lm, 1, local_r] = in_real[local_lm, 1, local_r] / dt
+                    out_imag[local_lm, 1, local_r] = in_imag[local_lm, 1, local_r] / dt
+                    
+                    # Add nonlinear terms
+                    out_real[local_lm, 1, local_r] += nl_real[local_lm, 1, local_r]
+                    out_imag[local_lm, 1, local_r] += nl_imag[local_lm, 1, local_r]
+                end
             end
         end
     end
 end
 
+
 function solve_implicit_step!(solution::SHTnsSpectralField{T}, 
                                 rhs::SHTnsSpectralField{T},
                                 matrices::SHTnsImplicitMatrices{T}) where T
-                                
-    # Solve implicit system for each mode
-    @views for lm_idx in 1:solution.nlm
-        l = solution.config.l_values[lm_idx]
-        
-        # Find matrix index for this l value
-        matrix_idx = findfirst(==(l), matrices.l_values)
-        if matrix_idx !== nothing
-            factorization = matrices.factorizations[matrix_idx]
+
+    # Get local data
+    sol_real = parent(solution.data_real)
+    sol_imag = parent(solution.data_imag)
+    rhs_real = parent(rhs.data_real)
+    rhs_imag = parent(rhs.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(solution.pencil, 1)
+    
+    for lm_idx in lm_range
+        if lm_idx <= solution.nlm
+            l = solution.config.l_values[lm_idx]
+            local_lm = lm_idx - first(lm_range) + 1
             
-            # Solve for real part
-            rhs_real = rhs.data_real[lm_idx, 1, :]
-            solution.data_real[lm_idx, 1, :] = factorization \ rhs_real
-            
-            # Solve for imaginary part  
-            rhs_imag = rhs.data_imag[lm_idx, 1, :]
-            solution.data_imag[lm_idx, 1, :] = factorization \ rhs_imag
+            matrix_idx = findfirst(==(l), matrices.l_values)
+            if matrix_idx !== nothing
+                factorization = matrices.factorizations[matrix_idx]
+                
+                # Solve for real part
+                if local_lm <= size(rhs_real, 1)
+                    rhs_vec_real = rhs_real[local_lm, 1, :]
+                    sol_real[local_lm, 1, :] = factorization \ rhs_vec_real
+                    
+                    # Solve for imaginary part
+                    rhs_vec_imag = rhs_imag[local_lm, 1, :]
+                    sol_imag[local_lm, 1, :] = factorization \ rhs_vec_imag
+                end
+            end
         end
     end
 end
