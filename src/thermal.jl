@@ -305,13 +305,19 @@ function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, ve
     end
 end
 
-function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}) where T
-    # Add internal heat sources to l=m=0 mode
-    spec_real = parent(temp_field.spectral.data_real)
+
+function add_internal_sources_spectral!(temp_field::SHTnsTemperatureField{T}) where T
+    # Work directly in spectral space for efficiency
     
-    # Find l=m=0 mode in local data
+    # Get local data
+    nl_real = parent(temp_field.nonlinear.data_real)
+    nl_imag = parent(temp_field.nonlinear.data_imag)
+    
+    # Find l=m=0 mode locally
     lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    r_range = get_local_range(temp_field.spectral.pencil, 3)
     
+    # Check if l=m=0 is in local range
     for lm_idx in lm_range
         if lm_idx <= temp_field.spectral.nlm
             l = temp_field.spectral.config.l_values[lm_idx]
@@ -319,15 +325,16 @@ function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}) where
             
             if l == 0 && m == 0
                 local_lm = lm_idx - first(lm_range) + 1
-                r_range = get_local_range(temp_field.spectral.pencil, 3)
                 
-                for r_idx in r_range
+                # Add sources only to l=m=0 mode
+                @inbounds @simd for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
-                    if r_idx <= length(temp_field.internal_sources)
-                        spec_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
+                    if r_idx <= length(temp_field.internal_sources) && 
+                       local_r <= size(nl_real, 3)
+                        nl_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
                     end
                 end
-                break
+                break  # Only one l=m=0 mode
             end
         end
     end
