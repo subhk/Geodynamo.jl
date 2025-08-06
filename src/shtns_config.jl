@@ -72,11 +72,11 @@ function create_shtns_config()
 end
 
 # Parallel decomposition with SHTns
-function create_parallel_shtns_config(comm::MPI.Comm)
+function create_parallel_shtns_config()
+    comm = PencilSetup.get_comm()
     rank = MPI.Comm_rank(comm)
     nprocs = MPI.Comm_size(comm)
     
-    # Create base configuration
     config = create_shtns_config()
     
     if rank == 0
@@ -87,10 +87,7 @@ function create_parallel_shtns_config(comm::MPI.Comm)
         println("  Processes: $nprocs")
     end
     
-    # SHTns can be used with MPI domain decomposition
-    # Each process handles different radial levels and/or spectral modes
-    
     return config
 end
 
-export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
+#export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
