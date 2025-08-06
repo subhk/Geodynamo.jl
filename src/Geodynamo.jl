@@ -48,16 +48,19 @@ module Geodynamo
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
     export run_shtns_geodynamo_simulation
 
-    include("fields.jl")
-    include("shtns_config.jl")
-    include("shtns_transforms.jl")
-    include("linear_algebra.jl")
+    # Include Parameters first
+    include("params.jl")
+    #using .Parameters
+
+    # Include base modules in dependency order
     include("pencil_decomps.jl")
+    include("shtns_config.jl")
+    include("fields.jl")
+    include("linear_algebra.jl")
+    include("shtns_transforms.jl")
     include("timestep.jl")
     include("velocity.jl")
     include("magnetic.jl")
     include("thermal.jl")
-
-    
 
 end
