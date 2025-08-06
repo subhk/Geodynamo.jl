@@ -29,15 +29,24 @@ struct SHTnsVelocityFields{T}
     
     # Pressure (for pressure correction)
     pressure::SHTnsSpectralField{T}
+    
+    # Work arrays for efficient computation
+    work_tor::SHTnsSpectralField{T}
+    work_pol::SHTnsSpectralField{T}
+    work_physical::SHTnsVectorField{T}
+    
+    # Pre-computed coefficients
+    l_factors::Vector{Float64}          # l(l+1) values
+    coriolis_factors::Matrix{Float64}   # Pre-computed Coriolis terms
 end
 
-function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
-                                        domain::RadialDomain, 
-                                        pencils, pencil_spec) where T
 
+function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
+                                      domain::RadialDomain, 
+                                      pencils, pencil_spec) where T
     pencil_θ, pencil_φ, pencil_r = pencils
     
-    # Create vector field
+    # Create vector fields
     velocity  = create_shtns_vector_field(T, config, domain, pencils)
     vorticity = create_shtns_vector_field(T, config, domain, pencils)
     
@@ -48,9 +57,28 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     nl_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
     pressure    = create_shtns_spectral_field(T, config, domain, pencil_spec)
     
+    # Work arrays
+    work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    
+    work_physical = create_shtns_vector_field(T, config, domain, pencils)
+    
+    # Pre-compute l(l+1) factors
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    
+    # Pre-compute Coriolis factors (sin(θ) and cos(θ))
+    coriolis_factors = zeros(Float64, 2, config.nlat)
+    for i in 1:config.nlat
+        coriolis_factors[1, i] = sin(config.theta_grid[i])
+        coriolis_factors[2, i] = cos(config.theta_grid[i])
+    end
+    
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal, 
-                                    nl_toroidal, nl_poloidal, pressure)
+                                  nl_toroidal, nl_poloidal, pressure,
+                                  work_tor, work_pol, work_physical,
+                                  l_factors, coriolis_factors)
 end
+
 
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
                                     temp_field, comp_field, mag_field) where T

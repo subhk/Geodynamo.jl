@@ -43,7 +43,8 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     internal_sources = zeros(T, domain.N)
     boundary_values  = zeros(T, 2, config.nlm)  # ICB and CMB values
     
-    return SHTnsTemperatureField{T}(temperature, gradient, spectral, nonlinear,
+    return SHTnsTemperatureField{T}(temperature, gradient, 
+                                    spectral, nonlinear,
                                     internal_sources, boundary_values)
 end
 
@@ -272,7 +273,7 @@ function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, ve
 
     # Get local data views
     work_data = parent(temp_field.work_physical.data)
-    
+
     vel_r   = parent(vel_fields.velocity.r_component.data)
     vel_θ   = parent(vel_fields.velocity.θ_component.data)
     vel_φ   = parent(vel_fields.velocity.φ_component.data)
