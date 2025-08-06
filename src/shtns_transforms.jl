@@ -2,15 +2,71 @@
 # SHTns Spherical Harmonic Transforms
 # ============================================================================
 
-# module SHTnsTransforms
-# using SHTnsSpheres
-# using PencilArrays
-# using LinearAlgebra
-# using ..Parameters
-# using ..SHTnsSetup
-# using ..VariableTypes
-# using ..PencilSetup
+struct SHTnsTransformManager{T}
+    # Pre-allocated coefficient arrays
+    coeffs_full::Vector{ComplexF64}
+    coeffs_work::Vector{ComplexF64}
     
+    # Pre-allocated physical arrays
+    phys_work::Matrix{ComplexF64}
+    phys_real::Matrix{T}
+    
+    # Communication buffers
+    send_buffer::Vector{ComplexF64}
+    recv_buffer::Vector{ComplexF64}
+    
+    # MPI requests for async operations
+    requests::Vector{MPI.Request}
+    
+    # Configuration
+    nlm::Int
+    nlat::Int
+    nlon::Int
+    needs_allreduce::Bool
+end
+
+
+function create_transform_manager(::Type{T}, 
+                            config::SHTnsConfig, 
+                            pencil::Pencil{3}) where T
+
+    nlm  = config.nlm
+    nlat = config.nlat
+    nlon = config.nlon
+    
+    # Check if we need communication
+    lm_range = get_local_range(pencil, 1)
+    needs_allreduce = length(lm_range) < nlm
+    
+    return SHTnsTransformManager{T}(
+        zeros(ComplexF64, nlm),
+        zeros(ComplexF64, nlm),
+        zeros(ComplexF64, nlat, nlon),
+        zeros(T, nlat, nlon),
+        zeros(ComplexF64, nlm),
+        zeros(ComplexF64, nlm),
+        MPI.Request[],
+        nlm, nlat, nlon, needs_allreduce
+    )
+end
+    
+
+# Global transform managers (one per thread for thread safety)
+const TRANSFORM_MANAGERS = Dict{UInt64, SHTnsTransformManager}()
+
+function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}) where T
+    thread_id = Threads.threadid()
+    key = hash((thread_id, T, config.nlm, config.nlat, config.nlon))
+    
+    if !haskey(TRANSFORM_MANAGERS, key)
+        TRANSFORM_MANAGERS[key] = create_transform_manager(T, config, pencil)
+    end
+    
+    return TRANSFORM_MANAGERS[key]
+end
+
+
+
 # Transform from spectral to physical space using SHTns
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
                                     phys::SHTnsPhysicalField{T}) where T
