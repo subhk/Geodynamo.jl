@@ -101,8 +101,8 @@ end
 
 @inline function process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
                                            r_range, lm_range, manager)
-    nlm = manager.nlm
-    coeffs = manager.coeffs_full
+    nlm       = manager.nlm
+    coeffs    = manager.coeffs_full
     phys_work = manager.phys_work
     
     @inbounds for r_idx in r_range
@@ -513,7 +513,7 @@ end
 # ================================================
 function synthesis!(output::Matrix{ComplexF64}, 
                     sht::SHTnsSphere, coeffs::Vector{ComplexF64})
-                    
+
     # In-place synthesis
     result  = synthesis(sht, coeffs)
     output .= result
