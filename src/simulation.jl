@@ -375,5 +375,5 @@ function run_shtns_geodynamo_simulation()
     MPI.Finalize()
 end
 
-export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
-export run_shtns_geodynamo_simulation
+# export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
+# export run_shtns_geodynamo_simulation

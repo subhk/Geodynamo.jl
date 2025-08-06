@@ -44,6 +44,9 @@ module Geodynamo
     # exports thermal.jl
     export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
 
+    # exports simulation.jl
+    export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
+    export run_shtns_geodynamo_simulation
 
     include("fields.jl")
     include("shtns_config.jl")
