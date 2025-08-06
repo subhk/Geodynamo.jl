@@ -72,7 +72,7 @@ function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}
 end
 
 # ======================================================
-# Transform from spectral to physical space using SHTns
+# Transform from Spectral to Physical space using SHTns
 # ======================================================
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
                                     phys::SHTnsPhysicalField{T},
@@ -151,7 +151,7 @@ end
 end
 
 # ======================================================
-# Transform from physical to spectral space using SHTns
+# Transform from Physical to Spectral space using SHTns
 # ======================================================
 function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
                                     spec::SHTnsSpectralField{T},
@@ -170,7 +170,7 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     spec_imag = parent(spec.data_imag)
     
     # Get local ranges
-    r_range = get_local_range(phys.pencil, 3)
+    r_range  = get_local_range(phys.pencil, 3)
     lm_range = get_local_range(spec.pencil, 1)
     
     # Process radial levels
