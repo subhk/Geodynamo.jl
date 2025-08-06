@@ -440,3 +440,91 @@ function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
         end
     end
 end
+
+
+@inline function process_single_level_s2p!(sht, spec, phys, local_r, lm_range, manager)
+    spec_real = parent(spec.data_real)
+    spec_imag = parent(spec.data_imag)
+    phys_data = parent(phys.data)
+    
+    if local_r <= size(spec_real, 3)
+        fill_coefficients_from_local!(manager.coeffs_full, spec_real, spec_imag, 
+                                     local_r, lm_range)
+        
+        if manager.needs_allreduce
+            MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
+        end
+        
+        synthesis!(manager.phys_work, sht, manager.coeffs_full)
+        copy_physical_data!(phys_data, manager.phys_work, local_r)
+    end
+end
+
+
+
+# ====================================
+# Derivative Transforms using SHTns
+# ====================================
+function shtns_compute_gradient!(input::SHTnsSpectralField{T},
+                                grad_theta::SHTnsPhysicalField{T},
+                                grad_phi::SHTnsPhysicalField{T}) where T
+    sht = input.config.sht
+    manager = get_transform_manager(T, input.config, input.pencil)
+    
+    # Get local data
+    spec_real = parent(input.data_real)
+    spec_imag = parent(input.data_imag)
+
+    grad_theta_data = parent(grad_theta.data)
+    grad_phi_data   = parent(grad_phi.data)
+    
+    # Process radial levels
+    r_range  = get_local_range(input.pencil, 3)
+    lm_range = get_local_range(input.pencil, 1)
+    
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        if local_r <= size(spec_real, 3)
+            # Fill coefficients
+            fill_coefficients_from_local!(manager.coeffs_full, spec_real, spec_imag,
+                                         local_r, lm_range)
+            
+            if manager.needs_allreduce
+                MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
+            end
+            
+            # Compute both derivatives
+            dtheta = synthesis_dtheta(sht, manager.coeffs_full)
+            dphi = synthesis_dphi(sht, manager.coeffs_full)
+            
+            # Store results
+            @simd for idx in eachindex(dtheta)
+                grad_theta_data[idx, local_r] = real(dtheta[idx])
+                grad_phi_data[idx, local_r] = real(dphi[idx])
+            end
+        end
+    end
+end
+
+
+# ================================================
+# In-place SHTns wrappers for better performance
+# ================================================
+function synthesis!(output::Matrix{ComplexF64}, 
+                    sht::SHTnsSphere, coeffs::Vector{ComplexF64})
+                    
+    # In-place synthesis
+    result  = synthesis(sht, coeffs)
+    output .= result
+    return nothing #output
+end
+
+function analysis!(output::Vector{ComplexF64}, 
+                sht::SHTnsSphere, input::Matrix{ComplexF64})
+
+    # In-place analysis
+    result  = analysis(sht, input)
+    output .= result
+    return nothing #output
+end
