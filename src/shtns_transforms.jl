@@ -310,46 +310,42 @@ end
 end
 
 
+@inline function store_vector_components!(v_theta, v_phi, vt, vp, local_r)
+    @inbounds @simd for idx in eachindex(vt)
+        v_theta[idx, local_r] = real(vt[idx])
+        v_phi[idx, local_r] = real(vp[idx])
+    end
+end
 
+
+# =================================
 # Vector analysis for PencilArrays
+# =================================
 function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                tor_spec::SHTnsSpectralField{T}, 
                                pol_spec::SHTnsSpectralField{T}) where T
-
     sht = tor_spec.config.sht
-    nlm = tor_spec.config.nlm
+    manager = get_transform_manager(T, tor_spec.config, tor_spec.pencil)
     
-    for r_idx in get_local_range(vec_phys.θ_component.pencil, 3)
-        local_r = r_idx - first(get_local_range(vec_phys.θ_component.pencil, 3)) + 1
-        
-        # Extract local physical data
-        v_theta = complex.(parent(vec_phys.θ_component.data)[:, :, local_r])
-        v_phi   = complex.(parent(vec_phys.φ_component.data)[:, :, local_r])
-        
-        # Vector analysis
-        tor_coeffs, pol_coeffs = vector_analysis(sht, v_theta, v_phi)
-        
-        # Store in local spectral coefficients
-        lm_range = get_local_range(tor_spec.pencil, 1)
-        for lm_idx in lm_range
-            if lm_idx <= nlm
-                local_lm = lm_idx - first(lm_range) + 1
-                
-                parent(tor_spec.data_real)[local_lm, 1, local_r] = real(tor_coeffs[lm_idx])
-                parent(tor_spec.data_imag)[local_lm, 1, local_r] = imag(tor_coeffs[lm_idx])
-                parent(pol_spec.data_real)[local_lm, 1, local_r] = real(pol_coeffs[lm_idx])
-                parent(pol_spec.data_imag)[local_lm, 1, local_r] = imag(pol_coeffs[lm_idx])
-                
-                # Ensure m=0 modes are real
-                m = tor_spec.config.m_values[lm_idx]
-                if m == 0
-                    parent(tor_spec.data_imag)[local_lm, 1, local_r] = zero(T)
-                    parent(pol_spec.data_imag)[local_lm, 1, local_r] = zero(T)
-                end
-            end
-        end
-    end
+    # Get local data views
+    v_theta = parent(vec_phys.θ_component.data)
+    v_phi = parent(vec_phys.φ_component.data)
+    tor_real = parent(tor_spec.data_real)
+    tor_imag = parent(tor_spec.data_imag)
+    pol_real = parent(pol_spec.data_real)
+    pol_imag = parent(pol_spec.data_imag)
+    
+    # Get local ranges
+    r_range = get_local_range(vec_phys.θ_component.pencil, 3)
+    lm_range = get_local_range(tor_spec.pencil, 1)
+    
+    # Process
+    process_vector_analysis!(sht, v_theta, v_phi,
+                            tor_real, tor_imag, 
+                            pol_real, pol_imag,
+                            r_range, lm_range, manager, tor_spec.config)
 end
+
 
 
 # export shtns_spectral_to_physical!, shtns_physical_to_spectral!
