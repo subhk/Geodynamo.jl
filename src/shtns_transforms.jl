@@ -298,6 +298,19 @@ end
 end
 
 
+@inline function perform_vector_allreduce!(tor_coeffs, pol_coeffs)
+    # Combine into single communication
+    combined = vcat(tor_coeffs, pol_coeffs)
+    MPI.Allreduce!(combined, MPI.SUM, get_comm())
+    
+    # Split back
+    n = length(tor_coeffs)
+    tor_coeffs .= combined[1:n]
+    pol_coeffs .= combined[n+1:end]
+end
+
+
+
 # Vector analysis for PencilArrays
 function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                tor_spec::SHTnsSpectralField{T}, 
