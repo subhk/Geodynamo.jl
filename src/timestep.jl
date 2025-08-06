@@ -27,8 +27,10 @@ struct SHTnsImplicitMatrices{T}
     l_values::Vector{Int}             # l values for indexing
 end
 
-function create_shtns_timestepping_matrices(config::SHTnsConfig, domain::RadialDomain, 
-                                            diffusivity::Float64, dt::Float64)
+function create_shtns_timestepping_matrices(config::SHTnsConfig, 
+                                            domain::RadialDomain, 
+                                            diffusivity::Float64, 
+                                            dt::Float64)
     matrices = BandedMatrix{Float64}[]
     factorizations = Any[]
     l_values = Int[]
@@ -90,10 +92,11 @@ function banded_to_dense(matrix::BandedMatrix{T}) where T
 end
 
 function apply_explicit_operator!(output::SHTnsSpectralField{T}, 
-                                    input::SHTnsSpectralField{T},
-                                    nonlinear::SHTnsSpectralField{T}, 
-                                    domain::RadialDomain,
-                                    diffusivity::Float64, dt::Float64) where T
+                                input::SHTnsSpectralField{T},
+                                nonlinear::SHTnsSpectralField{T}, 
+                                domain::RadialDomain,
+                                diffusivity::Float64, 
+                                dt::Float64) where T
 
     # Explicit operator: 
     # (1/dt + diffusivity * (1-implicit_factor) * L_l) * input + nonlinear

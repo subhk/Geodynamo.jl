@@ -112,70 +112,70 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     end
 end
 
-# Compute derivatives using SHTns
-function shtns_compute_theta_derivative!(input::SHTnsSpectralField{T}, 
-                                        output::SHTnsSpectralField{T}) where T
-    sht = input.config.sht
-    nlm = input.config.nlm
+# # Compute derivatives using SHTns
+# function shtns_compute_theta_derivative!(input::SHTnsSpectralField{T}, 
+#                                         output::SHTnsSpectralField{T}) where T
+#     sht = input.config.sht
+#     nlm = input.config.nlm
     
-    @views for r_idx in input.local_radial_range
-        if r_idx <= size(input.data_real, 3) && r_idx <= size(output.data_real, 3)
-            # Prepare input coefficients
-            coeffs = zeros(ComplexF64, nlm)
-            for lm_idx in 1:nlm
-                real_part = input.data_real[lm_idx, 1, r_idx]
-                imag_part = input.data_imag[lm_idx, 1, r_idx]
-                coeffs[lm_idx] = complex(real_part, imag_part)
-            end
+#     @views for r_idx in input.local_radial_range
+#         if r_idx <= size(input.data_real, 3) && r_idx <= size(output.data_real, 3)
+#             # Prepare input coefficients
+#             coeffs = zeros(ComplexF64, nlm)
+#             for lm_idx in 1:nlm
+#                 real_part = input.data_real[lm_idx, 1, r_idx]
+#                 imag_part = input.data_imag[lm_idx, 1, r_idx]
+#                 coeffs[lm_idx] = complex(real_part, imag_part)
+#             end
             
-            # Compute θ derivative using SHTns
-            d_theta_coeffs = synthesis_dtheta(sht, coeffs)
+#             # Compute θ derivative using SHTns
+#             d_theta_coeffs = synthesis_dtheta(sht, coeffs)
             
-            # Convert back to analysis space if needed
-            deriv_coeffs = analysis(sht, d_theta_coeffs)
+#             # Convert back to analysis space if needed
+#             deriv_coeffs = analysis(sht, d_theta_coeffs)
             
-            # Store result
-            for lm_idx in 1:nlm
-                if lm_idx <= length(deriv_coeffs)
-                    output.data_real[lm_idx, 1, r_idx] = real(deriv_coeffs[lm_idx])
-                    output.data_imag[lm_idx, 1, r_idx] = imag(deriv_coeffs[lm_idx])
-                end
-            end
-        end
-    end
-end
+#             # Store result
+#             for lm_idx in 1:nlm
+#                 if lm_idx <= length(deriv_coeffs)
+#                     output.data_real[lm_idx, 1, r_idx] = real(deriv_coeffs[lm_idx])
+#                     output.data_imag[lm_idx, 1, r_idx] = imag(deriv_coeffs[lm_idx])
+#                 end
+#             end
+#         end
+#     end
+# end
 
-function shtns_compute_phi_derivative!(input::SHTnsSpectralField{T}, 
-                                        output::SHTnsSpectralField{T}) where T
-    sht = input.config.sht
-    nlm = input.config.nlm
+# function shtns_compute_phi_derivative!(input::SHTnsSpectralField{T}, 
+#                                         output::SHTnsSpectralField{T}) where T
+#     sht = input.config.sht
+#     nlm = input.config.nlm
     
-    @views for r_idx in input.local_radial_range
-        if r_idx <= size(input.data_real, 3) && r_idx <= size(output.data_real, 3)
-            # Prepare input coefficients
-            coeffs = zeros(ComplexF64, nlm)
-            for lm_idx in 1:nlm
-                real_part = input.data_real[lm_idx, 1, r_idx]
-                imag_part = input.data_imag[lm_idx, 1, r_idx]
-                coeffs[lm_idx] = complex(real_part, imag_part)
-            end
+#     @views for r_idx in input.local_radial_range
+#         if r_idx <= size(input.data_real, 3) && r_idx <= size(output.data_real, 3)
+#             # Prepare input coefficients
+#             coeffs = zeros(ComplexF64, nlm)
+#             for lm_idx in 1:nlm
+#                 real_part = input.data_real[lm_idx, 1, r_idx]
+#                 imag_part = input.data_imag[lm_idx, 1, r_idx]
+#                 coeffs[lm_idx] = complex(real_part, imag_part)
+#             end
             
-            # Compute φ derivative using SHTns
-            d_phi_coeffs = synthesis_dphi(sht, coeffs)
+#             # Compute φ derivative using SHTns
+#             d_phi_coeffs = synthesis_dphi(sht, coeffs)
             
-            # Convert back to analysis space if needed
-            deriv_coeffs = analysis(sht, d_phi_coeffs)
+#             # Convert back to analysis space if needed
+#             deriv_coeffs = analysis(sht, d_phi_coeffs)
             
-            # Store result
-            for lm_idx in 1:nlm
-                if lm_idx <= length(deriv_coeffs)
-                    output.data_real[lm_idx, 1, r_idx] = real(deriv_coeffs[lm_idx])
-                    output.data_imag[lm_idx, 1, r_idx] = imag(deriv_coeffs[lm_idx])
-                end
-            end
-        end
-    end
-end
+#             # Store result
+#             for lm_idx in 1:nlm
+#                 if lm_idx <= length(deriv_coeffs)
+#                     output.data_real[lm_idx, 1, r_idx] = real(deriv_coeffs[lm_idx])
+#                     output.data_imag[lm_idx, 1, r_idx] = imag(deriv_coeffs[lm_idx])
+#                 end
+#             end
+#         end
+#     end
+# end
 
 
 # Vector synthesis for PencilArrays
