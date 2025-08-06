@@ -65,7 +65,9 @@ function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}
     return TRANSFORM_MANAGERS[key]
 end
 
+# ======================================================
 # Transform from spectral to physical space using SHTns
+# ======================================================
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
                                     phys::SHTnsPhysicalField{T},
                                     transpose_plan=nothing) where T
