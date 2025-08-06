@@ -49,15 +49,22 @@ end
 
 
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields) where T
+                                        vel_fields, 
+                                        transpose_plans=nothing) where T
+
+    # Use local computation flags to minimize communication
+    needs_transpose = transpose_plans !== nothing
+
     # Convert spectral temperature to physical space
     shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
     
     # Compute temperature gradient using SHTns
     compute_temperature_gradient!(temp_field)
     
-    # Compute advection: -u·∇T
-    compute_temperature_advection!(temp_field, vel_fields)
+    # Compute advection -u·∇T locally with fused operations
+    if vel_fields !== nothing
+        compute_temperature_advection_fused!(temp_field, vel_fields)
+    end
     
     # Add internal heat sources
     add_internal_sources!(temp_field)
