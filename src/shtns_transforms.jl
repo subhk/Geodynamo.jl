@@ -222,44 +222,51 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
 end
 
 
+# Vector analysis for PencilArrays
 function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                                tor_spec::SHTnsSpectralField{T}, 
-                                pol_spec::SHTnsSpectralField{T}) where T
+                               tor_spec::SHTnsSpectralField{T}, 
+                               pol_spec::SHTnsSpectralField{T}) where T
+
     sht = tor_spec.config.sht
     nlm = tor_spec.config.nlm
     
-    @views for r_idx in tor_spec.local_radial_range
-        # Prepare physical vector components
-        v_theta = zeros(ComplexF64, vec_phys.θ_component.nlat, vec_phys.θ_component.nlon)
-        v_phi = zeros(ComplexF64, vec_phys.φ_component.nlat, vec_phys.φ_component.nlon)
+    for r_idx in get_local_range(vec_phys.θ_component.pencil, 3)
+        local_r = r_idx - first(get_local_range(vec_phys.θ_component.pencil, 3)) + 1
         
-        for j_phi in 1:size(v_theta, 2), i_theta in 1:size(v_theta, 1)
-            v_theta[i_theta, j_phi] = complex(vec_phys.θ_component.data_r[i_theta, j_phi, r_idx])
-            v_phi[i_theta, j_phi] = complex(vec_phys.φ_component.data_r[i_theta, j_phi, r_idx])
-        end
+        # Extract local physical data
+        v_theta = complex.(parent(vec_phys.θ_component.data)[:, :, local_r])
+        v_phi   = complex.(parent(vec_phys.φ_component.data)[:, :, local_r])
         
-        # Use SHTns vector analysis
+        # Vector analysis
         tor_coeffs, pol_coeffs = vector_analysis(sht, v_theta, v_phi)
         
-        # Store spectral coefficients
-        for lm_idx in 1:nlm
-            if lm_idx <= length(tor_coeffs)
-                tor_spec.data_real[lm_idx, 1, r_idx] = real(tor_coeffs[lm_idx])
-                tor_spec.data_imag[lm_idx, 1, r_idx] = imag(tor_coeffs[lm_idx])
-                pol_spec.data_real[lm_idx, 1, r_idx] = real(pol_coeffs[lm_idx])
-                pol_spec.data_imag[lm_idx, 1, r_idx] = imag(pol_coeffs[lm_idx])
+        # Store in local spectral coefficients
+        lm_range = get_local_range(tor_spec.pencil, 1)
+        for lm_idx in lm_range
+            if lm_idx <= nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                
+                parent(tor_spec.data_real)[local_lm, 1, local_r] = real(tor_coeffs[lm_idx])
+                parent(tor_spec.data_imag)[local_lm, 1, local_r] = imag(tor_coeffs[lm_idx])
+                parent(pol_spec.data_real)[local_lm, 1, local_r] = real(pol_coeffs[lm_idx])
+                parent(pol_spec.data_imag)[local_lm, 1, local_r] = imag(pol_coeffs[lm_idx])
                 
                 # Ensure m=0 modes are real
                 m = tor_spec.config.m_values[lm_idx]
                 if m == 0
-                    tor_spec.data_imag[lm_idx, 1, r_idx] = zero(T)
-                    pol_spec.data_imag[lm_idx, 1, r_idx] = zero(T)
+                    parent(tor_spec.data_imag)[local_lm, 1, local_r] = zero(T)
+                    parent(pol_spec.data_imag)[local_lm, 1, local_r] = zero(T)
                 end
             end
         end
     end
 end
-    
+
+
+# export shtns_spectral_to_physical!, shtns_physical_to_spectral!
+# export shtns_vector_synthesis!, shtns_vector_analysis!
+
+
 # export shtns_spectral_to_physical!, shtns_physical_to_spectral!
 # export shtns_compute_theta_derivative!, shtns_compute_phi_derivative!
 # export shtns_vector_synthesis!, shtns_vector_analysis!
