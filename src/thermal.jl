@@ -53,14 +53,15 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     # Convert spectral temperature to physical space
     shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
     
-    # Compute advection locally
-    if vel_fields !== nothing
-        compute_temperature_advection_local!(temp_field, vel_fields)
-    end
+    # Compute temperature gradient using SHTns
+    compute_temperature_gradient!(temp_field)
     
-    # Add sources
-    add_internal_sources_local!(temp_field)
-        
+    # Compute advection: -u · ∇T
+    compute_temperature_advection!(temp_field, vel_fields)
+    
+    # Add internal heat sources
+    add_internal_sources!(temp_field)
+    
     # Transform to spectral space
     shtns_physical_to_spectral!(temp_field.temperature, temp_field.nonlinear)
 end
@@ -467,22 +468,30 @@ function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, ve
     end
 end
 
-function add_internal_sources!(temp_field::SHTnsTemperatureField{T}) where T
-    # Add volumetric heat sources
-    # This typically affects only the l=m=0 mode
+function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}) where T
+    # Add internal heat sources to l=m=0 mode
+    spec_real = parent(temp_field.spectral.data_real)
     
-    # Find l=m=0 mode
-    for lm_idx in 1:temp_field.spectral.nlm
-        l = temp_field.spectral.config.l_values[lm_idx]
-        m = temp_field.spectral.config.m_values[lm_idx]
-        
-        if l == 0 && m == 0
-            for r_idx in temp_field.spectral.local_radial_range
-                if r_idx <= size(temp_field.spectral.data_real, 3) && r_idx <= length(temp_field.internal_sources)
-                    temp_field.spectral.data_real[lm_idx, 1, r_idx] += temp_field.internal_sources[r_idx]
+    # Find l=m=0 mode in local data
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    
+    for lm_idx in lm_range
+        if lm_idx <= temp_field.spectral.nlm
+            l = temp_field.spectral.config.l_values[lm_idx]
+            m = temp_field.spectral.config.m_values[lm_idx]
+            
+            if l == 0 && m == 0
+                local_lm = lm_idx - first(lm_range) + 1
+                r_range = get_local_range(temp_field.spectral.pencil, 3)
+                
+                for r_idx in r_range
+                    local_r = r_idx - first(r_range) + 1
+                    if r_idx <= length(temp_field.internal_sources)
+                        spec_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
+                    end
                 end
+                break
             end
-            break
         end
     end
 end
