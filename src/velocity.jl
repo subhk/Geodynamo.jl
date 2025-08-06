@@ -60,7 +60,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     # Work arrays
     work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
     work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    
+
     work_physical = create_shtns_vector_field(T, config, domain, pencils)
     
     # Pre-compute l(l+1) factors
@@ -80,6 +80,9 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
 end
 
 
+# =============================
+# Main nonlinear computation
+# =============================
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
                                     temp_field, comp_field, mag_field) where T
 
