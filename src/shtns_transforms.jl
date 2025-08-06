@@ -358,8 +358,10 @@ end
 
 
 function process_vector_analysis!(sht, v_theta, v_phi,
-                                        tor_real, tor_imag, pol_real, pol_imag,
-                                        r_range, lm_range, vt_work, vp_work, config)
+                                tor_real, tor_imag, 
+                                pol_real, pol_imag,
+                                r_range, lm_range, vt_work, vp_work, config)
+                                
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
@@ -380,6 +382,31 @@ function process_vector_analysis!(sht, v_theta, v_phi,
             # Store spectral coefficients
             store_vector_spectral!(tor_real, tor_imag, pol_real, pol_imag,
                                   tor_coeffs, pol_coeffs, local_r, lm_range, config)
+        end
+    end
+end
+
+
+@inline function store_vector_spectral!(tor_real, tor_imag, 
+                                    pol_real, pol_imag,
+                                    tor_coeffs, pol_coeffs, 
+                                    local_r, lm_range, config)
+
+    @inbounds @simd for lm_idx in lm_range
+        if lm_idx <= length(tor_coeffs)
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            tor_real[local_lm, 1, local_r] = real(tor_coeffs[lm_idx])
+            tor_imag[local_lm, 1, local_r] = imag(tor_coeffs[lm_idx])
+            pol_real[local_lm, 1, local_r] = real(pol_coeffs[lm_idx])
+            pol_imag[local_lm, 1, local_r] = imag(pol_coeffs[lm_idx])
+            
+            # Ensure m=0 modes are real
+            m = config.m_values[lm_idx]
+            if m == 0
+                tor_imag[local_lm, 1, local_r] = 0.0
+                pol_imag[local_lm, 1, local_r] = 0.0
+            end
         end
     end
 end
