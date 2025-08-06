@@ -24,6 +24,10 @@ module Geodynamo
     export get_local_range, get_local_indices, local_data_size, get_local_data
 
 
+    # export shtns_transforms.jl
+    export shtns_spectral_to_physical!, shtns_physical_to_spectral!
+    export shtns_vector_synthesis!, shtns_vector_analysis!
+
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
 
