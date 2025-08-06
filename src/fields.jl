@@ -10,25 +10,24 @@
     # using ..SHTnsSetup
     # using ..PencilSetup
     
-# Spherical harmonic field using SHTns
+# Field types that work with PencilArrays
 struct SHTnsSpectralField{T<:Number}
-    config::SHTnsConfig
+    config::SHTnsSetup.SHTnsConfig
     nlm::Int
-    data_real::PencilArray{T,3}   # Real coefficients (nlm, 1, r)
-    data_imag::PencilArray{T,3}   # Imaginary coefficients (nlm, 1, r)
-    local_radial_range::UnitRange{Int}
+    data_real::PencilArray{T,3}
+    data_imag::PencilArray{T,3}
+    pencil::Pencil{3}  # Store pencil for local range info
 end
 
 # Physical field on SHTns grid
 struct SHTnsPhysicalField{T<:Number}
-    config::SHTnsConfig
+    config::SHTnsSetup.SHTnsConfig
     nlat::Int
     nlon::Int
-    data_θ::PencilArray{T,3}      # Data distributed along θ (nlat, nlon, r)
-    data_φ::PencilArray{T,3}      # Data distributed along φ
-    data_r::PencilArray{T,3}      # Data distributed along r
-    local_radial_range::UnitRange{Int}
+    data::PencilArray{T,3}  # Single array, transpose as needed
+    pencil::Pencil{3}       # Current pencil orientation
 end
+
 
 # Vector field with SHTns
 struct SHTnsVectorField{T<:Number}

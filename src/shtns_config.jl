@@ -41,9 +41,9 @@ function create_shtns_config()
     # Initialize SHTns sphere
     # Use Gaussian grid for optimal accuracy
     sht = SHTnsSphere(lmax, mmax, 
-                        grid_type = SHTnsSpheres.gaussian,
-                        nlat = nlat,
-                        nlon = nlon)
+                    grid_type = SHTnsSpheres.gaussian,
+                    nlat = nlat,
+                    nlon = nlon)
     
     # Get grid information
     theta_grid    = get_theta_array(sht)
@@ -67,7 +67,8 @@ function create_shtns_config()
     end
     
     return SHTnsConfig(sht, nlat, nlon, lmax, mmax, nlm,
-                        l_values, m_values, theta_grid, phi_grid, gauss_weights)
+                        l_values, m_values, theta_grid, 
+                        phi_grid, gauss_weights)
 
 end
 
