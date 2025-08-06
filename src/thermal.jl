@@ -24,7 +24,9 @@ struct SHTnsTemperatureField{T}
 end
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
-                                        domain::RadialDomain, pencils, pencil_spec) where T
+                                        domain::RadialDomain, 
+                                        pencils, pencil_spec) where 
+                                        
     pencil_θ, pencil_φ, pencil_r = pencils
     
     # Temperature field
@@ -34,31 +36,31 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     gradient = create_shtns_vector_field(T, config, domain, pencils)
     
     # Spectral representation
-    spectral = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    spectral  = create_shtns_spectral_field(T, config, domain, pencil_spec)
     nonlinear = create_shtns_spectral_field(T, config, domain, pencil_spec)
     
     # Sources and boundary conditions
     internal_sources = zeros(T, domain.N)
-    boundary_values = zeros(T, 2, config.nlm)  # ICB and CMB values
+    boundary_values  = zeros(T, 2, config.nlm)  # ICB and CMB values
     
     return SHTnsTemperatureField{T}(temperature, gradient, spectral, nonlinear,
                                     internal_sources, boundary_values)
 end
+
 
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
                                         vel_fields) where T
     # Convert spectral temperature to physical space
     shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
     
-    # Compute temperature gradient using SHTns
-    compute_temperature_gradient!(temp_field)
+    # Compute advection locally
+    if vel_fields !== nothing
+        compute_temperature_advection_local!(temp_field, vel_fields)
+    end
     
-    # Compute advection: -u · ∇T
-    compute_temperature_advection!(temp_field, vel_fields)
-    
-    # Add internal heat sources
-    add_internal_sources!(temp_field)
-    
+    # Add sources
+    add_internal_sources_local!(temp_field)
+        
     # Transform to spectral space
     shtns_physical_to_spectral!(temp_field.temperature, temp_field.nonlinear)
 end

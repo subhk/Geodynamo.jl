@@ -271,9 +271,8 @@ function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::
     ic_pol_imag .*= rotation_factor
 end
 
-#export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
-
 
 #export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
+
 
 # end
