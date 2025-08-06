@@ -42,7 +42,8 @@ module Geodynamo
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
 
     # exports thermal.jl
-    export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
+    export SHTnsTemperatureField, create_shtns_temperature_field
+    export compute_temperature_nonlinear!, zero_work_arrays!
 
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
