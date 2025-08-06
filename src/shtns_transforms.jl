@@ -13,8 +13,8 @@
     
 # Transform from spectral to physical space using SHTns
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
-                                    phys::SHTnsPhysicalField{T},
-                                    transpose_plan=nothing) where T
+                                    phys::SHTnsPhysicalField{T}) where T
+
     sht = spec.config.sht
     nlm = spec.config.nlm
     
@@ -23,49 +23,54 @@ function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T},
     spec_imag = parent(spec.data_imag)
     phys_data = parent(phys.data)
     
-    # Get local radial range
+    # Get local ranges once
     r_range = get_local_range(spec.pencil, 3)
+    lm_range = get_local_range(spec.pencil, 1)
+    
+    # Pre-allocate coefficient array
+    coeffs = zeros(ComplexF64, nlm)
     
     # Process each local radial level
-    for r_idx in r_range
-        if r_idx <= size(spec_real, 3)
-            # Prepare spectral coefficients
-            coeffs = zeros(ComplexF64, nlm)
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
             
-            # Check if this mode is local to this process
-            lm_range = get_local_range(spec.pencil, 1)
-            for lm_idx in lm_range
-                if lm_idx <= nlm
-                    local_lm = lm_idx - first(lm_range) + 1
-                    coeffs[lm_idx] = complex(spec_real[local_lm, 1, r_idx - first(r_range) + 1],
-                                            spec_imag[local_lm, 1, r_idx - first(r_range) + 1])
+            if local_r <= size(spec_real, 3)
+                # Fill coefficients for this radial level
+                fill!(coeffs, zero(ComplexF64))
+                
+                @simd for lm_idx in lm_range
+                    if lm_idx <= nlm
+                        local_lm = lm_idx - first(lm_range) + 1
+                        coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                                spec_imag[local_lm, 1, local_r])
+                    end
+                end
+                
+                # Single collective communication
+                if length(lm_range) < nlm
+                    coeffs = MPI.Allreduce(coeffs, MPI.SUM, get_comm())
+                end
+                
+                # Perform synthesis
+                physical_data = synthesis(sht, coeffs)
+                
+                # Store with optimized memory access
+                @inbounds @simd for idx in eachindex(physical_data)
+                    phys_data[idx, local_r] = real(physical_data[idx])
                 end
             end
-            
-            # Gather coefficients from all processes (if distributed in lm)
-            coeffs = MPI.Allreduce(coeffs, MPI.SUM, get_comm())
-            
-            # Perform spherical harmonic synthesis
-            physical_data = synthesis(sht, coeffs)
-            
-            # Store in appropriate location of physical field
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(phys_data, 3)
-                phys_data[:, :, local_r] = real(physical_data)
-            end
         end
-    end
     
-    # Transpose if needed
-    if transpose_plan !== nothing
-        transpose!(phys.data, transpose_plan)
-    end
+    # # Transpose if needed
+    # if transpose_plan !== nothing
+    #     transpose!(phys.data, transpose_plan)
+    # end
 end
 
 # Transform from physical to spectral space using SHTns
 function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
-                                    spec::SHTnsSpectralField{T},
-                                    transpose_plan=nothing) where T
+                                    spec::SHTnsSpectralField{T}) where T
+
     sht = spec.config.sht
     nlm = spec.config.nlm
     
@@ -79,24 +84,23 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
     
-    # Get local radial range
+    # Get local ranges
     r_range = get_local_range(phys.pencil, 3)
+    lm_range = get_local_range(spec.pencil, 1)
     
-    for r_idx in r_range
+    @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
+        
         if local_r <= size(phys_data, 3)
-            # Extract physical data at this radial level
-            physical_data = complex.(phys_data[:, :, local_r])
-            
-            # Perform spherical harmonic analysis
+            # Extract and analyze
+            physical_data = complex.(view(phys_data, :, :, local_r))
             coeffs = analysis(sht, physical_data)
             
-            # Store spectral coefficients in local portion
-            lm_range = get_local_range(spec.pencil, 1)
-            for lm_idx in lm_range
+            # Store spectral coefficients
+            @simd for lm_idx in lm_range
                 if lm_idx <= nlm
                     local_lm = lm_idx - first(lm_range) + 1
-                    if local_lm <= size(spec_real, 1) && local_r <= size(spec_real, 3)
+                    if local_lm <= size(spec_real, 1)
                         spec_real[local_lm, 1, local_r] = real(coeffs[lm_idx])
                         spec_imag[local_lm, 1, local_r] = imag(coeffs[lm_idx])
                         
