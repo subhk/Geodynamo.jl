@@ -129,44 +129,6 @@ function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) whe
 end
 
 
-# function compute_radial_gradient_at_level!(temp_field::SHTnsTemperatureField{T}, r_idx::Int) where T
-#     # Compute radial gradient at a specific radial level using finite differences
-    
-#     # Get temperature values at neighboring radial points
-#     N = size(temp_field.temperature.data_r, 3)
-    
-#     for i_theta in 1:temp_field.temperature.nlat, j_phi in 1:temp_field.temperature.nlon
-#         if (i_theta <= size(temp_field.temperature.data_r, 1) && 
-#             j_phi <= size(temp_field.temperature.data_r, 2))
-            
-#             # Extract radial profile at this (θ,φ) point
-#             radial_profile = temp_field.temperature.data_r[i_theta, j_phi, :]
-            
-#             # Compute radial derivative using finite differences
-#             if r_idx == 1
-#                 # Forward difference at inner boundary
-#                 if N >= 2
-#                     dT_dr = radial_profile[2] - radial_profile[1]
-#                 else
-#                     dT_dr = zero(T)
-#                 end
-#             elseif r_idx == N
-#                 # Backward difference at outer boundary
-#                 dT_dr = radial_profile[N] - radial_profile[N-1]
-#             else
-#                 # Centered difference in interior
-#                 dT_dr = 0.5 * (radial_profile[r_idx+1] - radial_profile[r_idx-1])
-#             end
-            
-#             # Store radial gradient
-#             if r_idx <= size(temp_field.gradient.r_component.data_r, 3)
-#                 temp_field.gradient.r_component.data_r[i_theta, j_phi, r_idx] = dT_dr
-#             end
-#         end
-#     end
-# end
-
-
 function compute_radial_gradient!(temp_field::SHTnsTemperatureField{T}, 
                                            domain::RadialDomain) where T
     # Compute radial gradient using high-order finite difference matrices
