@@ -217,9 +217,9 @@ end
     end
 end
 
-
-
+# ==================================
 # Vector synthesis for PencilArrays
+# ==================================
 function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
                                 pol_spec::SHTnsSpectralField{T},
                                 vec_phys::SHTnsVectorField{T}) where T
