@@ -242,7 +242,7 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
     v_phi   = parent(vec_phys.φ_component.data)
     
     # Get local ranges
-    r_range = get_local_range(tor_spec.pencil, 3)
+    r_range  = get_local_range(tor_spec.pencil, 3)
     lm_range = get_local_range(tor_spec.pencil, 1)
     
     # Process with dual coefficient arrays
@@ -258,6 +258,9 @@ end
     tor_coeffs = manager.coeffs_full
     pol_coeffs = manager.coeffs_work
     
+    vt_work = manager.vt_work
+    vp_work = manager.vp_work
+    
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
@@ -272,11 +275,18 @@ end
                 perform_vector_allreduce!(tor_coeffs, pol_coeffs)
             end
             
-            # Vector synthesis
-            vt, vp = vector_synthesis(sht, tor_coeffs, pol_coeffs)
+            # Vector synthesis into work arrays
+            vt_work, vp_work = vector_synthesis(sht, tor_coeffs, pol_coeffs)
             
             # Store results (vectorized)
-            store_vector_components!(v_theta, v_phi, vt, vp, local_r)
+            for j in 1:size(v_theta, 2)
+                @simd for i in 1:size(v_theta, 1)
+                    if i <= size(vt_work, 1) && j <= size(vt_work, 2)
+                        v_theta[i, j, local_r] = real(vt_work[i, j])
+                        v_phi[i, j, local_r] = real(vp_work[i, j])
+                    end
+                end
+            end
         end
     end
 end
