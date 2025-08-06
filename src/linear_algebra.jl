@@ -12,7 +12,7 @@ struct BandedMatrix{T}
     size::Int                 # Matrix size
 end
 
-function create_derivative_matrix(order::Int, domain::VariableTypes.RadialDomain)
+function create_derivative_matrix(order::Int, domain::RadialDomain)
     # Create finite difference matrix for given derivative order
     N = domain.N
     bandwidth = i_KL
@@ -56,7 +56,7 @@ function create_derivative_matrix(order::Int, domain::VariableTypes.RadialDomain
     return BandedMatrix(data, bandwidth, N)
 end
 
-function create_radial_laplacian(domain::VariableTypes.RadialDomain)
+function create_radial_laplacian(domain::RadialDomain)
     # d²/dr² + (2/r) d/dr
     d2_matrix = create_derivative_matrix(2, domain)
     d1_matrix = create_derivative_matrix(1, domain)
@@ -76,9 +76,9 @@ function create_radial_laplacian(domain::VariableTypes.RadialDomain)
 end
 
 # Apply banded matrix to PencilArray data
-function apply_banded_matrix!(output::VariableTypes.SHTnsSpectralField{T}, 
+function apply_banded_matrix!(output::SHTnsSpectralField{T}, 
                              matrix::BandedMatrix{T}, 
-                             input::VariableTypes.SHTnsSpectralField{T}) where T
+                             input::SHTnsSpectralField{T}) where T
     # Get local data portions
     out_real = parent(output.data_real)
     out_imag = parent(output.data_imag)
@@ -86,7 +86,7 @@ function apply_banded_matrix!(output::VariableTypes.SHTnsSpectralField{T},
     in_imag  = parent(input.data_imag)
     
     # Get local indices
-    local_indices = VariableTypes.get_local_indices(input.pencil)
+    local_indices = get_local_indices(input.pencil)
     
     # Apply matrix only to local data
     for idx in CartesianIndices(local_indices)
