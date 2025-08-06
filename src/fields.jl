@@ -52,52 +52,52 @@ struct RadialDomain
     integration_weights::Vector{Float64}
 end
 
-# Constructor functions
-function create_shtns_spectral_field(::Type{T}, config::SHTnsConfig, 
+# Constructor functions compatible with PencilArrays
+function create_shtns_spectral_field(::Type{T}, config::SHTnsSetup.SHTnsConfig, 
                                     radial_domain::RadialDomain,
                                     pencil_spec::Pencil{3}) where T
     nlm = config.nlm
-    dims = (nlm, 1, radial_domain.N)
     
+    # Create PencilArrays with the given pencil
     data_real = PencilArray{T}(undef, pencil_spec)
     data_imag = PencilArray{T}(undef, pencil_spec)
     
-    fill!(data_real, zero(T))
-    fill!(data_imag, zero(T))
+    # Initialize to zero
+    fill!(parent(data_real), zero(T))
+    fill!(parent(data_imag), zero(T))
     
-    return SHTnsSpectralField{T}(config, nlm, data_real, data_imag, 
-                                radial_domain.local_range)
+    return SHTnsSpectralField{T}(config, nlm, 
+                        data_real, data_imag, pencil_spec)
 end
 
-function create_shtns_physical_field(::Type{T}, config::SHTnsConfig,
+
+function create_shtns_physical_field(::Type{T}, config::SHTnsSetup.SHTnsConfig,
                                     radial_domain::RadialDomain,
-                                    pencil_θ, pencil_φ, pencil_r) where T
+                                    pencil::Pencil{3}) where T
     nlat = config.nlat
     nlon = config.nlon
     
-    data_θ = PencilArray{T}(undef, pencil_θ)
-    data_φ = PencilArray{T}(undef, pencil_φ)
-    data_r = PencilArray{T}(undef, pencil_r)
+    # Create a single PencilArray
+    data = PencilArray{T}(undef, pencil)
+    fill!(parent(data), zero(T))
     
-    fill!(data_θ, zero(T))
-    fill!(data_φ, zero(T))
-    fill!(data_r, zero(T))
-    
-    return SHTnsPhysicalField{T}(config, nlat, nlon, data_θ, data_φ, data_r,
-                                radial_domain.local_range)
+    return SHTnsPhysicalField{T}(config, nlat, nlon, data, pencil)
 end
 
-function create_shtns_vector_field(::Type{T}, config::SHTnsConfig,
+
+function create_shtns_vector_field(::Type{T}, config::SHTnsSetup.SHTnsConfig,
                                     radial_domain::RadialDomain,
                                     pencils) where T
     pencil_θ, pencil_φ, pencil_r = pencils
     
-    r_comp = create_shtns_physical_field(T, config, radial_domain, pencil_θ, pencil_φ, pencil_r)
-    θ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_θ, pencil_φ, pencil_r)
-    φ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_θ, pencil_φ, pencil_r)
+    # Create each component with the r-pencil (contiguous in r)
+    r_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
+    θ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
+    φ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
     
     return SHTnsVectorField{T}(r_comp, θ_comp, φ_comp)
 end
+
 
 function create_radial_domain(pencil_r)
     # Get local radial range for this process
