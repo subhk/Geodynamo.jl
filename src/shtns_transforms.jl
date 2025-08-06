@@ -123,6 +123,7 @@ end
             
             # Copy to output with vectorization
             copy_physical_data!(phys_data, phys_work, local_r)
+        end
     end
 end
 
