@@ -80,7 +80,7 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     spec_imag = parent(spec.data_imag)
     
     # Get local radial range
-    r_range = VariableTypes.get_local_range(phys.pencil, 3)
+    r_range = get_local_range(phys.pencil, 3)
     
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -92,7 +92,7 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
             coeffs = analysis(sht, physical_data)
             
             # Store spectral coefficients in local portion
-            lm_range = VariableTypes.get_local_range(spec.pencil, 1)
+            lm_range = get_local_range(spec.pencil, 1)
             for lm_idx in lm_range
                 if lm_idx <= nlm
                     local_lm = lm_idx - first(lm_range) + 1
@@ -177,39 +177,50 @@ function shtns_compute_phi_derivative!(input::SHTnsSpectralField{T},
     end
 end
 
-# Compute vector spherical harmonic transforms
+
+# Vector synthesis for PencilArrays
 function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
                                 pol_spec::SHTnsSpectralField{T},
                                 vec_phys::SHTnsVectorField{T}) where T
     sht = tor_spec.config.sht
     nlm = tor_spec.config.nlm
     
-    @views for r_idx in tor_spec.local_radial_range
-        # Prepare toroidal and poloidal coefficients
+    # Process each component
+    for r_idx in get_local_range(tor_spec.pencil, 3)
+        # Gather toroidal and poloidal coefficients
         tor_coeffs = zeros(ComplexF64, nlm)
         pol_coeffs = zeros(ComplexF64, nlm)
         
-        for lm_idx in 1:nlm
-            tor_coeffs[lm_idx] = complex(tor_spec.data_real[lm_idx, 1, r_idx], 
-                                        tor_spec.data_imag[lm_idx, 1, r_idx])
-            pol_coeffs[lm_idx] = complex(pol_spec.data_real[lm_idx, 1, r_idx], 
-                                        pol_spec.data_imag[lm_idx, 1, r_idx])
+        # Fill local portions
+        lm_range = get_local_range(tor_spec.pencil, 1)
+        for lm_idx in lm_range
+            if lm_idx <= nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                local_r = r_idx - first(get_local_range(tor_spec.pencil, 3)) + 1
+                
+                tor_coeffs[lm_idx] = complex(parent(tor_spec.data_real)[local_lm, 1, local_r],
+                                            parent(tor_spec.data_imag)[local_lm, 1, local_r])
+                pol_coeffs[lm_idx] = complex(parent(pol_spec.data_real)[local_lm, 1, local_r],
+                                            parent(pol_spec.data_imag)[local_lm, 1, local_r])
+            end
         end
         
-        # Use SHTns vector synthesis
-        # This computes (v_θ, v_φ) from toroidal and poloidal scalars
+        # Gather from all processes
+        tor_coeffs = MPI.Allreduce(tor_coeffs, MPI.SUM, get_comm())
+        pol_coeffs = MPI.Allreduce(pol_coeffs, MPI.SUM, get_comm())
+        
+        # Vector synthesis
         v_theta, v_phi = vector_synthesis(sht, tor_coeffs, pol_coeffs)
         
-        # Store in vector field (θ and φ components)
-        for j_phi in 1:vec_phys.θ_component.nlon, i_theta in 1:vec_phys.θ_component.nlat
-            vec_phys.θ_component.data_r[i_theta, j_phi, r_idx] = real(v_theta[i_theta, j_phi])
-            vec_phys.φ_component.data_r[i_theta, j_phi, r_idx] = real(v_phi[i_theta, j_phi])
+        # Store in local portions of vector field
+        local_r = r_idx - first(get_local_range(vec_phys.θ_component.pencil, 3)) + 1
+        if local_r <= size(parent(vec_phys.θ_component.data), 3)
+            parent(vec_phys.θ_component.data)[:, :, local_r] = real(v_theta)
+            parent(vec_phys.φ_component.data)[:, :, local_r] = real(v_phi)
         end
-        
-        # Radial component needs to be computed separately from divergence
-        # For incompressible flow: ∇·v = 0, so v_r can be derived from continuity
     end
 end
+
 
 function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                 tor_spec::SHTnsSpectralField{T}, 
