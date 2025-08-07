@@ -204,7 +204,9 @@ function compute_curl_vector_sh!(vel_toroidal::SHTnsSpectralField{T},
     end
 end
 
-
+# =========================================
+# Vorticity computation in spectral space
+# =========================================
 function compute_vorticity_spectral!(fields::SHTnsVelocityFields{T}) where T
     # Compute vorticity directly in spectral space using l(l+1) factors
     # ω = ∇ × u, which in toroidal-poloidal space has simple relationships
@@ -359,18 +361,24 @@ function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
     end
 end
 
+
 function add_thermal_buoyancy_local!(work_r::AbstractArray{T,3}, 
                                 scalar_field, factor::Float64) where T
-    scalar_data = parent(scalar_field.data)
+    # Get the scalar field data (temperature or composition)
+    if isa(scalar_field, SHTnsPhysicalField)
+        scalar_data = parent(scalar_field.data)
+    else
+        # If it's already in physical space from temperature module
+        scalar_data = parent(scalar_field.temperature.data)
+    end
     
-    # Vectorized addition
+    # Vectorized addition of buoyancy
     @inbounds @simd for idx in eachindex(work_r)
         if idx <= length(scalar_data)
             work_r[idx] += factor * scalar_data[idx]
         end
     end
 end
-
 
 
 # function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
