@@ -635,6 +635,33 @@ function compute_influence_matrix(influence_inner::Vector{T},
 end
 
 
+function apply_influence_correction!(profile::Vector{T}, flux_inner::T, flux_outer::T,
+                                    influence_matrix::Matrix{T},
+                                    influence_inner::Vector{T}, 
+                                    influence_outer::Vector{T},
+                                    domain::RadialDomain) where T
+    # Apply correction using influence functions
+    
+    # Compute current fluxes
+    dr_matrix = create_derivative_matrix(1, domain)
+    dprofile_dr = apply_derivative_operator(dr_matrix, profile)
+    current_flux_inner = dprofile_dr[1]
+    current_flux_outer = dprofile_dr[end]
+    
+    # Flux errors
+    flux_errors = [flux_inner - current_flux_inner,
+                   flux_outer - current_flux_outer]
+    
+    # Solve for correction amplitudes
+    correction_amplitudes = influence_matrix \ flux_errors
+    
+    # Apply corrections
+    @inbounds for r_idx in 1:length(profile)
+        profile[r_idx] += correction_amplitudes[1] * influence_inner[r_idx] +
+                         correction_amplitudes[2] * influence_outer[r_idx]
+    end
+end
+
 
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
