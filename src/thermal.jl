@@ -873,6 +873,67 @@ end
 
 
 
+# ============================================================================
+# Diagnostic functions
+# ============================================================================
+function compute_nusselt_number(temp_field::SHTnsTemperatureField{T}, 
+                               domain::RadialDomain) where T
+    # Compute Nusselt number (ratio of total to conductive heat flux)
+    
+    # Get temperature gradient at boundaries
+    grad_r = parent(temp_field.gradient.r_component.data)
+    
+    # Compute surface integrals of heat flux
+    heat_flux_inner = 0.0
+    heat_flux_outer = 0.0
+    
+    r_range = get_local_range(temp_field.gradient.r_component.pencil, 3)
+    
+    # Inner boundary
+    if 1 in r_range
+        local_r = 1 - first(r_range) + 1
+        heat_flux_inner = compute_surface_integral(grad_r, local_r, temp_field.gradient.r_component.config)
+    end
+    
+    # Outer boundary
+    if domain.N in r_range
+        local_r = domain.N - first(r_range) + 1
+        heat_flux_outer = compute_surface_integral(grad_r, local_r, temp_field.gradient.r_component.config)
+    end
+    
+    # Global reduction
+    heat_flux_inner = MPI.Allreduce(heat_flux_inner, MPI.SUM, get_comm())
+    heat_flux_outer = MPI.Allreduce(heat_flux_outer, MPI.SUM, get_comm())
+    
+    # Nusselt number
+    conductive_flux = 4π * domain.r[1, 4]^2  # Normalized conductive flux
+    Nu = abs(heat_flux_outer) / conductive_flux
+    
+    return Nu
+end
+
+
+function compute_surface_integral(field_data, local_r, config)
+    # Compute surface integral using Gaussian quadrature
+    integral = 0.0
+    
+    nlat = config.nlat
+    nlon = config.nlon
+    
+    for j in 1:nlon
+        for i in 1:nlat
+            linear_idx = i + (j-1)*nlat + (local_r-1)*nlat*nlon
+            if linear_idx <= length(field_data)
+                # Use Gaussian weights for accurate integration
+                weight = config.gauss_weights[i] * (2π / nlon) * sin(config.theta_grid[i])
+                integral += field_data[linear_idx] * weight
+            end
+        end
+    end
+    
+    return integral
+end
+
 
 # ============================================================================
 # Utility functions
