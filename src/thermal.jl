@@ -81,29 +81,34 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
 end
 
 
+# ==========================================================
+# Main nonlinear computation using optimized transforms
+# ==========================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields, 
+                                        vel_fields, domain::RadialDomain,
                                         transpose_plans=nothing) where T
-
-    # Use local computation flags to minimize communication
-    needs_transpose = transpose_plans !== nothing
-
-    # Convert spectral temperature to physical space
-    shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
+    # Zero work arrays
+    zero_temperature_work_arrays!(temp_field)
     
-    # Compute temperature gradient using SHTns
-    compute_temperature_gradient!(temp_field)
+    # Step 1: Convert spectral temperature to physical space using optimized transform
+    shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature, transpose_plans)
     
-    # Compute advection -u·∇T locally with fused operations
+    # Step 2: Compute temperature gradient efficiently
+    compute_temperature_gradient_optimized!(temp_field, domain)
+    
+    # Step 3: Compute advection term -u·∇T in physical space
     if vel_fields !== nothing
-        compute_temperature_advection!(temp_field, vel_fields)
+        compute_temperature_advection_fused!(temp_field, vel_fields)
     end
     
-    # Add internal heat sources
-    add_internal_sources!(temp_field)
+    # Step 4: Add internal heat sources
+    add_internal_sources_optimized!(temp_field)
     
-    # Transform to spectral space
-    shtns_physical_to_spectral!(temp_field.temperature, temp_field.nonlinear)
+    # Step 5: Transform advection + sources to spectral space for nonlinear term
+    shtns_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear, transpose_plans)
+    
+    # Step 6: Apply boundary conditions in spectral space
+    apply_temperature_boundary_conditions!(temp_field, domain)
 end
 
 
@@ -249,35 +254,6 @@ function apply_gradient_boundary_conditions!(temp_field::SHTnsTemperatureField{T
 end
 
 
-# Utility functions
-function create_radial_derivative_matrix()
-    # Create radial derivative matrix for Chebyshev grid
-    # This would use the proper radial domain information
-    N = i_N
-    bandwidth = i_KL
-    
-    # Placeholder - would create proper finite difference matrix
-    data = zeros(2*bandwidth + 1, N)
-    
-    # Fill with finite difference coefficients
-    for i in 1:N
-        if i > 1 && i < N
-            # Centered difference
-            data[bandwidth, i+1] = 0.5
-            data[bandwidth+2, i-1] = -0.5
-        elseif i == 1
-            # Forward difference
-            data[bandwidth+1, i] = -1.0
-            data[bandwidth, i+1] = 1.0
-        else
-            # Backward difference
-            data[bandwidth+2, i-1] = -1.0
-            data[bandwidth+1, i] = 1.0
-        end
-    end
-    
-    return BandedMatrix(data, bandwidth, N)
-end
 
 
 function apply_banded_matrix_vector(matrix::BandedMatrix{T}, vector::Vector{T}) where T
