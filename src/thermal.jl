@@ -759,6 +759,27 @@ function apply_mixed_boundary_conditions!(temp_field::SHTnsTemperatureField{T},
 end
 
 
+function apply_mode_dirichlet_bc!(spec_real::AbstractArray{T,3}, 
+                                 spec_imag::AbstractArray{T,3},
+                                 local_lm::Int, lm_idx::Int,
+                                 temp_field::SHTnsTemperatureField{T},
+                                 domain::RadialDomain) where T
+    # Apply Dirichlet BC for a specific mode
+    r_range = get_local_range(temp_field.spectral.pencil, 3)
+    
+    if 1 in r_range
+        local_r = 1 - first(r_range) + 1
+        spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
+        spec_imag[local_lm, 1, local_r] = 0.0
+    end
+    
+    if domain.N in r_range
+        local_r = domain.N - first(r_range) + 1
+        spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
+        spec_imag[local_lm, 1, local_r] = 0.0
+    end
+end
+
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
