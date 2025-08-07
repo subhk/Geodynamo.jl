@@ -39,11 +39,10 @@ end
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
                                         domain::RadialDomain, 
                                         pencils, pencil_spec) where T
-                                        
     pencil_θ, pencil_φ, pencil_r = pencils
     
     # Temperature field
-    temperature = create_shtns_physical_field(T, config, domain, pencil_θ, pencil_φ, pencil_r)
+    temperature = create_shtns_physical_field(T, config, domain, pencil_r)
     
     # Gradient components
     gradient = create_shtns_vector_field(T, config, domain, pencils)
@@ -52,13 +51,33 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     spectral  = create_shtns_spectral_field(T, config, domain, pencil_spec)
     nonlinear = create_shtns_spectral_field(T, config, domain, pencil_spec)
     
+    # Work arrays
+    work_spectral = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    work_physical = create_shtns_physical_field(T, config, domain, pencil_r)
+    advection_physical = create_shtns_physical_field(T, config, domain, pencil_r)
+    
+    # Gradient spectral components
+    grad_theta_spec = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    grad_phi_spec = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    
     # Sources and boundary conditions
     internal_sources = zeros(T, domain.N)
     boundary_values  = zeros(T, 2, config.nlm)  # ICB and CMB values
     
-    return SHTnsTemperatureField{T}(temperature, gradient, 
-                                    spectral, nonlinear,
-                                    internal_sources, boundary_values)
+    # Pre-compute l(l+1) factors
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    
+    # Create transform manager
+    transform_manager = get_transform_manager(T, config, pencil_spec)
+    
+    # Create radial derivative matrix
+    dr_matrix = create_derivative_matrix(1, domain)
+    
+    return SHTnsTemperatureField{T}(temperature, gradient, spectral, nonlinear,
+                                    work_spectral, work_physical, advection_physical,
+                                    grad_theta_spec, grad_phi_spec,
+                                    internal_sources, boundary_values,
+                                    l_factors, transform_manager, dr_matrix)
 end
 
 
