@@ -535,6 +535,60 @@ function get_flux_bc_value(lm_idx::Int, boundary::Int,
 end
 
 
+# ============================================================================
+# Advanced flux BC implementation using influence matrix method
+# ============================================================================
+function apply_flux_bc_influence_matrix!(temp_field::SHTnsTemperatureField{T}, 
+                                        domain::RadialDomain) where T
+    # More sophisticated flux BC implementation using influence functions
+    
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    nr = domain.N
+    
+    # Pre-compute influence functions and their derivatives
+    influence_inner, influence_outer = compute_influence_functions(domain)
+    influence_matrix = compute_influence_matrix(influence_inner, influence_outer, domain)
+    
+    # Process each (l,m) mode
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= temp_field.spectral.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            # Extract and correct radial profile
+            temp_profile_real = extract_radial_profile(spec_real, local_lm, nr, 
+                                                      temp_field.spectral.pencil)
+            temp_profile_imag = extract_radial_profile(spec_imag, local_lm, nr, 
+                                                      temp_field.spectral.pencil)
+            
+            # Get prescribed fluxes
+            flux_inner = get_flux_bc_value(lm_idx, 1, temp_field)
+            flux_outer = get_flux_bc_value(lm_idx, 2, temp_field)
+            
+            # Apply influence matrix correction
+            apply_influence_correction!(temp_profile_real, flux_inner, flux_outer,
+                                       influence_matrix, influence_inner, influence_outer,
+                                       domain)
+            
+            if any(x -> abs(x) > 1e-12, temp_profile_imag)
+                apply_influence_correction!(temp_profile_imag, 0.0, 0.0,
+                                          influence_matrix, influence_inner, influence_outer,
+                                          domain)
+            end
+            
+            # Store corrected profile
+            store_radial_profile!(spec_real, temp_profile_real, local_lm, 
+                                temp_field.spectral.pencil)
+            store_radial_profile!(spec_imag, temp_profile_imag, local_lm, 
+                                temp_field.spectral.pencil)
+        end
+    end
+end
+
+
+
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
