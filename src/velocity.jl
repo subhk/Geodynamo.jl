@@ -483,6 +483,24 @@ function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain)
 end
 
 
+# ===========================================
+# Helper functions for radial operations
+# ===========================================
+function extract_local_radial_profile(data::AbstractArray{T,3}, local_lm::Int, 
+                                     nr::Int, r_range) where T
+    profile = zeros(T, nr)
+    
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(data, 3) && r_idx <= nr
+            profile[r_idx] = data[local_lm, 1, local_r]
+        end
+    end
+    
+    return profile
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
