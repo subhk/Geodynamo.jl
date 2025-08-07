@@ -1,6 +1,14 @@
 # ===============================================================
 # Temperature  field components with optimized SHTns transforms
 # ===============================================================
+# For uniform heating from below (l=0, m=0 mode has flux BC)
+# Other modes have fixed temperature
+# bc_type_inner = ones(Int, nlm)
+# bc_type_outer = ones(Int, nlm)
+# bc_type_inner[1] = 2  # Flux BC for l=0, m=0 at inner boundary
+# bc_type_outer[1] = 2  # Flux BC for l=0, m=0 at outer boundary
+# apply_mixed_boundary_conditions!(temp_field, domain, bc_type_inner, bc_type_outer)
+
 struct SHTnsTemperatureField{T}
     # Physical space temperature
     temperature::SHTnsPhysicalField{T}
