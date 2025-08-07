@@ -159,56 +159,105 @@ end
 # end
 
 
-function compute_induction_term_local!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
-    if vel_fields === nothing
-        return
-    end
-    
-    # Get local data
-    mag_r = parent(mag_fields.magnetic.r_component.data)
-    mag_θ = parent(mag_fields.magnetic.θ_component.data)
-    mag_φ = parent(mag_fields.magnetic.φ_component.data)
-    
-    vel_r = parent(vel_fields.velocity.r_component.data)
-    vel_θ = parent(vel_fields.velocity.θ_component.data)
-    vel_φ = parent(vel_fields.velocity.φ_component.data)
-    
-    # Compute u × B locally
-    for idx in eachindex(mag_r)
-        if idx <= length(vel_r)
-            u_r = vel_r[idx]
-            u_θ = vel_θ[idx]
-            u_φ = vel_φ[idx]
-            
-            B_r = mag_r[idx]
-            B_θ = mag_θ[idx]
-            B_φ = mag_φ[idx]
-            
-            mag_r[idx] = u_θ * B_φ - u_φ * B_θ
-            mag_θ[idx] = u_φ * B_r - u_r * B_φ
-            mag_φ[idx] = u_r * B_θ - u_θ * B_r
-        end
-    end
-end
 
 
 
-function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::Float64) where T
-    # Apply rotation effects to inner core fields
+
+# ========================================================
+# Inner core rotation effects
+# ========================================================
+function add_inner_core_rotation!(mag_fields::SHTnsMagneticFields{T}, Ω::Float64) where T
+    # Inner core rotation: affects boundary coupling
+    # This modifies the nonlinear terms based on inner core rotation
+    
+    # Get local data views
     ic_tor_real = parent(mag_fields.ic_toroidal.data_real)
     ic_tor_imag = parent(mag_fields.ic_toroidal.data_imag)
     ic_pol_real = parent(mag_fields.ic_poloidal.data_real)
     ic_pol_imag = parent(mag_fields.ic_poloidal.data_imag)
     
-    rotation_factor = 1.0 - Ω * 1e-3
+    nl_tor_real = parent(mag_fields.nl_toroidal.data_real)
+    nl_tor_imag = parent(mag_fields.nl_toroidal.data_imag)
+    nl_pol_real = parent(mag_fields.nl_poloidal.data_real)
+    nl_pol_imag = parent(mag_fields.nl_poloidal.data_imag)
     
-    ic_tor_real .*= rotation_factor
-    ic_tor_imag .*= rotation_factor
-    ic_pol_real .*= rotation_factor
-    ic_pol_imag .*= rotation_factor
+    # Get local ranges
+    lm_range = get_local_range(mag_fields.ic_toroidal.pencil, 1)
+    r_range  = get_local_range(mag_fields.ic_toroidal.pencil, 3)
+    
+    # Rotation factor for inner core coupling
+    rotation_factor = Ω * 1e-3  # Scaled rotation rate
+    
+    # Add rotation effects to nonlinear terms at inner core boundary
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= mag_fields.ic_toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            m = mag_fields.toroidal.config.m_values[lm_idx]
+            
+            # Only affects m ≠ 0 modes (azimuthal dependence)
+            if m != 0
+                # Apply at inner core boundary (first radial point)
+                if 1 in r_range
+                    local_r = 1 - first(r_range) + 1
+                    if local_r <= size(nl_tor_real, 3)
+                        # Add rotation-induced coupling
+                        coupling_factor = rotation_factor * Float64(m)
+                        
+                        # Cross-coupling between toroidal and poloidal due to rotation
+                        nl_tor_real[local_lm, 1, local_r] += coupling_factor * ic_pol_imag[local_lm, 1, local_r]
+                        nl_tor_imag[local_lm, 1, local_r] -= coupling_factor * ic_pol_real[local_lm, 1, local_r]
+                        nl_pol_real[local_lm, 1, local_r] -= coupling_factor * ic_tor_imag[local_lm, 1, local_r]
+                        nl_pol_imag[local_lm, 1, local_r] += coupling_factor * ic_tor_real[local_lm, 1, local_r]
+                    end
+                end
+            end
+        end
+    end
 end
 
 
+# =======================
+# Diagnostic functions
+# =======================
+function compute_magnetic_energy(mag_fields::SHTnsMagneticFields{T}) where T
+    # Compute magnetic energy in spectral space
+    
+    tor_real = parent(mag_fields.toroidal.data_real)
+    tor_imag = parent(mag_fields.toroidal.data_imag)
+    pol_real = parent(mag_fields.poloidal.data_real)
+    pol_imag = parent(mag_fields.poloidal.data_imag)
+    
+    local_energy = zero(Float64)
+    
+    # Get local ranges
+    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
+    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= mag_fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = mag_fields.l_factors[lm_idx]
+            
+            # Weight by l(l+1) for proper spectral integration
+            weight = 1.0 / max(l_factor, 1.0)
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    local_energy += weight * (
+                        tor_real[local_lm, 1, local_r]^2 + 
+                        tor_imag[local_lm, 1, local_r]^2 + 
+                        pol_real[local_lm, 1, local_r]^2 + 
+                        pol_imag[local_lm, 1, local_r]^2
+                    )
+                end
+            end
+        end
+    end
+    
+    # Global sum across all processes
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+end
 
 function compute_ohmic_dissipation(mag_fields::SHTnsMagneticFields{T}) where T
     # Compute Ohmic dissipation: η |∇ × B|²
