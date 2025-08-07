@@ -371,6 +371,61 @@ function apply_temperature_bc_dirichlet!(temp_field::SHTnsTemperatureField{T},
 end
 
 
+function apply_flux_bc_neumann!(temp_field::SHTnsTemperatureField{T}, 
+                               domain::RadialDomain) where T
+    # Apply fixed flux boundary conditions using influence matrix method
+    
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    nr = domain.N
+    
+    # Create boundary derivative operator
+    boundary_dr = create_boundary_derivative_operator(domain)
+    
+    # Process each (l,m) mode
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= temp_field.spectral.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            # Extract radial profile
+            temp_profile_real = zeros(T, nr)
+            temp_profile_imag = zeros(T, nr)
+            
+            for r_idx in 1:nr
+                if r_idx in get_local_range(temp_field.spectral.pencil, 3)
+                    local_r = r_idx - first(get_local_range(temp_field.spectral.pencil, 3)) + 1
+                    if local_r <= size(spec_real, 3)
+                        temp_profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                        temp_profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+                    end
+                end
+            end
+            
+            # Get prescribed fluxes for this mode
+            flux_inner = get_flux_bc_value(lm_idx, 1, temp_field)
+            flux_outer = get_flux_bc_value(lm_idx, 2, temp_field)
+            
+            # Apply flux correction
+            correct_for_flux_bc!(temp_profile_real, flux_inner, flux_outer, boundary_dr, domain)
+            if any(x -> abs(x) > 1e-12, temp_profile_imag)
+                correct_for_flux_bc!(temp_profile_imag, 0.0, 0.0, boundary_dr, domain)
+            end
+            
+            # Store corrected profile back
+            for r_idx in get_local_range(temp_field.spectral.pencil, 3)
+                local_r = r_idx - first(get_local_range(temp_field.spectral.pencil, 3)) + 1
+                if local_r <= size(spec_real, 3)
+                    spec_real[local_lm, 1, local_r] = temp_profile_real[r_idx]
+                    spec_imag[local_lm, 1, local_r] = temp_profile_imag[r_idx]
+                end
+            end
+        end
+    end
+end
+
+
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
     fill!(parent(temp_field.work_physical.data), zero(T))
