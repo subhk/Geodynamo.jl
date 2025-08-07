@@ -531,45 +531,45 @@ function apply_derivative_local(matrix::BandedMatrix{T}, field::Vector{T}) where
 end
 
 
-function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
-                                 l_factor::Float64, domain::RadialDomain) where T
-    # Solve (∇²_r - l(l+1)/r²) u = source
-    # This is a simplified solver - in practice would use more sophisticated methods
+# function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
+#                                  l_factor::Float64, domain::RadialDomain) where T
+#     # Solve (∇²_r - l(l+1)/r²) u = source
+#     # This is a simplified solver - in practice would use more sophisticated methods
     
-    N = domain.N
-    solution = zeros(T, N)
+#     N = domain.N
+#     solution = zeros(T, N)
     
-    # Build full operator for this l value
-    operator = zeros(T, N, N)
-    bandwidth = laplacian.bandwidth
+#     # Build full operator for this l value
+#     operator = zeros(T, N, N)
+#     bandwidth = laplacian.bandwidth
     
-    @inbounds for j in 1:N
-        for i in max(1, j - bandwidth):min(N, j + bandwidth)
-            band_row = bandwidth + 1 + i - j
-            if 1 <= band_row <= 2*bandwidth + 1
-                operator[i, j] = laplacian.data[band_row, j]
-                if i == j
-                    # Add -l(l+1)/r² term to diagonal
-                    r_inv2 = domain.r[i, 2]
-                    operator[i, j] -= l_factor * r_inv2
-                end
-            end
-        end
-    end
+#     @inbounds for j in 1:N
+#         for i in max(1, j - bandwidth):min(N, j + bandwidth)
+#             band_row = bandwidth + 1 + i - j
+#             if 1 <= band_row <= 2*bandwidth + 1
+#                 operator[i, j] = laplacian.data[band_row, j]
+#                 if i == j
+#                     # Add -l(l+1)/r² term to diagonal
+#                     r_inv2 = domain.r[i, 2]
+#                     operator[i, j] -= l_factor * r_inv2
+#                 end
+#             end
+#         end
+#     end
     
-    # Apply boundary conditions (solution vanishes at boundaries)
-    operator[1, :] .= 0.0
-    operator[1, 1] = 1.0
-    operator[N, :] .= 0.0
-    operator[N, N] = 1.0
-    source[1] = 0.0
-    source[N] = 0.0
+#     # Apply boundary conditions (solution vanishes at boundaries)
+#     operator[1, :] .= 0.0
+#     operator[1, 1] = 1.0
+#     operator[N, :] .= 0.0
+#     operator[N, N] = 1.0
+#     source[1] = 0.0
+#     source[N] = 0.0
     
-    # Solve linear system (would use iterative solver in practice)
-    solution = operator \ source
+#     # Solve linear system (would use iterative solver in practice)
+#     solution = operator \ source
     
-    return solution
-end
+#     return solution
+# end
 
 
 # =====================================================
@@ -647,49 +647,41 @@ function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
 end
 
 
-
-function compute_enstrophy(fields::SHTnsVelocityFields{T}, domain::RadialDomain) where T
-    # Compute enstrophy from vorticity spectral coefficients
+# ============================================================================
+# Utility functions
+# ============================================================================
+function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
+    # Efficiently zero all work arrays
+    fill!(parent(fields.work_tor.data_real), zero(T))
+    fill!(parent(fields.work_tor.data_imag), zero(T))
+    fill!(parent(fields.work_pol.data_real), zero(T))
+    fill!(parent(fields.work_pol.data_imag), zero(T))
     
-    vort_tor_real = parent(fields.vort_toroidal.data_real)
-    vort_tor_imag = parent(fields.vort_toroidal.data_imag)
-    vort_pol_real = parent(fields.vort_poloidal.data_real)
-    vort_pol_imag = parent(fields.vort_poloidal.data_imag)
+    fill!(parent(fields.work_physical.r_component.data), zero(T))
+    fill!(parent(fields.work_physical.θ_component.data), zero(T))
+    fill!(parent(fields.work_physical.φ_component.data), zero(T))
     
-    local_enstrophy = zero(Float64)
+    fill!(parent(fields.advection_physical.r_component.data), zero(T))
+    fill!(parent(fields.advection_physical.θ_component.data), zero(T))
+    fill!(parent(fields.advection_physical.φ_component.data), zero(T))
     
-    lm_range = get_local_range(fields.vort_toroidal.pencil, 1)
-    r_range = get_local_range(fields.vort_toroidal.pencil, 3)
-    
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= fields.vort_toroidal.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-            l_factor = fields.l_factors[lm_idx]
-            weight = 1.0 / max(l_factor, 1.0)
-            
-            @simd for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(vort_tor_real, 3)
-                    r = domain.r[r_idx, 4]
-                    r_weight = r^2 * domain.integration_weights[r_idx]
-                    
-                    local_enstrophy += weight * r_weight * (
-                        vort_tor_real[local_lm, 1, local_r]^2 + 
-                        vort_tor_imag[local_lm, 1, local_r]^2 + 
-                        vort_pol_real[local_lm, 1, local_r]^2 + 
-                        vort_pol_imag[local_lm, 1, local_r]^2
-                    )
-                end
-            end
-        end
-    end
-    
-    return 0.5 * MPI.Allreduce(local_enstrophy, MPI.SUM, get_comm())
+    fill!(parent(fields.vort_toroidal.data_real), zero(T))
+    fill!(parent(fields.vort_toroidal.data_imag), zero(T))
+    fill!(parent(fields.vort_poloidal.data_real), zero(T))
+    fill!(parent(fields.vort_poloidal.data_imag), zero(T))
 end
 
+function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
+    # Scale all components of a vector field
+    parent(field.r_component.data) .*= factor
+    parent(field.θ_component.data) .*= factor
+    parent(field.φ_component.data) .*= factor
+end
 
-# # Export functions
-# export SHTnsVelocityFields, create_shtns_velocity_fields
-# export compute_velocity_nonlinear!, compute_velocity_nonlinear_batched!
-# export compute_kinetic_energy, compute_enstrophy
-# export zero_velocity_work_arrays!
+function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{T}) where T
+    # Add source to destination
+    parent(dest.r_component.data) .+= parent(source.r_component.data)
+    parent(dest.θ_component.data) .+= parent(source.θ_component.data)
+    parent(dest.φ_component.data) .+= parent(source.φ_component.data)
+end
+
