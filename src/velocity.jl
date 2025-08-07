@@ -512,6 +512,25 @@ function store_local_radial_profile!(data::AbstractArray{T,3}, profile::Vector{T
 end
 
 
+function apply_derivative_local(matrix::BandedMatrix{T}, field::Vector{T}) where T
+    # Apply banded derivative matrix
+    N = matrix.size
+    bandwidth = matrix.bandwidth
+    result = zeros(T, N)
+    
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                result[i] += matrix.data[band_row, j] * field[j]
+            end
+        end
+    end
+    
+    return result
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
