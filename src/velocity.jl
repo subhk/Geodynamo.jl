@@ -408,6 +408,43 @@ function add_lorentz_force_spectral!(fields::SHTnsVelocityFields{T}, mag_field) 
 end
 
 
+function compute_magnetic_curl_spectral!(mag_field, j_tor::SHTnsSpectralField{T}, 
+                                        j_pol::SHTnsSpectralField{T}, l_factors) where T
+    # Compute j = ∇ × B in spectral space
+    
+    mag_tor_real = parent(mag_field.toroidal.data_real)
+    mag_tor_imag = parent(mag_field.toroidal.data_imag)
+    mag_pol_real = parent(mag_field.poloidal.data_real)
+    mag_pol_imag = parent(mag_field.poloidal.data_imag)
+    
+    j_tor_real = parent(j_tor.data_real)
+    j_tor_imag = parent(j_tor.data_imag)
+    j_pol_real = parent(j_pol.data_real)
+    j_pol_imag = parent(j_pol.data_imag)
+    
+    lm_range = get_local_range(j_tor.pencil, 1)
+    r_range = get_local_range(j_tor.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(mag_tor_real, 3)
+                    # Curl in spectral space
+                    j_tor_real[local_lm, 1, local_r] = l_factor * mag_pol_real[local_lm, 1, local_r]
+                    j_tor_imag[local_lm, 1, local_r] = l_factor * mag_pol_imag[local_lm, 1, local_r]
+                    j_pol_real[local_lm, 1, local_r] = -l_factor * mag_tor_real[local_lm, 1, local_r]
+                    j_pol_imag[local_lm, 1, local_r] = -l_factor * mag_tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+    end
+end
+
+
 # function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
 #     # Add Lorentz force: j × B = (∇ × B) × B
 #     # This is the magnetic force per unit volume in the momentum equation
