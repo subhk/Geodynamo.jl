@@ -381,22 +381,18 @@ function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
 end
 
 
-function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
-    # Add thermal buoyancy: Ra_T * Pr * T * ê_r
-
-    if temp_field !== nothing
-        buoyancy_factor = d_Ra * d_Pr
-        vel_r = parent(fields.velocity.r_component.data)
-
-        temp = parent(temp_field.data)
-        
-        for idx in eachindex(vel_r)
-            if idx <= length(temp)
-                vel_r[idx] += buoyancy_factor * temp[idx]
-            end
+function add_thermal_buoyancy_local!(work_r::AbstractArray{T,3}, 
+                                scalar_field, factor::Float64) where T
+    scalar_data = parent(scalar_field.data)
+    
+    # Vectorized addition
+    @inbounds @simd for idx in eachindex(work_r)
+        if idx <= length(scalar_data)
+            work_r[idx] += factor * scalar_data[idx]
         end
     end
 end
+
 
 function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
     # Add compositional buoyancy: Ra_C * Pr * C * ê_r  
