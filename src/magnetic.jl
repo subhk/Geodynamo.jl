@@ -131,6 +131,51 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
 end
 
 
+# ========================================================
+# Current density computation in spectral space
+# ========================================================
+function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}) where T
+    # Compute j = ∇ × B using spectral relationships
+    # For B = ∇ × (T r̂) + ∇ × ∇ × (P r̂), the curl has specific forms
+    
+    # Get local data views
+    B_tor_real = parent(mag_fields.toroidal.data_real)
+    B_tor_imag = parent(mag_fields.toroidal.data_imag)
+    B_pol_real = parent(mag_fields.poloidal.data_real)
+    B_pol_imag = parent(mag_fields.poloidal.data_imag)
+    
+    j_tor_real = parent(mag_fields.work_tor.data_real)
+    j_tor_imag = parent(mag_fields.work_tor.data_imag)
+    j_pol_real = parent(mag_fields.work_pol.data_real)
+    j_pol_imag = parent(mag_fields.work_pol.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
+    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    
+    # Apply curl relationships in spectral space
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(mag_fields.l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = mag_fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(B_tor_real, 3)
+                    # Curl in spectral space (simplified - full implementation needs radial derivatives)
+                    # j_tor = l(l+1) * B_pol / r²
+                    # j_pol = -l(l+1) * B_tor / r²
+                    
+                    # For now, using simplified relationship
+                    j_tor_real[local_lm, 1, local_r] = l_factor * B_pol_real[local_lm, 1, local_r]
+                    j_tor_imag[local_lm, 1, local_r] = l_factor * B_pol_imag[local_lm, 1, local_r]
+                    j_pol_real[local_lm, 1, local_r] = -l_factor * B_tor_real[local_lm, 1, local_r]
+                    j_pol_imag[local_lm, 1, local_r] = -l_factor * B_tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+    end
+end
 
 
 # ==============================
@@ -150,14 +195,33 @@ function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields)
     compute_curl_of_induction!(mag_fields)
 end
 
-# # Utility function
-# function get_radius_at_level(r_idx::Int, config::SHTnsConfig)
-#     # Get radius at radial level r_idx
-#     # This would come from the radial domain
-#     # Placeholder implementation
-#     return 0.5 + 0.5 * cos(π * (r_idx - 1) / (i_N - 1))  # Chebyshev grid
-# end
-
+function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
+    # Compute u × B in physical space
+    
+    # Get local data views
+    u_r = parent(vel_fields.velocity.r_component.data)
+    u_θ = parent(vel_fields.velocity.θ_component.data)
+    u_φ = parent(vel_fields.velocity.φ_component.data)
+    
+    B_r = parent(mag_fields.magnetic.r_component.data)
+    B_θ = parent(mag_fields.magnetic.θ_component.data)
+    B_φ = parent(mag_fields.magnetic.φ_component.data)
+    
+    # Output: u × B
+    uxB_r = parent(mag_fields.induction_physical.r_component.data)
+    uxB_θ = parent(mag_fields.induction_physical.θ_component.data)
+    uxB_φ = parent(mag_fields.induction_physical.φ_component.data)
+    
+    # Compute cross product with vectorization
+    @inbounds @simd for idx in eachindex(u_r)
+        if idx <= length(B_r)
+            # u × B = (u_θ B_φ - u_φ B_θ, u_φ B_r - u_r B_φ, u_r B_θ - u_θ B_r)
+            uxB_r[idx] = u_θ[idx] * B_φ[idx] - u_φ[idx] * B_θ[idx]
+            uxB_θ[idx] = u_φ[idx] * B_r[idx] - u_r[idx] * B_φ[idx]
+            uxB_φ[idx] = u_r[idx] * B_θ[idx] - u_θ[idx] * B_r[idx]
+        end
+    end
+end
 
 
 function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
