@@ -255,12 +255,6 @@ end
 
 
 
-function get_radius_at_level(r_idx::Int)
-    # Get radius at radial grid point
-    # Placeholder - would come from radial domain
-    return 0.5 + 0.5 * cos(π * (r_idx - 1) / (i_N - 1))
-end
-
 function get_prescribed_heat_flux(i_theta::Int, j_phi::Int)
     # Get prescribed heat flux for boundary conditions
     # Placeholder - would come from boundary condition specification
