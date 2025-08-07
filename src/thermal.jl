@@ -589,6 +589,53 @@ end
 
 
 
+function compute_influence_functions(domain::RadialDomain)
+    # Compute smooth influence functions for boundary corrections
+    N = domain.N
+    influence_inner = zeros(N)
+    influence_outer = zeros(N)
+    
+    ri = domain.r[1, 4]
+    ro = domain.r[N, 4]
+    
+    for r_idx in 1:N
+        r = domain.r[r_idx, 4]
+        ξ = (r - ri) / (ro - ri)  # Normalized coordinate [0, 1]
+        
+        # Smooth influence functions using cosine tapers
+        influence_inner[r_idx] = 0.5 * (1.0 + cos(π * ξ))
+        influence_outer[r_idx] = 0.5 * (1.0 - cos(π * ξ))
+    end
+    
+    return influence_inner, influence_outer
+end
+
+
+function compute_influence_matrix(influence_inner::Vector{T}, 
+                                 influence_outer::Vector{T},
+                                 domain::RadialDomain) where T
+    # Compute 2x2 influence matrix for boundary flux corrections
+    
+    # Create derivative matrix
+    dr_matrix = create_derivative_matrix(1, domain)
+    
+    # Compute derivatives of influence functions
+    dinf_inner_dr = apply_derivative_operator(dr_matrix, influence_inner)
+    dinf_outer_dr = apply_derivative_operator(dr_matrix, influence_outer)
+    
+    # Build influence matrix
+    # M[i,j] = flux at boundary i due to unit amplitude of influence function j
+    M = zeros(T, 2, 2)
+    M[1, 1] = dinf_inner_dr[1]    # Flux at inner due to inner influence
+    M[1, 2] = dinf_outer_dr[1]    # Flux at inner due to outer influence
+    M[2, 1] = dinf_inner_dr[end]  # Flux at outer due to inner influence
+    M[2, 2] = dinf_outer_dr[end]  # Flux at outer due to outer influence
+    
+    return M
+end
+
+
+
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
