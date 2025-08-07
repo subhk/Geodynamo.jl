@@ -704,6 +704,21 @@ function extract_radial_profile(data::AbstractArray{T,3}, local_lm::Int, nr::Int
 end
 
 
+function store_radial_profile!(data::AbstractArray{T,3}, profile::Vector{T}, 
+                              local_lm::Int, pencil::Pencil{3}) where T
+    # Store radial profile back to distributed array
+    r_range = get_local_range(pencil, 3)
+    
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(data, 3) && r_idx <= length(profile)
+            data[local_lm, 1, local_r] = profile[r_idx]
+        end
+    end
+end
+
+
+
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
     fill!(parent(temp_field.work_physical.data), zero(T))
