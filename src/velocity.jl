@@ -659,46 +659,7 @@ end
 #     end
 # end
 
-# function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float64) where T
-#     # Scale the Lorentz force by the magnetic interaction parameter
-#     # Typically 1/Pm (inverse magnetic Reynolds number) or Ha²/Re (Hartmann number squared / Reynolds number)
-    
-#     for r_idx in velocity.r_component.local_radial_range
-#         if r_idx <= size(velocity.r_component.data_r, 3)
-#             for j_phi in 1:velocity.r_component.nlon, i_theta in 1:velocity.r_component.nlat
-#                 if (i_theta <= size(velocity.r_component.data_r, 1) && 
-#                     j_phi <= size(velocity.r_component.data_r, 2))
-                    
-#                     velocity.r_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                     velocity.θ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                     velocity.φ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                 end
-#             end
-#         end
-#     end
-# end
 
-
-# # Additional utility function for computing radial derivatives needed in curl
-# function compute_radial_derivative!(input_field::SHTnsSpectralField{T}, 
-#                                    output_field::SHTnsSpectralField{T},
-#                                    domain::RadialDomain) where T
-#     # Compute radial derivative using finite differences
-#     # This is used in the curl computation where spectral methods don't apply (radial direction)
-    
-#     dr_matrix = create_derivative_matrix(1, domain)
-    
-#     # Apply radial derivative matrix to each spectral mode
-#     @views for lm_idx in 1:input_field.nlm
-#         # Real part
-#         apply_banded_vector!(output_field.data_real[lm_idx, 1, :], 
-#                            dr_matrix, input_field.data_real[lm_idx, 1, :])
-        
-#         # Imaginary part
-#         apply_banded_vector!(output_field.data_imag[lm_idx, 1, :], 
-#                            dr_matrix, input_field.data_imag[lm_idx, 1, :])
-#     end
-# end
 
 
 # Alternative implementation using vector spherical harmonic transforms
