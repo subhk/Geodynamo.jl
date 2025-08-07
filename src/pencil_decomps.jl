@@ -13,7 +13,7 @@ end
 
 # Modified pencil decomposition that works with SHTns grids
 function create_pencil_topology(shtns_config::SHTnsConfig)
-comm = get_comm()
+    comm = get_comm()
     
     # Get MPI info
     rank = MPI.Comm_rank(comm)

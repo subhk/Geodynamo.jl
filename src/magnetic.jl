@@ -245,6 +245,7 @@ function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields)
     compute_curl_of_induction!(mag_fields)
 end
 
+
 function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
     # Compute u × B in physical space
     
