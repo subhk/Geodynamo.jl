@@ -465,6 +465,24 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
 end
 
 
+function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain) where T
+    # Modify profile to satisfy d(rT)/dr = 0 at boundaries
+    # This uses linear extrapolation near boundaries
+    
+    N = domain.N
+    
+    # Inner boundary: d(rT)/dr = 0 at r=ri
+    r1 = domain.r[1, 4]
+    r2 = domain.r[2, 4]
+    profile[1] = profile[2] * r2 / r1  # Linear extrapolation
+    
+    # Outer boundary: d(rT)/dr = 0 at r=ro
+    rN = domain.r[N, 4]
+    rN1 = domain.r[N-1, 4]
+    profile[N] = profile[N-1] * rN1 / rN  # Linear extrapolation
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
