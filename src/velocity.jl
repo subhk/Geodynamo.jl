@@ -805,3 +805,10 @@ function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
     fill!(parent(fields.work_physical.φ_component.data), zero(T))
 end
 
+function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
+    # Scale all components of a vector field
+    parent(field.r_component.data) .*= factor
+    parent(field.θ_component.data) .*= factor
+    parent(field.φ_component.data) .*= factor
+end
+
