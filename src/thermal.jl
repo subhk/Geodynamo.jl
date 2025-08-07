@@ -781,6 +781,32 @@ function apply_mode_dirichlet_bc!(spec_real::AbstractArray{T,3},
 end
 
 
+function apply_mode_neumann_bc!(spec_real::AbstractArray{T,3}, 
+                               spec_imag::AbstractArray{T,3},
+                               local_lm::Int, lm_idx::Int,
+                               temp_field::SHTnsTemperatureField{T},
+                               domain::RadialDomain) where T
+    # Apply Neumann BC for a specific mode using the established method
+    
+    # Extract profile
+    profile_real = extract_radial_profile(spec_real, local_lm, domain.N, 
+                                         temp_field.spectral.pencil)
+    
+    # Get prescribed fluxes
+    flux_inner = get_flux_bc_value(lm_idx, 1, temp_field)
+    flux_outer = get_flux_bc_value(lm_idx, 2, temp_field)
+    
+    # Apply correction
+    boundary_op = create_boundary_derivative_operator(domain)
+    correct_for_flux_bc!(profile_real, flux_inner, flux_outer, boundary_op, domain)
+    
+    # Store corrected profile
+    store_radial_profile!(spec_real, profile_real, local_lm, 
+                        temp_field.spectral.pencil)
+end
+
+
+
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
     fill!(parent(temp_field.work_physical.data), zero(T))
