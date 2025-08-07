@@ -28,7 +28,8 @@ module Geodynamo
     export SHTnsTransformManager, get_transform_manager
 
     # exports linear_algebra.jl
-    export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
+    export BandedMatrix, create_derivative_matrix, create_radial_laplacian
+    export apply_derivative_matrix!, apply_banded_matrix!
 
     # exports timestep.jl
     export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices

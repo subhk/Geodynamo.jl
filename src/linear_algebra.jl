@@ -101,9 +101,11 @@ function apply_banded_matrix!(output::SHTnsSpectralField{T},
                                       view(in_imag, idx[1], idx[2], :))
         end
     end
+
+    return nothing
 end
 
-
+# Helper function to apply derivative matrix
 function apply_banded_vector_local!(output::AbstractVector{T}, 
                                    matrix::BandedMatrix{T}, 
                                    input::AbstractVector{T}) where T
@@ -120,8 +122,27 @@ function apply_banded_vector_local!(output::AbstractVector{T},
         end
     end
 
-    
+    return nothing
 end
+
+function apply_derivative_matrix!(output::Vector{T}, 
+                                matrix::BandedMatrix{T}, 
+                                input::Vector{T}) where T
+    N = matrix.size
+    bandwidth = matrix.bandwidth
+    
+    fill!(output, zero(T))
+    
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                output[i] += matrix.data[band_row, j] * input[j]
+            end
+        end
+    end
+end
+
 
 #export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
 
