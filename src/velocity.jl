@@ -501,6 +501,17 @@ function extract_local_radial_profile(data::AbstractArray{T,3}, local_lm::Int,
 end
 
 
+function store_local_radial_profile!(data::AbstractArray{T,3}, profile::Vector{T},
+                                    local_lm::Int, r_range) where T
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(data, 3) && r_idx <= length(profile)
+            data[local_lm, 1, local_r] = profile[r_idx]
+        end
+    end
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
