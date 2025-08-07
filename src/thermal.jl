@@ -718,6 +718,47 @@ function store_radial_profile!(data::AbstractArray{T,3}, profile::Vector{T},
 end
 
 
+# ==============================================================
+# Mixed boundary conditions (different for different modes)
+# ==============================================================
+function apply_mixed_boundary_conditions!(temp_field::SHTnsTemperatureField{T}, 
+                                         domain::RadialDomain,
+                                         bc_type_inner::Vector{Int},
+                                         bc_type_outer::Vector{Int}) where T
+    # Apply different BC types for different (l,m) modes
+    # bc_type: 1 = Dirichlet, 2 = Neumann
+    
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= temp_field.spectral.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            # Determine BC type for this mode
+            bc_inner = bc_type_inner[lm_idx]
+            bc_outer = bc_type_outer[lm_idx]
+            
+            if bc_inner == 1 && bc_outer == 1
+                # Both Dirichlet
+                apply_mode_dirichlet_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                        temp_field, domain)
+            elseif bc_inner == 2 && bc_outer == 2
+                # Both Neumann
+                apply_mode_neumann_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                     temp_field, domain)
+            else
+                # Mixed BC
+                apply_mode_mixed_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                    bc_inner, bc_outer, temp_field, domain)
+            end
+        end
+    end
+end
+
+
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
