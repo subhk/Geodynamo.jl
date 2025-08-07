@@ -143,7 +143,7 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     
     # Get local ranges
     lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range = get_local_range(fields.toroidal.pencil, 3)
+    r_range  = get_local_range(fields.toroidal.pencil, 3)
     
     nr = domain.N
     
@@ -160,8 +160,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             tor_profile_imag = extract_local_radial_profile(u_tor_imag, local_lm, nr, r_range)
             
             # Compute radial derivatives for poloidal component
-            dpol_dr_real = apply_derivative_local(fields.dr_matrix, pol_profile_real)
-            dpol_dr_imag = apply_derivative_local(fields.dr_matrix, pol_profile_imag)
+            dpol_dr_real   = apply_derivative_local(fields.dr_matrix, pol_profile_real)
+            dpol_dr_imag   = apply_derivative_local(fields.dr_matrix, pol_profile_imag)
             d2pol_dr2_real = apply_derivative_local(fields.d2r_matrix, pol_profile_real)
             d2pol_dr2_imag = apply_derivative_local(fields.d2r_matrix, pol_profile_imag)
             
@@ -189,9 +189,10 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     end
 end
 
-# ============================================================================
-# Optimized nonlinear term computation
-# ============================================================================
+
+# ==========================================
+# nonlinear term computation
+# ==========================================
 function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
