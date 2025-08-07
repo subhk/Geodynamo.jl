@@ -35,7 +35,10 @@ module Geodynamo
     export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
     # exports velocity.jl
-    export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
+    export SHTnsVelocityFields, create_shtns_velocity_fields
+    export compute_velocity_nonlinear!, compute_velocity_nonlinear_batched!
+    export compute_kinetic_energy, compute_enstrophy
+    export zero_velocity_work_arrays!
 
     # exports magnetic.jl
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!

@@ -1,22 +1,6 @@
 # ============================================================================
 # Main Simulation Driver with SHTns
 # ============================================================================
-
-# module GeodynamoSimulation
-# using MPI
-# using PencilArrays
-# using PencilFFTs
-# using HDF5
-# using SHTnsSpheres
-# using ..Parameters
-# using ..PencilSetup
-# using ..SHTnsSetup
-# using ..VariableTypes
-# using ..SHTnsTransforms
-# using ..Timestepping
-# using ..Velocity
-# using ..MagneticField
-# using ..Temperature
     
 # Main simulation state with SHTns
 struct SHTnsSimulationState{T}

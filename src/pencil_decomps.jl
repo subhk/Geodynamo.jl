@@ -2,11 +2,6 @@
 # Pencil Configuration with SHTns Integration
 # ============================================================================
 
-# using MPI
-# using PencilArrays
-# using PencilFFTs
-# using ..Parameters
-# using ..SHTnsSetup
 
 # MPI communicator - make it a function to avoid initialization issues
 function get_comm()

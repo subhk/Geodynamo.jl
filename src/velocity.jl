@@ -2,16 +2,6 @@
 # Physics Modules with SHTns
 # ============================================================================
 
-# module Velocity
-#     using PencilArrays
-#     using ..Parameters
-#     using ..VariableTypes
-#     using ..SHTnsSetup
-#     using ..SHTnsTransforms
-#     using ..Timestepping
-#     using ..LinearOps
-#     using ..PencilSetup
-    
 
 # Velocity field components with SHTns
 struct SHTnsVelocityFields{T}
@@ -900,3 +890,9 @@ function compute_enstrophy(fields::SHTnsVelocityFields{T}) where T
     # Global sum
     return 0.5 * MPI.Allreduce(local_enstrophy, MPI.SUM, get_comm())
 end
+
+# # Export functions
+# export SHTnsVelocityFields, create_shtns_velocity_fields
+# export compute_velocity_nonlinear!, compute_velocity_nonlinear_batched!
+# export compute_kinetic_energy, compute_enstrophy
+# export zero_velocity_work_arrays!

@@ -1,13 +1,5 @@
-# module MagneticField
-#     using PencilArrays
-#     using ..Parameters
-#     using ..VariableTypes
-#     using ..SHTnsSetup
-#     using ..SHTnsTransforms
-#     using ..Timestepping
-#     using ..LinearOps
-#     using ..PencilSetup
-    
+#
+#   
 struct SHTnsMagneticFields{T}
     # Physical space magnetic field
     magnetic::SHTnsVectorField{T}
@@ -25,15 +17,26 @@ struct SHTnsMagneticFields{T}
     nl_toroidal::SHTnsSpectralField{T}
     nl_poloidal::SHTnsSpectralField{T}
     
+    # Work arrays
+    work_tor::SHTnsSpectralField{T}
+    work_pol::SHTnsSpectralField{T}
+    work_physical::SHTnsVectorField{T}
+    
+    # Pre-computed coefficients
+    l_factors::Vector{Float64}  # l(l+1) values
+    
+    # Transform manager
+    transform_manager::SHTnsTransformManager{T}
+    
     # Imposed field (if any)
     imposed_field::Union{SHTnsVectorField{T}, Nothing}
 end
 
-function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig, 
-                                        domain_oc::RadialDomain, 
-                                        domain_ic::RadialDomain, 
-                                        pencils, pencil_spec) where T
 
+function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig, 
+                                      domain_oc::RadialDomain, 
+                                      domain_ic::RadialDomain, 
+                                      pencils, pencil_spec) where T
     pencil_θ, pencil_φ, pencil_r = pencils
     
     # Physical space fields
@@ -52,16 +55,32 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
     nl_toroidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     nl_poloidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     
+    # Work arrays
+    work_tor = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    work_physical = create_shtns_vector_field(T, config, domain_oc, pencils)
+    
+    # Pre-compute l(l+1) factors
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    
+    # Create transform manager
+    transform_manager = get_transform_manager(T, config, pencil_spec)
+    
     imposed_field = nothing
     
     return SHTnsMagneticFields{T}(magnetic, current, 
                                 toroidal, poloidal,
                                 ic_toroidal, ic_poloidal, 
                                 nl_toroidal, nl_poloidal,
+                                work_tor, work_pol, work_physical,
+                                l_factors, transform_manager,
                                 imposed_field)
 end
 
 
+# ========================================================
+# Main nonlinear computation using optimized transforms
+# ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T}, 
                                     vel_fields, rotation_rate) where T
     # Convert spectral B to physical space
@@ -272,7 +291,4 @@ function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::
 end
 
 
-#export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
 
-
-# end

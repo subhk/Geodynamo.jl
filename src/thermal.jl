@@ -1,12 +1,5 @@
-# module Temperature
-# using PencilArrays
-# using ..Parameters
-# using ..VariableTypes
-# using ..SHTnsSetup
-# using ..SHTnsTransforms
-# using ..Timestepping
-# using ..LinearOps
-    
+#
+#    
 struct SHTnsTemperatureField{T}
     # Physical space temperature
     temperature::SHTnsPhysicalField{T}

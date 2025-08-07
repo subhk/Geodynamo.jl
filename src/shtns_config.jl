@@ -1,7 +1,4 @@
-using SHTnsSpheres
-using MPI
-using ..Parameters
-    
+#   
 # SHTns configuration structure
 struct SHTnsConfig
     sht::SHTnsSphere
