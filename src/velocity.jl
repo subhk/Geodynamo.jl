@@ -791,27 +791,6 @@ end
 
 
 
-# function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-#                                    B_θ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-#     # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
-    
-#     # Compute ∂B_r/∂θ
-#     dB_r_dtheta_phys = synthesis_dtheta(sht, B_r_coeffs)
-    
-#     # For ∂(r B_θ)/∂r, approximate as B_θ (simplified)
-#     B_θ_phys = synthesis(sht, B_θ_coeffs)
-    
-#     # Compute j_φ
-#     nlat, nlon = size(B_θ_phys)
-#     j_φ_phys = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat, j_phi in 1:nlon
-#         j_φ_phys[i_theta, j_phi] = r_inv * 
-#             (B_θ_phys[i_theta, j_phi] - dB_r_dtheta_phys[i_theta, j_phi])
-#     end
-    
-#     return analysis(sht, j_φ_phys)
-# end
-
 # function compute_cross_product_jxB!(current::SHTnsVectorField{T}, 
 #                                    magnetic::SHTnsVectorField{T},
 #                                    velocity::SHTnsVectorField{T}) where T
