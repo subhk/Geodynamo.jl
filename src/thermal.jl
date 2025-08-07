@@ -873,12 +873,23 @@ end
 
 
 
-function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
-    # Efficiently zero work arrays
-    fill!(parent(temp_field.work_physical.data), zero(T))
+
+# ============================================================================
+# Utility functions
+# ============================================================================
+function zero_temperature_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
+    # Efficiently zero all work arrays
     fill!(parent(temp_field.work_spectral.data_real), zero(T))
     fill!(parent(temp_field.work_spectral.data_imag), zero(T))
+    fill!(parent(temp_field.work_physical.data), zero(T))
+    fill!(parent(temp_field.advection_physical.data), zero(T))
+    fill!(parent(temp_field.grad_theta_spec.data_real), zero(T))
+    fill!(parent(temp_field.grad_theta_spec.data_imag), zero(T))
+    fill!(parent(temp_field.grad_phi_spec.data_real), zero(T))
+    fill!(parent(temp_field.grad_phi_spec.data_imag), zero(T))
 end
+
+
 
 
 # # Export functions
