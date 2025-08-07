@@ -793,5 +793,15 @@ end
 # ====================
 # Utility functions
 # ====================
-
+function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
+    # Efficiently zero all work arrays
+    fill!(parent(fields.work_tor.data_real), zero(T))
+    fill!(parent(fields.work_tor.data_imag), zero(T))
+    fill!(parent(fields.work_pol.data_real), zero(T))
+    fill!(parent(fields.work_pol.data_imag), zero(T))
+    
+    fill!(parent(fields.work_physical.r_component.data), zero(T))
+    fill!(parent(fields.work_physical.θ_component.data), zero(T))
+    fill!(parent(fields.work_physical.φ_component.data), zero(T))
+end
 
