@@ -209,6 +209,44 @@ function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::
 end
 
 
+
+function compute_ohmic_dissipation(mag_fields::SHTnsMagneticFields{T}) where T
+    # Compute Ohmic dissipation: η |∇ × B|²
+    
+    # Current density already computed in work arrays
+    j_tor_real = parent(mag_fields.work_tor.data_real)
+    j_tor_imag = parent(mag_fields.work_tor.data_imag)
+    j_pol_real = parent(mag_fields.work_pol.data_real)
+    j_pol_imag = parent(mag_fields.work_pol.data_imag)
+    
+    local_dissipation = zero(Float64)
+    
+    lm_range = get_local_range(mag_fields.work_tor.pencil, 1)
+    r_range  = get_local_range(mag_fields.work_tor.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= mag_fields.work_tor.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(j_tor_real, 3)
+                    local_dissipation += (
+                        j_tor_real[local_lm, 1, local_r]^2 + 
+                        j_tor_imag[local_lm, 1, local_r]^2 + 
+                        j_pol_real[local_lm, 1, local_r]^2 + 
+                        j_pol_imag[local_lm, 1, local_r]^2
+                    )
+                end
+            end
+        end
+    end
+    
+    # Scale by magnetic diffusivity and global sum
+    return (1.0 / d_Pm) * MPI.Allreduce(local_dissipation, MPI.SUM, get_comm())
+end
+
+
 # =======================
 # Utility functions
 # =======================
