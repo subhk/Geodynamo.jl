@@ -25,7 +25,7 @@ end
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
                                         domain::RadialDomain, 
-                                        pencils, pencil_spec) where 
+                                        pencils, pencil_spec) where T
                                         
     pencil_θ, pencil_φ, pencil_r = pencils
     
@@ -43,21 +43,29 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     internal_sources = zeros(T, domain.N)
     boundary_values  = zeros(T, 2, config.nlm)  # ICB and CMB values
     
-    return SHTnsTemperatureField{T}(temperature, gradient, spectral, nonlinear,
+    return SHTnsTemperatureField{T}(temperature, gradient, 
+                                    spectral, nonlinear,
                                     internal_sources, boundary_values)
 end
 
 
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields) where T
+                                        vel_fields, 
+                                        transpose_plans=nothing) where T
+
+    # Use local computation flags to minimize communication
+    needs_transpose = transpose_plans !== nothing
+
     # Convert spectral temperature to physical space
     shtns_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
     
     # Compute temperature gradient using SHTns
     compute_temperature_gradient!(temp_field)
     
-    # Compute advection: -u · ∇T
-    compute_temperature_advection!(temp_field, vel_fields)
+    # Compute advection -u·∇T locally with fused operations
+    if vel_fields !== nothing
+        compute_temperature_advection!(temp_field, vel_fields)
+    end
     
     # Add internal heat sources
     add_internal_sources!(temp_field)
@@ -66,22 +74,6 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     shtns_physical_to_spectral!(temp_field.temperature, temp_field.nonlinear)
 end
 
-# function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) where T
-#     # Compute gradient using SHTns spectral derivatives
-    
-#     # ∂T/∂θ
-#     shtns_compute_theta_derivative!(temp_field.spectral, temp_field.spectral)  # Placeholder
-    
-#     # ∂T/∂φ
-#     shtns_compute_phi_derivative!(temp_field.spectral, temp_field.spectral)   # Placeholder
-    
-#     # ∂T/∂r (using finite differences)
-#     # This would use radial derivative matrices
-    
-#     # Convert derivatives to physical space
-#     # This is simplified - would need proper implementation
-# end
-
 
 # Alternative implementation using SHTns built-in gradient operations
 function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) where T
@@ -89,194 +81,86 @@ function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}) whe
     # This leverages optimized SHTns routines
     
     config = temp_field.spectral.config
-    sht = config.sht
+    sht   = config.sht
+    nlm   = config.nlm
     
-    # Process each radial level
-    for r_idx in temp_field.spectral.local_radial_range
-        if r_idx <= size(temp_field.spectral.data_real, 3)
+    # Get local data views
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    grad_r    = parent(temp_field.gradient.r_component.data)
+    grad_θ    = parent(temp_field.gradient.θ_component.data)
+    grad_φ    = parent(temp_field.gradient.φ_component.data)
+    
+    # Get local ranges
+    r_range  = get_local_range(temp_field.spectral.pencil, 3)
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    
+    # Pre-allocate arrays
+    coeffs = zeros(ComplexF64, nlm)
+    
+    # Process radial levels
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        if local_r <= size(spec_real, 3)
+            # Gather coefficients
+            fill!(coeffs, zero(ComplexF64))
             
-            # Extract temperature coefficients at this radial level
-            T_coeffs = extract_spectral_coefficients(temp_field.spectral, r_idx)
+            @simd for lm_idx in lm_range
+                if lm_idx <= nlm
+                    local_lm = lm_idx - first(lm_range) + 1
+                    coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                            spec_imag[local_lm, 1, local_r])
+                end
+            end
             
-            # Use SHTns to compute horizontal gradient
-            compute_horizontal_gradient_shtns!(sht, T_coeffs, temp_field.gradient, r_idx, config)
+            # Collective communication if needed
+            if length(lm_range) < nlm
+                coeffs = MPI.Allreduce(coeffs, MPI.SUM, get_comm())
+            end
             
-            # Compute radial gradient using finite differences
-            compute_radial_gradient_at_level!(temp_field, r_idx)
+            # Compute horizontal gradients using SHTns
+            compute_horizontal_gradient!(sht, coeffs, grad_θ, grad_φ, 
+                                              local_r, config)
         end
     end
+    
+    # Compute radial gradient using optimized finite differences
+    compute_radial_gradient!(temp_field)
 end
 
-function compute_horizontal_gradient_shtns!(sht, T_coeffs::Vector{ComplexF64}, 
-                                          gradient::SHTnsVectorField{T}, 
-                                          r_idx::Int, config::SHTnsConfig) where T
-    # Compute horizontal gradient components using SHTns
+
+function compute_horizontal_gradient!(sht, coeffs::Vector{ComplexF64},
+                                           grad_θ::AbstractArray{T,3}, 
+                                           grad_φ::AbstractArray{T,3},
+                                           local_r::Int, 
+                                           config::SHTnsConfig) where T
+    # Batch compute both derivatives
+    dT_dtheta = synthesis_dtheta(sht, coeffs)
+    dT_dphi   = synthesis_dphi(sht, coeffs)
     
-    # Get radius for geometric factors
-    r = get_radius_at_level(r_idx)
+    # Get geometric factors
+    r = 0.5 + 0.5 * cos(π * (local_r - 1) / (size(grad_θ, 3) - 1))
     r_inv = 1.0 / max(r, 1e-10)
     
-    # Compute ∂T/∂θ using SHTns
-    dT_dtheta_phys = synthesis_dtheta(sht, T_coeffs)
-    
-    # Compute ∂T/∂φ using SHTns  
-    dT_dphi_phys = synthesis_dphi(sht, T_coeffs)
-    
-    # Apply geometric factors and store
     theta_grid = config.theta_grid
-    nlat, nlon = size(dT_dtheta_phys)
+    nlat, nlon = size(dT_dtheta)
     
-    for i_theta in 1:nlat, j_phi in 1:nlon
-        if (i_theta <= size(gradient.θ_component.data_r, 1) && 
-            j_phi <= size(gradient.θ_component.data_r, 2) &&
-            r_idx <= size(gradient.θ_component.data_r, 3))
-            
-            theta = theta_grid[i_theta]
-            sin_theta = sin(theta)
-            sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-            
-            # Store gradient components with proper geometric factors
-            gradient.θ_component.data_r[i_theta, j_phi, r_idx] = 
-                r_inv * real(dT_dtheta_phys[i_theta, j_phi])
-            
-            gradient.φ_component.data_r[i_theta, j_phi, r_idx] = 
-                r_inv * sin_theta_inv * real(dT_dphi_phys[i_theta, j_phi])
-        end
-    end
-end
-
-function compute_radial_gradient_at_level!(temp_field::SHTnsTemperatureField{T}, r_idx::Int) where T
-    # Compute radial gradient at a specific radial level using finite differences
-    
-    # Get temperature values at neighboring radial points
-    N = size(temp_field.temperature.data_r, 3)
-    
-    for i_theta in 1:temp_field.temperature.nlat, j_phi in 1:temp_field.temperature.nlon
-        if (i_theta <= size(temp_field.temperature.data_r, 1) && 
-            j_phi <= size(temp_field.temperature.data_r, 2))
-            
-            # Extract radial profile at this (θ,φ) point
-            radial_profile = temp_field.temperature.data_r[i_theta, j_phi, :]
-            
-            # Compute radial derivative using finite differences
-            if r_idx == 1
-                # Forward difference at inner boundary
-                if N >= 2
-                    dT_dr = radial_profile[2] - radial_profile[1]
-                else
-                    dT_dr = zero(T)
-                end
-            elseif r_idx == N
-                # Backward difference at outer boundary
-                dT_dr = radial_profile[N] - radial_profile[N-1]
-            else
-                # Centered difference in interior
-                dT_dr = 0.5 * (radial_profile[r_idx+1] - radial_profile[r_idx-1])
-            end
-            
-            # Store radial gradient
-            if r_idx <= size(temp_field.gradient.r_component.data_r, 3)
-                temp_field.gradient.r_component.data_r[i_theta, j_phi, r_idx] = dT_dr
+    # Vectorized update with geometric factors
+    @inbounds for j in 1:nlon
+        @simd for i in 1:nlat
+            if i <= size(grad_θ, 1) && j <= size(grad_θ, 2)
+                sin_theta = sin(theta_grid[i])
+                sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
+                
+                grad_θ[i, j, local_r] = r_inv * real(dT_dtheta[i, j])
+                grad_φ[i, j, local_r] = r_inv * sin_theta_inv * real(dT_dphi[i, j])
             end
         end
     end
 end
 
-# High-accuracy implementation with proper radial grid
-function compute_temperature_gradient_high_accuracy!(temp_field::SHTnsTemperatureField{T}, 
-                                                   domain::RadialDomain) where T
-    # High-accuracy implementation using proper radial grid and derivative matrices
-    
-    config = temp_field.spectral.config
-    
-    # Create derivative fields
-    create_gradient_derivative_fields!(temp_field, config)
-    
-    # Compute angular derivatives using SHTns (spectral accuracy)
-    compute_angular_gradients_spectral!(temp_field, config)
-    
-    # Compute radial derivatives using high-order finite differences
-    compute_radial_gradient_high_order!(temp_field, domain)
-    
-    # Apply boundary conditions to gradients
-    apply_gradient_boundary_conditions!(temp_field, domain)
-    
-    # Convert to physical space with proper geometric factors
-    finalize_gradient_computation!(temp_field, domain, config)
-end
-
-function create_gradient_derivative_fields!(temp_field::SHTnsTemperatureField{T}, 
-                                          config::SHTnsConfig) where T
-    # Ensure gradient field components are properly allocated
-    # This would initialize the gradient vector field if needed
-    
-    # Check dimensions and allocate if necessary
-    nlat, nlon = config.nlat, config.nlon
-    nr = size(temp_field.spectral.data_real, 3)
-    
-    # Ensure gradient fields have correct dimensions
-    # (Implementation would verify and resize as needed)
-end
-
-function compute_angular_gradients_spectral!(temp_field::SHTnsTemperatureField{T}, 
-                                           config::SHTnsConfig) where T
-    # Compute angular gradients using SHTns spectral derivatives
-    
-    sht = config.sht
-    
-    # Create temporary spectral fields for derivatives
-    dT_dtheta_spec = similar(temp_field.spectral)
-    dT_dphi_spec = similar(temp_field.spectral)
-    
-    # Compute spectral derivatives
-    @views for lm_idx in 1:temp_field.spectral.nlm
-        for r_idx in temp_field.spectral.local_radial_range
-            if r_idx <= size(temp_field.spectral.data_real, 3)
-                
-                # Extract coefficients for this radial level
-                T_coeffs = extract_spectral_coefficients(temp_field.spectral, r_idx)
-                
-                # Compute angular derivatives
-                dT_dtheta_coeffs = compute_theta_derivative_coeffs(sht, T_coeffs, config, lm_idx)
-                dT_dphi_coeffs = compute_phi_derivative_coeffs(sht, T_coeffs, config, lm_idx)
-                
-                # Store spectral derivatives
-                dT_dtheta_spec.data_real[lm_idx, 1, r_idx] = real(dT_dtheta_coeffs[lm_idx])
-                dT_dtheta_spec.data_imag[lm_idx, 1, r_idx] = imag(dT_dtheta_coeffs[lm_idx])
-                dT_dphi_spec.data_real[lm_idx, 1, r_idx] = real(dT_dphi_coeffs[lm_idx])
-                dT_dphi_spec.data_imag[lm_idx, 1, r_idx] = imag(dT_dphi_coeffs[lm_idx])
-            end
-        end
-    end
-    
-    # Convert to physical space
-    shtns_spectral_to_physical!(dT_dtheta_spec, temp_field.gradient.θ_component)
-    shtns_spectral_to_physical!(dT_dphi_spec, temp_field.gradient.φ_component)
-end
-
-function compute_theta_derivative_coeffs(sht, T_coeffs::Vector{ComplexF64}, 
-                                       config::SHTnsConfig, lm_idx::Int)
-    # Compute θ derivative coefficients using SHTns
-    
-    # Use SHTns built-in theta derivative
-    dT_dtheta_phys = synthesis_dtheta(sht, T_coeffs)
-    
-    # Convert back to spectral coefficients
-    return analysis(sht, dT_dtheta_phys)
-end
-
-function compute_phi_derivative_coeffs(sht, T_coeffs::Vector{ComplexF64}, 
-                                     config::SHTnsConfig, lm_idx::Int)
-    # Compute φ derivative coefficients using SHTns
-    
-    # Use SHTns built-in phi derivative
-    dT_dphi_phys = synthesis_dphi(sht, T_coeffs)
-    
-    # Convert back to spectral coefficients
-    return analysis(sht, dT_dphi_phys)
-end
-
-function compute_radial_gradient_high_order!(temp_field::SHTnsTemperatureField{T}, 
+function compute_radial_gradient!(temp_field::SHTnsTemperatureField{T}, 
                                            domain::RadialDomain) where T
     # Compute radial gradient using high-order finite difference matrices
     
@@ -301,6 +185,7 @@ function compute_radial_gradient_high_order!(temp_field::SHTnsTemperatureField{T
         end
     end
 end
+
 
 function apply_gradient_boundary_conditions!(temp_field::SHTnsTemperatureField{T}, 
                                            domain::RadialDomain) where T
@@ -331,45 +216,6 @@ function apply_gradient_boundary_conditions!(temp_field::SHTnsTemperatureField{T
     end
 end
 
-function finalize_gradient_computation!(temp_field::SHTnsTemperatureField{T}, 
-                                      domain::RadialDomain, config::SHTnsConfig) where T
-    # Apply final geometric factors and ensure consistency
-    
-    theta_grid = config.theta_grid
-    
-    for r_idx in temp_field.gradient.r_component.local_radial_range
-        if r_idx <= size(temp_field.gradient.r_component.data_r, 3)
-            
-            # Get radius and geometric factors
-            r = domain.r[r_idx, 4]  # r^1
-            r_inv = 1.0 / max(r, 1e-10)
-            
-            for i_theta in 1:temp_field.gradient.r_component.nlat
-                theta = theta_grid[i_theta]
-                sin_theta = sin(theta)
-                sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-                
-                for j_phi in 1:temp_field.gradient.r_component.nlon
-                    if (i_theta <= size(temp_field.gradient.r_component.data_r, 1) && 
-                        j_phi <= size(temp_field.gradient.r_component.data_r, 2))
-                        
-                        # Apply geometric factors to get proper gradient components
-                        # ∇T = (∂T/∂r, (1/r)∂T/∂θ, (1/(r sin θ))∂T/∂φ)
-                        
-                        # Radial component (already correct)
-                        # temp_field.gradient.r_component.data_r[i_theta, j_phi, r_idx] unchanged
-                        
-                        # θ component: multiply by 1/r
-                        temp_field.gradient.θ_component.data_r[i_theta, j_phi, r_idx] *= r_inv
-                        
-                        # φ component: multiply by 1/(r sin θ)
-                        temp_field.gradient.φ_component.data_r[i_theta, j_phi, r_idx] *= (r_inv * sin_theta_inv)
-                    end
-                end
-            end
-        end
-    end
-end
 
 # Utility functions
 function create_radial_derivative_matrix()
@@ -401,23 +247,6 @@ function create_radial_derivative_matrix()
     return BandedMatrix(data, bandwidth, N)
 end
 
-function apply_derivative_matrix(matrix::BandedMatrix{T}, vector::Vector{T}) where T
-    # Apply banded derivative matrix to vector
-    result = zeros(T, length(vector))
-    N = matrix.size
-    bandwidth = matrix.bandwidth
-    
-    for j in 1:N
-        for i in max(1, j - bandwidth):min(N, j + bandwidth)
-            band_row = bandwidth + 1 + i - j
-            if 1 <= band_row <= size(matrix.data, 1) && j <= length(vector)
-                result[i] += matrix.data[band_row, j] * vector[j]
-            end
-        end
-    end
-    
-    return result
-end
 
 function apply_banded_matrix_vector(matrix::BandedMatrix{T}, vector::Vector{T}) where T
     # Apply banded matrix to vector
@@ -439,42 +268,49 @@ end
 
 function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, vel_fields) where T
     # Compute -u · ∇T
-    vel = vel_fields.velocity
-    grad = temp_field.gradient
+    # vel = vel_fields.velocity
+    # grad = temp_field.gradient
+
+    # Get local data views
+    work_data = parent(temp_field.work_physical.data)
+
+    vel_r   = parent(vel_fields.velocity.r_component.data)
+    vel_θ   = parent(vel_fields.velocity.θ_component.data)
+    vel_φ   = parent(vel_fields.velocity.φ_component.data)
+    grad_r  = parent(temp_field.gradient.r_component.data)
+    grad_θ  = parent(temp_field.gradient.θ_component.data)
+    grad_φ  = parent(temp_field.gradient.φ_component.data)
     
-    for r_idx in temp_field.temperature.local_radial_range
-        if r_idx <= size(temp_field.temperature.data_r, 3)
-            for j_phi in 1:temp_field.temperature.nlon, i_theta in 1:temp_field.temperature.nlat
-                if (i_theta <= size(temp_field.temperature.data_r, 1) && 
-                    j_phi <= size(temp_field.temperature.data_r, 2) &&
-                    i_theta <= size(vel.r_component.data_r, 1) && 
-                    j_phi <= size(vel.r_component.data_r, 2) &&
-                    i_theta <= size(grad.r_component.data_r, 1) && 
-                    j_phi <= size(grad.r_component.data_r, 2))
-                    
-                    u_r = vel.r_component.data_r[i_theta, j_phi, r_idx]
-                    u_θ = vel.θ_component.data_r[i_theta, j_phi, r_idx]
-                    u_φ = vel.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    dT_dr = grad.r_component.data_r[i_theta, j_phi, r_idx]
-                    dT_dtheta = grad.θ_component.data_r[i_theta, j_phi, r_idx]
-                    dT_dphi = grad.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    advection = -(u_r * dT_dr + u_θ * dT_dtheta + u_φ * dT_dphi)
-                    temp_field.temperature.data_r[i_theta, j_phi, r_idx] = advection
-                end
-            end
+    # Get dimensions
+    local_size = size(work_data)
+    
+    # Get dimensions
+    local_size = size(work_data)
+    
+    # Fused loop for advection computation
+    @inbounds @simd for idx in eachindex(work_data)
+        if idx <= length(vel_r) && idx <= length(grad_r)
+            # Compute -u·∇T with fused operations
+            work_data[idx] = -(vel_r[idx] * grad_r[idx] + 
+                              vel_θ[idx] * grad_θ[idx] + 
+                              vel_φ[idx] * grad_φ[idx])
         end
     end
 end
 
-function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}) where T
-    # Add internal heat sources to l=m=0 mode
-    spec_real = parent(temp_field.spectral.data_real)
+
+function add_internal_sources_spectral!(temp_field::SHTnsTemperatureField{T}) where T
+    # Work directly in spectral space for efficiency
     
-    # Find l=m=0 mode in local data
+    # Get local data
+    nl_real = parent(temp_field.nonlinear.data_real)
+    nl_imag = parent(temp_field.nonlinear.data_imag)
+    
+    # Find l=m=0 mode locally
     lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    r_range = get_local_range(temp_field.spectral.pencil, 3)
     
+    # Check if l=m=0 is in local range
     for lm_idx in lm_range
         if lm_idx <= temp_field.spectral.nlm
             l = temp_field.spectral.config.l_values[lm_idx]
@@ -482,20 +318,31 @@ function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}) where
             
             if l == 0 && m == 0
                 local_lm = lm_idx - first(lm_range) + 1
-                r_range = get_local_range(temp_field.spectral.pencil, 3)
                 
-                for r_idx in r_range
+                # Add sources only to l=m=0 mode
+                @inbounds @simd for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
-                    if r_idx <= length(temp_field.internal_sources)
-                        spec_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
+                    if r_idx <= length(temp_field.internal_sources) && 
+                       local_r <= size(nl_real, 3)
+                        nl_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
                     end
                 end
-                break
+                break  # Only one l=m=0 mode
             end
         end
     end
 end
     
-#export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
 
-#end
+function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
+    # Efficiently zero work arrays
+    fill!(parent(temp_field.work_physical.data), zero(T))
+    fill!(parent(temp_field.work_spectral.data_real), zero(T))
+    fill!(parent(temp_field.work_spectral.data_imag), zero(T))
+end
+
+
+# # Export functions
+# export SHTnsTemperatureField, create_shtns_temperature_field
+# export compute_temperature_nonlinear!, compute_temperature_batch!
+# export zero_work_arrays!

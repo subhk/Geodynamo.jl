@@ -29,15 +29,24 @@ struct SHTnsVelocityFields{T}
     
     # Pressure (for pressure correction)
     pressure::SHTnsSpectralField{T}
+    
+    # Work arrays for efficient computation
+    work_tor::SHTnsSpectralField{T}
+    work_pol::SHTnsSpectralField{T}
+    work_physical::SHTnsVectorField{T}
+    
+    # Pre-computed coefficients
+    l_factors::Vector{Float64}          # l(l+1) values
+    coriolis_factors::Matrix{Float64}   # Pre-computed Coriolis terms
 end
 
-function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
-                                        domain::RadialDomain, 
-                                        pencils, pencil_spec) where T
 
+function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
+                                      domain::RadialDomain, 
+                                      pencils, pencil_spec) where T
     pencil_θ, pencil_φ, pencil_r = pencils
     
-    # Create vector field
+    # Create vector fields
     velocity  = create_shtns_vector_field(T, config, domain, pencils)
     vorticity = create_shtns_vector_field(T, config, domain, pencils)
     
@@ -48,10 +57,32 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     nl_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
     pressure    = create_shtns_spectral_field(T, config, domain, pencil_spec)
     
+    # Work arrays
+    work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
+
+    work_physical = create_shtns_vector_field(T, config, domain, pencils)
+    
+    # Pre-compute l(l+1) factors
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    
+    # Pre-compute Coriolis factors (sin(θ) and cos(θ))
+    coriolis_factors = zeros(Float64, 2, config.nlat)
+    for i in 1:config.nlat
+        coriolis_factors[1, i] = sin(config.theta_grid[i])
+        coriolis_factors[2, i] = cos(config.theta_grid[i])
+    end
+    
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal, 
-                                    nl_toroidal, nl_poloidal, pressure)
+                                  nl_toroidal, nl_poloidal, pressure,
+                                  work_tor, work_pol, work_physical,
+                                  l_factors, coriolis_factors)
 end
 
+
+# =============================
+# Main nonlinear computation
+# =============================
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
                                     temp_field, comp_field, mag_field) where T
 
@@ -173,65 +204,46 @@ function compute_curl_vector_sh!(vel_toroidal::SHTnsSpectralField{T},
     end
 end
 
-
-# Optimized version using SHTns built-in curl operations
-function compute_vorticity_shtns!(velocity::SHTnsVectorField{T}, 
-                                vorticity::SHTnsVectorField{T}) where T
-                                
-    # Use SHTns built-in curl operations if available
-    # This is the most efficient approach
+# =========================================
+# Vorticity computation in spectral space
+# =========================================
+function compute_vorticity_spectral!(fields::SHTnsVelocityFields{T}) where T
+    # Compute vorticity directly in spectral space using l(l+1) factors
+    # ω = ∇ × u, which in toroidal-poloidal space has simple relationships
     
-    config = velocity.r_component.config
-    sht = config.sht
+    # Get local data views
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
     
-    for r_idx in velocity.r_component.local_radial_range
-        if r_idx <= size(velocity.r_component.data_r, 3)
+    vort_tor_real = parent(fields.work_tor.data_real)
+    vort_tor_imag = parent(fields.work_tor.data_imag)
+    vort_pol_real = parent(fields.work_pol.data_real)
+    vort_pol_imag = parent(fields.work_pol.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+    
+    # Apply curl relationships in spectral space
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
             
-            # Extract velocity field at this radial level
-            v_theta = zeros(ComplexF64, config.nlat, config.nlon)
-            v_phi = zeros(ComplexF64, config.nlat, config.nlon)
-            
-            for j_phi in 1:config.nlon, i_theta in 1:config.nlat
-                if (i_theta <= size(velocity.θ_component.data_r, 1) && 
-                    j_phi <= size(velocity.θ_component.data_r, 2))
-                    
-                    v_theta[i_theta, j_phi] = complex(velocity.θ_component.data_r[i_theta, j_phi, r_idx])
-                    v_phi[i_theta, j_phi] = complex(velocity.φ_component.data_r[i_theta, j_phi, r_idx])
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    # Vorticity from velocity in spectral space
+                    # ω_tor = l(l+1) * u_pol
+                    # ω_pol = -l(l+1) * u_tor
+                    vort_tor_real[local_lm, 1, local_r] = l_factor * pol_real[local_lm, 1, local_r]
+                    vort_tor_imag[local_lm, 1, local_r] = l_factor * pol_imag[local_lm, 1, local_r]
+                    vort_pol_real[local_lm, 1, local_r] = -l_factor * tor_real[local_lm, 1, local_r]
+                    vort_pol_imag[local_lm, 1, local_r] = -l_factor * tor_imag[local_lm, 1, local_r]
                 end
             end
-            
-            # Use SHTns vector analysis to get toroidal-poloidal
-            tor_coeffs, pol_coeffs = vector_analysis(sht, v_theta, v_phi)
-            
-            # Apply curl operation in spectral space
-            # This would use proper vector spherical harmonic curl relations
-            curl_tor_coeffs = similar(tor_coeffs)
-            curl_pol_coeffs = similar(pol_coeffs)
-            
-            for lm_idx in 1:length(tor_coeffs)
-                l = config.l_values[lm_idx]
-                l_factor = Float64(l * (l + 1))
-                
-                # Simplified curl (full implementation needs radial derivatives)
-                curl_pol_coeffs[lm_idx] = l_factor * tor_coeffs[lm_idx]
-                curl_tor_coeffs[lm_idx] = -l_factor * pol_coeffs[lm_idx]
-            end
-            
-            # Convert back to physical space
-            omega_theta, omega_phi = vector_synthesis(sht, curl_tor_coeffs, curl_pol_coeffs)
-            
-            # Store vorticity components
-            for j_phi in 1:config.nlon, i_theta in 1:config.nlat
-                if (i_theta <= size(vorticity.θ_component.data_r, 1) && 
-                    j_phi <= size(vorticity.θ_component.data_r, 2))
-                    
-                    vorticity.θ_component.data_r[i_theta, j_phi, r_idx] = real(omega_theta[i_theta, j_phi])
-                    vorticity.φ_component.data_r[i_theta, j_phi, r_idx] = real(omega_phi[i_theta, j_phi])
-                end
-            end
-            
-            # Radial component would need additional computation
-            compute_radial_vorticity_component!(velocity, vorticity, r_idx, config)
         end
     end
 end
@@ -350,455 +362,502 @@ function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
 end
 
 
-function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
-    # Add thermal buoyancy: Ra_T * Pr * T * ê_r
+function add_thermal_buoyancy!(work_r::AbstractArray{T,3}, 
+                                scalar_field, factor::Float64) where T
+    # Get the scalar field data (temperature or composition)
+    if isa(scalar_field, SHTnsPhysicalField)
+        scalar_data = parent(scalar_field.data)
+    else
+        # If it's already in physical space from temperature module
+        scalar_data = parent(scalar_field.temperature.data)
+    end
+    
+    # Vectorized addition of buoyancy
+    @inbounds @simd for idx in eachindex(work_r)
+        if idx <= length(scalar_data)
+            work_r[idx] += factor * scalar_data[idx]
+        end
+    end
+end
 
+
+function add_lorentz_force_spectral!(fields::SHTnsVelocityFields{T}, mag_field) where T
+    # Compute Lorentz force in spectral space for efficiency
+    # F = (∇ × B) × B / Pm
+    
+    # First compute current density j = ∇ × B in spectral space
+    compute_magnetic_curl_spectral!(mag_field, fields.work_tor, fields.work_pol, fields.l_factors)
+    
+    # Transform j to physical space
+    shtns_vector_synthesis!(fields.work_tor, fields.work_pol, fields.work_physical)
+    
+    # Also need B in physical space (should already be there from mag_field computation)
+    # If not, transform it
+    if !is_in_physical_space(mag_field.magnetic)
+        shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
+    end
+    
+    # Compute j × B in physical space
+    compute_cross_product_jB!(fields.work_physical, mag_field.magnetic, fields.work_physical)
+    
+    # Scale by 1/Pm
+    scale_field!(fields.work_physical, 1.0 / d_Pm)
+    
+    # Add to existing forces
+    add_vector_fields!(fields.work_physical, fields.work_physical)
+end
+
+
+function compute_magnetic_curl_spectral!(mag_field, j_tor::SHTnsSpectralField{T}, 
+                                        j_pol::SHTnsSpectralField{T}, l_factors) where T
+    # Compute j = ∇ × B in spectral space
+    
+    mag_tor_real = parent(mag_field.toroidal.data_real)
+    mag_tor_imag = parent(mag_field.toroidal.data_imag)
+    mag_pol_real = parent(mag_field.poloidal.data_real)
+    mag_pol_imag = parent(mag_field.poloidal.data_imag)
+    
+    j_tor_real = parent(j_tor.data_real)
+    j_tor_imag = parent(j_tor.data_imag)
+    j_pol_real = parent(j_pol.data_real)
+    j_pol_imag = parent(j_pol.data_imag)
+    
+    lm_range = get_local_range(j_tor.pencil, 1)
+    r_range  = get_local_range(j_tor.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(mag_tor_real, 3)
+                    # Curl in spectral space
+                    j_tor_real[local_lm, 1, local_r] = l_factor * mag_pol_real[local_lm, 1, local_r]
+                    j_tor_imag[local_lm, 1, local_r] = l_factor * mag_pol_imag[local_lm, 1, local_r]
+                    j_pol_real[local_lm, 1, local_r] = -l_factor * mag_tor_real[local_lm, 1, local_r]
+                    j_pol_imag[local_lm, 1, local_r] = -l_factor * mag_tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+    end
+end
+
+
+
+# ============================================================================
+# Velocity Module using Optimized SHTns Transforms
+# ============================================================================
+
+using LinearAlgebra
+using MPI
+
+struct SHTnsVelocityFields{T}
+    # Physical space velocities
+    velocity::SHTnsVectorField{T}
+    vorticity::SHTnsVectorField{T}
+    
+    # Spectral representation (toroidal-poloidal)
+    toroidal::SHTnsSpectralField{T}
+    poloidal::SHTnsSpectralField{T}
+    
+    # Nonlinear terms
+    nl_toroidal::SHTnsSpectralField{T}
+    nl_poloidal::SHTnsSpectralField{T}
+    
+    # Pressure (for pressure correction)
+    pressure::SHTnsSpectralField{T}
+    
+    # Work arrays for efficient computation
+    work_tor::SHTnsSpectralField{T}
+    work_pol::SHTnsSpectralField{T}
+    work_physical::SHTnsVectorField{T}
+    
+    # Pre-computed coefficients
+    l_factors::Vector{Float64}  # l(l+1) values
+    coriolis_factors::Matrix{Float64}  # Pre-computed Coriolis terms
+    
+    # Transform manager for efficient transforms
+    transform_manager::SHTnsTransformManager{T}
+end
+
+function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
+                                      domain::RadialDomain, 
+                                      pencils, pencil_spec) where T
+    pencil_θ, pencil_φ, pencil_r = pencils
+    
+    # Create vector fields
+    velocity  = create_shtns_vector_field(T, config, domain, pencils)
+    vorticity = create_shtns_vector_field(T, config, domain, pencils)
+    
+    # Spectral fields
+    toroidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    poloidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    nl_toroidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    nl_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    pressure    = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    
+    # Work arrays
+    work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    work_physical = create_shtns_vector_field(T, config, domain, pencils)
+    
+    # Pre-compute l(l+1) factors
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    
+    # Pre-compute Coriolis factors (sin(θ) and cos(θ))
+    coriolis_factors = zeros(Float64, 2, config.nlat)
+    for i in 1:config.nlat
+        coriolis_factors[1, i] = sin(config.theta_grid[i])
+        coriolis_factors[2, i] = cos(config.theta_grid[i])
+    end
+    
+    # Create transform manager
+    transform_manager = get_transform_manager(T, config, pencil_spec)
+    
+    return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal, 
+                                  nl_toroidal, nl_poloidal, pressure,
+                                  work_tor, work_pol, work_physical,
+                                  l_factors, coriolis_factors, transform_manager)
+end
+
+# ============================================================================
+# Main nonlinear computation using optimized transforms
+# ============================================================================
+
+function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
+                                    temp_field, comp_field, mag_field) where T
+    # Zero work arrays once
+    zero_velocity_work_arrays!(fields)
+    
+    # Step 1: Use optimized vector synthesis from shtns_transforms.jl
+    shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+    
+    # Step 2: Compute vorticity using spectral curl
+    compute_vorticity_spectral!(fields)
+    
+    # Step 3: Transform vorticity to physical space
+    shtns_vector_synthesis!(fields.work_tor, fields.work_pol, fields.vorticity)
+    
+    # Step 4: Compute all nonlinear terms in physical space
+    compute_all_nonlinear_terms_fused!(fields, temp_field, comp_field, mag_field)
+    
+    # Step 5: Use optimized vector analysis to go back to spectral
+    shtns_vector_analysis!(fields.work_physical, fields.nl_toroidal, fields.nl_poloidal)
+end
+
+# ============================================================================
+# Vorticity computation in spectral space
+# ============================================================================
+
+function compute_vorticity_spectral!(fields::SHTnsVelocityFields{T}) where T
+    # Compute vorticity directly in spectral space using l(l+1) factors
+    # ω = ∇ × u, which in toroidal-poloidal space has simple relationships
+    
+    # Get local data views
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+    
+    vort_tor_real = parent(fields.work_tor.data_real)
+    vort_tor_imag = parent(fields.work_tor.data_imag)
+    vort_pol_real = parent(fields.work_pol.data_real)
+    vort_pol_imag = parent(fields.work_pol.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+    
+    # Apply curl relationships in spectral space
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    # Vorticity from velocity in spectral space
+                    # ω_tor = l(l+1) * u_pol
+                    # ω_pol = -l(l+1) * u_tor
+                    vort_tor_real[local_lm, 1, local_r] = l_factor * pol_real[local_lm, 1, local_r]
+                    vort_tor_imag[local_lm, 1, local_r] = l_factor * pol_imag[local_lm, 1, local_r]
+                    vort_pol_real[local_lm, 1, local_r] = -l_factor * tor_real[local_lm, 1, local_r]
+                    vort_pol_imag[local_lm, 1, local_r] = -l_factor * tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+    end
+end
+
+# ============================================================================
+# Fused nonlinear term computation in physical space
+# ============================================================================
+
+function compute_all_nonlinear_terms_fused!(fields::SHTnsVelocityFields{T},
+                                           temp_field, comp_field, mag_field) where T
+    # Get all data views
+    vel_r = parent(fields.velocity.r_component.data)
+    vel_θ = parent(fields.velocity.θ_component.data)
+    vel_φ = parent(fields.velocity.φ_component.data)
+    
+    vort_r = parent(fields.vorticity.r_component.data)
+    vort_θ = parent(fields.vorticity.θ_component.data)
+    vort_φ = parent(fields.vorticity.φ_component.data)
+    
+    work_r = parent(fields.work_physical.r_component.data)
+    work_θ = parent(fields.work_physical.θ_component.data)
+    work_φ = parent(fields.work_physical.φ_component.data)
+    
+    # Get dimensions and ranges
+    local_size = size(vel_r)
+    nlat = fields.velocity.r_component.config.nlat
+    
+    # Main fused computation loop
+    @inbounds for k in 1:local_size[3]
+        for j in 1:local_size[2]
+            # Get pre-computed Coriolis factors for this latitude
+            if j <= nlat
+                sin_theta = fields.coriolis_factors[1, j]
+                cos_theta = fields.coriolis_factors[2, j]
+            else
+                sin_theta = 0.0
+                cos_theta = 1.0
+            end
+            
+            @simd for i in 1:local_size[1]
+                if i <= length(vel_r) ÷ (local_size[2] * local_size[3])
+                    idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
+                    
+                    if idx <= length(vel_r)
+                        # Load velocity and vorticity components
+                        u_r = vel_r[idx]
+                        u_θ = vel_θ[idx]
+                        u_φ = vel_φ[idx]
+                        
+                        ω_r = vort_r[idx]
+                        ω_θ = vort_θ[idx]
+                        ω_φ = vort_φ[idx]
+                        
+                        # Advection: u × ω (scaled by Rossby number)
+                        adv_r = d_Ro * (u_θ * ω_φ - u_φ * ω_θ)
+                        adv_θ = d_Ro * (u_φ * ω_r - u_r * ω_φ)
+                        adv_φ = d_Ro * (u_r * ω_θ - u_θ * ω_r)
+                        
+                        # Coriolis: -2Ω × u
+                        cor_r = -2.0 * (-sin_theta * u_φ)
+                        cor_θ = -2.0 * (cos_theta * u_φ)
+                        cor_φ = -2.0 * (-cos_theta * u_θ + sin_theta * u_r)
+                        
+                        # Store combined result
+                        work_r[idx] = adv_r + cor_r
+                        work_θ[idx] = adv_θ + cor_θ
+                        work_φ[idx] = adv_φ + cor_φ
+                    end
+                end
+            end
+        end
+    end
+    
+    # Add buoyancy forces
     if temp_field !== nothing
-        buoyancy_factor = d_Ra * d_Pr
-        vel_r = parent(fields.velocity.r_component.data)
+        add_buoyancy_optimized!(work_r, temp_field, d_Ra * d_Pr)
+    end
+    
+    if comp_field !== nothing
+        add_buoyancy_optimized!(work_r, comp_field, d_Ra * d_Pr)  # Should use Ra_C
+    end
+    
+    # Add Lorentz force if magnetic field present
+    if mag_field !== nothing
+        add_lorentz_force_spectral!(fields, mag_field)
+    end
+end
 
-        temp = parent(temp_field.data)
-        
-        for idx in eachindex(vel_r)
-            if idx <= length(temp)
-                vel_r[idx] += buoyancy_factor * temp[idx]
-            end
+# =====================
+# Addition of forces
+# =====================
+function add_thermal_buoyancy!(work_r::AbstractArray{T,3}, 
+                                scalar_field, factor::Float64) where T
+    # Get the scalar field data (temperature or composition)
+    if isa(scalar_field, SHTnsPhysicalField)
+        scalar_data = parent(scalar_field.data)
+    else
+        # If it's already in physical space from temperature module
+        scalar_data = parent(scalar_field.temperature.data)
+    end
+    
+    # Vectorized addition of buoyancy
+    @inbounds @simd for idx in eachindex(work_r)
+        if idx <= length(scalar_data)
+            work_r[idx] += factor * scalar_data[idx]
         end
     end
 end
 
-function add_thermal_buoyancy_local!(fields::SHTnsVelocityFields{T}, temp_field) where T
-    # Add compositional buoyancy: Ra_C * Pr * C * ê_r  
 
-    if temp_field !== nothing
-        buoyancy_factor = d_Ra * d_Pr   # Should be separate Ra_C parameter
-        vel_r = parent(fields.velocity.r_component.data)
-        temp = parent(temp_field.data)
-        
-        for idx in eachindex(vel_r)
-            if idx <= length(temp)
-                vel_r[idx] += buoyancy_factor * temp[idx]
-            end
-        end
+function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
+    # Compute Lorentz force in spectral space for efficiency
+    # F = (∇ × B) × B / Pm
+    
+    # First compute current density j = ∇ × B in spectral space
+    compute_magnetic_curl_spectral!(mag_field, fields.work_tor, fields.work_pol, fields.l_factors)
+    
+    # Transform j to physical space
+    shtns_vector_synthesis!(fields.work_tor, fields.work_pol, fields.work_physical)
+    
+    # Also need B in physical space (should already be there from mag_field computation)
+    # If not, transform it
+    if !is_in_physical_space(mag_field.magnetic)
+        shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
     end
+    
+    # Compute j × B in physical space
+    compute_cross_product_jB!(fields.work_physical, mag_field.magnetic, fields.work_physical)
+    
+    # Scale by 1/Pm
+    scale_field!(fields.work_physical, 1.0 / d_Pm)
+    
+    # Add to existing forces
+    add_vector_fields!(fields.work_physical, fields.work_physical)
 end
 
 
-# function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
-#     # Add Lorentz force: j × B = (∇ × B) × B
-#     # This is the magnetic force per unit volume in the momentum equation
+function compute_magnetic_curl_spectral!(mag_field, j_tor::SHTnsSpectralField{T}, 
+                                        j_pol::SHTnsSpectralField{T}, l_factors) where T
+    # Compute j = ∇ × B in spectral space
     
-#     if mag_field === nothing
-#         return  # No magnetic field, no Lorentz force
-#     end
+    mag_tor_real = parent(mag_field.toroidal.data_real)
+    mag_tor_imag = parent(mag_field.toroidal.data_imag)
+    mag_pol_real = parent(mag_field.poloidal.data_real)
+    mag_pol_imag = parent(mag_field.poloidal.data_imag)
     
-#     # Ensure magnetic field is in physical space
-#     shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
+    j_tor_real = parent(j_tor.data_real)
+    j_tor_imag = parent(j_tor.data_imag)
+    j_pol_real = parent(j_pol.data_real)
+    j_pol_imag = parent(j_pol.data_imag)
     
-#     # Compute current density j = ∇ × B using SHTns spectral derivatives
-#     compute_current_density_shtns!(mag_field.magnetic, mag_field.current)
+    lm_range = get_local_range(j_tor.pencil, 1)
+    r_range = get_local_range(j_tor.pencil, 3)
     
-#     # Compute Lorentz force j × B in physical space
-#     compute_cross_product_jxB!(mag_field.current, mag_field.magnetic, fields.velocity)
-    
-#     # Scale by magnetic interaction parameter
-#     scale_lorentz_force!(fields.velocity, 1.0 / d_Pm)  # Inverse magnetic Reynolds number
-# end
-
-
-# function compute_current_density_shtns!(magnetic::SHTnsVectorField{T}, 
-#                                 current::SHTnsVectorField{T}) where T
-
-#     # Compute current density j = ∇ × B using SHTns spectral operations
-#     # This is more accurate than finite differences for smooth fields
-    
-#     config = magnetic.r_component.config
-#     sht = config.sht
-#     nlm = config.nlm
-    
-#     # Create temporary spectral fields for each magnetic component
-#     B_r_spec = create_shtns_spectral_field(T, config, 
-#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-#                                           magnetic.r_component.data_r)
-#     B_θ_spec = create_shtns_spectral_field(T, config, 
-#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-#                                           magnetic.θ_component.data_r)
-#     B_φ_spec = create_shtns_spectral_field(T, config, 
-#                                           RadialDomain(i_N, 1:i_N, zeros(i_N, 7), 
-#                                                       [], zeros(2*i_KL+1, i_N), zeros(i_N)),
-#                                           magnetic.φ_component.data_r)
-    
-#     # Convert magnetic components to spectral space
-#     shtns_physical_to_spectral!(magnetic.r_component, B_r_spec)
-#     shtns_physical_to_spectral!(magnetic.θ_component, B_θ_spec)
-#     shtns_physical_to_spectral!(magnetic.φ_component, B_φ_spec)
-    
-#     # Process each radial level
-#     @views for r_idx in magnetic.r_component.local_radial_range
-#         if r_idx <= size(B_r_spec.data_real, 3)
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = l_factors[lm_idx]
             
-#             # Get radius for this level
-#             r = magnetic.r_component.config.theta_grid[1]  # Placeholder - would get from domain
-#             r_inv = 1.0 / max(r, 1e-10)
-            
-#             # Prepare spectral coefficients for this radial level
-#             B_r_coeffs = zeros(ComplexF64, nlm)
-#             B_θ_coeffs = zeros(ComplexF64, nlm)
-#             B_φ_coeffs = zeros(ComplexF64, nlm)
-            
-#             for lm_idx in 1:nlm
-#                 B_r_coeffs[lm_idx] = complex(B_r_spec.data_real[lm_idx, 1, r_idx], 
-#                                            B_r_spec.data_imag[lm_idx, 1, r_idx])
-#                 B_θ_coeffs[lm_idx] = complex(B_θ_spec.data_real[lm_idx, 1, r_idx], 
-#                                            B_θ_spec.data_imag[lm_idx, 1, r_idx])
-#                 B_φ_coeffs[lm_idx] = complex(B_φ_spec.data_real[lm_idx, 1, r_idx], 
-#                                            B_φ_spec.data_imag[lm_idx, 1, r_idx])
-#             end
-            
-#             # Compute curl components using SHTns spectral derivatives
-#             # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
-#             j_r_coeffs = compute_curl_r_component(sht, B_θ_coeffs, B_φ_coeffs, r_inv)
-            
-#             # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
-#             j_θ_coeffs = compute_curl_theta_component(sht, B_r_coeffs, B_φ_coeffs, r, r_inv)
-            
-#             # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
-#             j_φ_coeffs = compute_curl_phi_component(sht, B_r_coeffs, B_θ_coeffs, r, r_inv)
-            
-#             # Convert back to physical space and store
-#             j_r_phys = synthesis(sht, j_r_coeffs)
-#             j_θ_phys = synthesis(sht, j_θ_coeffs)
-#             j_φ_phys = synthesis(sht, j_φ_coeffs)
-            
-#             # Store in current field
-#             for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
-#                 if (i_theta <= size(current.r_component.data_r, 1) && 
-#                     j_phi <= size(current.r_component.data_r, 2))
-                    
-#                     current.r_component.data_r[i_theta, j_phi, r_idx] = real(j_r_phys[i_theta, j_phi])
-#                     current.θ_component.data_r[i_theta, j_phi, r_idx] = real(j_θ_phys[i_theta, j_phi])
-#                     current.φ_component.data_r[i_theta, j_phi, r_idx] = real(j_φ_phys[i_theta, j_phi])
-#                 end
-#             end
-#         end
-#     end
-# end
-
-
-# function compute_curl_r_component(sht, B_θ_coeffs::Vector{ComplexF64}, 
-#                                  B_φ_coeffs::Vector{ComplexF64}, r_inv::Float64)
-#     # j_r = (1/(r sin θ)) * [∂B_φ/∂θ - ∂(sin θ B_θ)/∂φ]
-    
-#     # Compute ∂B_φ/∂θ using SHTns
-#     dB_φ_dtheta_phys = synthesis_dtheta(sht, B_φ_coeffs)
-    
-#     # Compute ∂(sin θ B_θ)/∂φ
-#     # First convert B_θ to physical space, multiply by sin θ, then take ∂/∂φ
-#     B_θ_phys = synthesis(sht, B_θ_coeffs)
-    
-#     # Get grid information
-#     nlat, nlon = size(B_θ_phys)
-#     theta_grid = get_theta_array(sht)
-    
-#     # Multiply by sin θ
-#     sinθ_B_θ = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat
-#         sin_theta = sin(theta_grid[i_theta])
-#         for j_phi in 1:nlon
-#             sinθ_B_θ[i_theta, j_phi] = sin_theta * B_θ_phys[i_theta, j_phi]
-#         end
-#     end
-    
-#     # Convert back to spectral and take φ derivative
-#     sinθ_B_θ_coeffs = analysis(sht, sinθ_B_θ)
-#     d_sinθB_θ_dphi_phys = synthesis_dphi(sht, sinθ_B_θ_coeffs)
-    
-#     # Compute j_r
-#     j_r_phys = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat
-#         sin_theta = sin(theta_grid[i_theta])
-#         sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-#         for j_phi in 1:nlon
-#             j_r_phys[i_theta, j_phi] = r_inv * sin_theta_inv * 
-#                 (dB_φ_dtheta_phys[i_theta, j_phi] - d_sinθB_θ_dphi_phys[i_theta, j_phi])
-#         end
-#     end
-    
-#     # Convert back to spectral coefficients
-#     return analysis(sht, j_r_phys)
-# end
-
-
-# function compute_curl_theta_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-#                                      B_φ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-#     # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
-    
-#     # Get grid
-#     nlat, nlon = size(synthesis(sht, B_r_coeffs))
-#     theta_grid = get_theta_array(sht)
-    
-#     # Compute ∂B_r/∂φ
-#     dB_r_dphi_phys = synthesis_dphi(sht, B_r_coeffs)
-    
-#     # Divide by sin θ
-#     dB_r_dphi_over_sinθ = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat
-#         sin_theta = sin(theta_grid[i_theta])
-#         sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-#         for j_phi in 1:nlon
-#             dB_r_dphi_over_sinθ[i_theta, j_phi] = sin_theta_inv * dB_r_dphi_phys[i_theta, j_phi]
-#         end
-#     end
-    
-#     # For ∂(r B_φ)/∂r, we need radial derivative
-#     # This requires finite differences in radial direction
-#     # For now, approximate as r * ∂B_φ/∂r + B_φ ≈ B_φ (simplified)
-#     B_φ_phys = synthesis(sht, B_φ_coeffs)
-    
-#     # Compute j_θ  
-#     j_θ_phys = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat, j_phi in 1:nlon
-#         j_θ_phys[i_theta, j_phi] = r_inv * 
-#             (dB_r_dphi_over_sinθ[i_theta, j_phi] - B_φ_phys[i_theta, j_phi])
-#     end
-    
-#     return analysis(sht, j_θ_phys)
-# end
-
-
-# function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-#                                    B_θ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-#     # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
-    
-#     # Compute ∂B_r/∂θ
-#     dB_r_dtheta_phys = synthesis_dtheta(sht, B_r_coeffs)
-    
-#     # For ∂(r B_θ)/∂r, approximate as B_θ (simplified)
-#     B_θ_phys = synthesis(sht, B_θ_coeffs)
-    
-#     # Compute j_φ
-#     nlat, nlon = size(B_θ_phys)
-#     j_φ_phys = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat, j_phi in 1:nlon
-#         j_φ_phys[i_theta, j_phi] = r_inv * 
-#             (B_θ_phys[i_theta, j_phi] - dB_r_dtheta_phys[i_theta, j_phi])
-#     end
-    
-#     return analysis(sht, j_φ_phys)
-# end
-
-# function compute_cross_product_jxB!(current::SHTnsVectorField{T}, 
-#                                    magnetic::SHTnsVectorField{T},
-#                                    velocity::SHTnsVectorField{T}) where T
-#     # Compute Lorentz force: F = j × B
-#     # F_r = j_θ B_φ - j_φ B_θ
-#     # F_θ = j_φ B_r - j_r B_φ  
-#     # F_φ = j_r B_θ - j_θ B_r
-    
-#     for r_idx in current.r_component.local_radial_range
-#         if (r_idx <= size(current.r_component.data_r, 3) && 
-#             r_idx <= size(magnetic.r_component.data_r, 3) &&
-#             r_idx <= size(velocity.r_component.data_r, 3))
-            
-#             for j_phi in 1:current.r_component.nlon, i_theta in 1:current.r_component.nlat
-#                 if (i_theta <= size(current.r_component.data_r, 1) && 
-#                     j_phi <= size(current.r_component.data_r, 2) &&
-#                     i_theta <= size(magnetic.r_component.data_r, 1) && 
-#                     j_phi <= size(magnetic.r_component.data_r, 2) &&
-#                     i_theta <= size(velocity.r_component.data_r, 1) && 
-#                     j_phi <= size(velocity.r_component.data_r, 2))
-                    
-#                     # Current density components
-#                     j_r = current.r_component.data_r[i_theta, j_phi, r_idx]
-#                     j_θ = current.θ_component.data_r[i_theta, j_phi, r_idx]
-#                     j_φ = current.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-#                     # Magnetic field components
-#                     B_r = magnetic.r_component.data_r[i_theta, j_phi, r_idx]
-#                     B_θ = magnetic.θ_component.data_r[i_theta, j_phi, r_idx]
-#                     B_φ = magnetic.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-#                     # Compute cross product j × B
-#                     F_r = j_θ * B_φ - j_φ * B_θ
-#                     F_θ = j_φ * B_r - j_r * B_φ
-#                     F_φ = j_r * B_θ - j_θ * B_r
-                    
-#                     # Add to velocity equation (momentum equation)
-#                     velocity.r_component.data_r[i_theta, j_phi, r_idx] += F_r
-#                     velocity.θ_component.data_r[i_theta, j_phi, r_idx] += F_θ
-#                     velocity.φ_component.data_r[i_theta, j_phi, r_idx] += F_φ
-#                 end
-#             end
-#         end
-#     end
-# end
-
-# function scale_lorentz_force!(velocity::SHTnsVectorField{T}, scale_factor::Float64) where T
-#     # Scale the Lorentz force by the magnetic interaction parameter
-#     # Typically 1/Pm (inverse magnetic Reynolds number) or Ha²/Re (Hartmann number squared / Reynolds number)
-    
-#     for r_idx in velocity.r_component.local_radial_range
-#         if r_idx <= size(velocity.r_component.data_r, 3)
-#             for j_phi in 1:velocity.r_component.nlon, i_theta in 1:velocity.r_component.nlat
-#                 if (i_theta <= size(velocity.r_component.data_r, 1) && 
-#                     j_phi <= size(velocity.r_component.data_r, 2))
-                    
-#                     velocity.r_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                     velocity.θ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                     velocity.φ_component.data_r[i_theta, j_phi, r_idx] *= scale_factor
-#                 end
-#             end
-#         end
-#     end
-# end
-
-
-# # Additional utility function for computing radial derivatives needed in curl
-# function compute_radial_derivative!(input_field::SHTnsSpectralField{T}, 
-#                                    output_field::SHTnsSpectralField{T},
-#                                    domain::RadialDomain) where T
-#     # Compute radial derivative using finite differences
-#     # This is used in the curl computation where spectral methods don't apply (radial direction)
-    
-#     dr_matrix = create_derivative_matrix(1, domain)
-    
-#     # Apply radial derivative matrix to each spectral mode
-#     @views for lm_idx in 1:input_field.nlm
-#         # Real part
-#         apply_banded_vector!(output_field.data_real[lm_idx, 1, :], 
-#                            dr_matrix, input_field.data_real[lm_idx, 1, :])
-        
-#         # Imaginary part
-#         apply_banded_vector!(output_field.data_imag[lm_idx, 1, :], 
-#                            dr_matrix, input_field.data_imag[lm_idx, 1, :])
-#     end
-# end
-
-
-# Alternative implementation using vector spherical harmonic transforms
-function add_lorentz_force_vectorSH!(fields::SHTnsVelocityFields{T}, mag_field) where T
-    # Alternative implementation using vector spherical harmonic decomposition
-    # This is more efficient for vector fields and maintains spectral accuracy
-    
-    if mag_field === nothing
-        return
-    end
-    
-    # Compute current density in spectral space using vector curl
-    j_toroidal = similar(mag_field.toroidal)
-    j_poloidal = similar(mag_field.poloidal)
-    
-    # Vector curl: j = ∇ × B
-    compute_vector_curl_shtns!(mag_field.toroidal, mag_field.poloidal, 
-                              j_toroidal, j_poloidal)
-    
-    # Compute Lorentz force: F = j × B in vector spectral space
-    F_toroidal = similar(fields.toroidal)
-    F_poloidal = similar(fields.poloidal)
-    
-    compute_vector_cross_product_shtns!(j_toroidal, j_poloidal,
-                                       mag_field.toroidal, mag_field.poloidal,
-                                       F_toroidal, F_poloidal)
-    
-    # Add to velocity equation
-    scale_factor = 1.0 / d_Pm
-    @views for lm_idx in 1:fields.toroidal.nlm
-        for r_idx in fields.toroidal.local_radial_range
-            if r_idx <= size(fields.toroidal.data_real, 3)
-                fields.toroidal.data_real[lm_idx, 1, r_idx] += 
-                    scale_factor * F_toroidal.data_real[lm_idx, 1, r_idx]
-                fields.toroidal.data_imag[lm_idx, 1, r_idx] += 
-                    scale_factor * F_toroidal.data_imag[lm_idx, 1, r_idx]
-                
-                fields.poloidal.data_real[lm_idx, 1, r_idx] += 
-                    scale_factor * F_poloidal.data_real[lm_idx, 1, r_idx]
-                fields.poloidal.data_imag[lm_idx, 1, r_idx] += 
-                    scale_factor * F_poloidal.data_imag[lm_idx, 1, r_idx]
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(mag_tor_real, 3)
+                    # Curl in spectral space
+                    j_tor_real[local_lm, 1, local_r] = l_factor * mag_pol_real[local_lm, 1, local_r]
+                    j_tor_imag[local_lm, 1, local_r] = l_factor * mag_pol_imag[local_lm, 1, local_r]
+                    j_pol_real[local_lm, 1, local_r] = -l_factor * mag_tor_real[local_lm, 1, local_r]
+                    j_pol_imag[local_lm, 1, local_r] = -l_factor * mag_tor_imag[local_lm, 1, local_r]
+                end
             end
         end
     end
 end
 
 
-function compute_vector_curl_shtns!(B_toroidal::SHTnsSpectralField{T}, 
-                                   B_poloidal::SHTnsSpectralField{T},
-                                   j_toroidal::SHTnsSpectralField{T}, 
-                                   j_poloidal::SHTnsSpectralField{T}) where T
-    # Compute curl of vector field in vector spherical harmonic space
-    # For toroidal-poloidal decomposition:
-    # If B = ∇ × (T r̂) + ∇ × ∇ × (P r̂)
-    # Then ∇ × B has specific relationships between T,P and curl components
+function compute_cross_product_jB!(j_field::SHTnsVectorField{T}, 
+                                  B_field::SHTnsVectorField{T},
+                                  output::SHTnsVectorField{T}) where T
+    # Compute j × B in physical space
     
-    config = B_toroidal.config
+    j_r = parent(j_field.r_component.data)
+    j_θ = parent(j_field.θ_component.data)
+    j_φ = parent(j_field.φ_component.data)
     
-    @views for lm_idx in 1:B_toroidal.nlm
-        l = config.l_values[lm_idx]
-        m = config.m_values[lm_idx]
-        
-        # Vector spherical harmonic curl operations
-        # This involves derivatives and l,m-dependent operations
-        l_factor = Float64(l * (l + 1))
-        
-        for r_idx in B_toroidal.local_radial_range
-            if r_idx <= size(B_toroidal.data_real, 3)
-                # Simplified curl operation (would need full vector SH implementation)
-                # j_toroidal comes from poloidal component derivatives
-                j_toroidal.data_real[lm_idx, 1, r_idx] = 
-                    l_factor * B_poloidal.data_real[lm_idx, 1, r_idx]
-                j_toroidal.data_imag[lm_idx, 1, r_idx] = 
-                    l_factor * B_poloidal.data_imag[lm_idx, 1, r_idx]
-                
-                # j_poloidal comes from toroidal component derivatives  
-                j_poloidal.data_real[lm_idx, 1, r_idx] = 
-                    -l_factor * B_toroidal.data_real[lm_idx, 1, r_idx]
-                j_poloidal.data_imag[lm_idx, 1, r_idx] = 
-                    -l_factor * B_toroidal.data_imag[lm_idx, 1, r_idx]
-            end
+    B_r = parent(B_field.r_component.data)
+    B_θ = parent(B_field.θ_component.data)
+    B_φ = parent(B_field.φ_component.data)
+    
+    out_r = parent(output.r_component.data)
+    out_θ = parent(output.θ_component.data)
+    out_φ = parent(output.φ_component.data)
+    
+    @inbounds @simd for idx in eachindex(j_r)
+        if idx <= length(B_r)
+            # Cross product components
+            out_r[idx] = j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx]
+            out_θ[idx] = j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx]
+            out_φ[idx] = j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx]
         end
     end
 end
 
 
-function compute_vector_cross_product_shtns!(j_toroidal::SHTnsSpectralField{T}, 
-                                            j_poloidal::SHTnsSpectralField{T},
-                                            B_toroidal::SHTnsSpectralField{T}, 
-                                            B_poloidal::SHTnsSpectralField{T},
-                                            F_toroidal::SHTnsSpectralField{T}, 
-                                            F_poloidal::SHTnsSpectralField{T}) where T
-
-    # Compute cross product j × B in vector spherical harmonic space
-    # This is a complex operation involving coupling between different l,m modes
-    # For full implementation, would need vector spherical harmonic coupling coefficients
+# ====================
+# Utility functions
+# ====================
+function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
+    # Efficiently zero all work arrays
+    fill!(parent(fields.work_tor.data_real), zero(T))
+    fill!(parent(fields.work_tor.data_imag), zero(T))
+    fill!(parent(fields.work_pol.data_real), zero(T))
+    fill!(parent(fields.work_pol.data_imag), zero(T))
     
-    # Simplified implementation - direct mode-by-mode operation
-    @views for lm_idx in 1:j_toroidal.nlm
-        for r_idx in j_toroidal.local_radial_range
-            if r_idx <= size(j_toroidal.data_real, 3)
-                # Simplified cross product (would need proper vector SH coupling)
-                F_toroidal.data_real[lm_idx, 1, r_idx] = 
-                    j_toroidal.data_real[lm_idx, 1, r_idx] * B_poloidal.data_real[lm_idx, 1, r_idx] -
-                    j_toroidal.data_imag[lm_idx, 1, r_idx] * B_poloidal.data_imag[lm_idx, 1, r_idx]
-                
-                F_toroidal.data_imag[lm_idx, 1, r_idx] = 
-                    j_toroidal.data_real[lm_idx, 1, r_idx] * B_poloidal.data_imag[lm_idx, 1, r_idx] +
-                    j_toroidal.data_imag[lm_idx, 1, r_idx] * B_poloidal.data_real[lm_idx, 1, r_idx]
-                
-                F_poloidal.data_real[lm_idx, 1, r_idx] = 
-                    j_poloidal.data_real[lm_idx, 1, r_idx] * B_toroidal.data_real[lm_idx, 1, r_idx] -
-                    j_poloidal.data_imag[lm_idx, 1, r_idx] * B_toroidal.data_imag[lm_idx, 1, r_idx]
-                
-                F_poloidal.data_imag[lm_idx, 1, r_idx] = 
-                    j_poloidal.data_real[lm_idx, 1, r_idx] * B_toroidal.data_imag[lm_idx, 1, r_idx] +
-                    j_poloidal.data_imag[lm_idx, 1, r_idx] * B_toroidal.data_real[lm_idx, 1, r_idx]
-            end
-        end
-    end
+    fill!(parent(fields.work_physical.r_component.data), zero(T))
+    fill!(parent(fields.work_physical.θ_component.data), zero(T))
+    fill!(parent(fields.work_physical.φ_component.data), zero(T))
+end
+
+function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
+    # Scale all components of a vector field
+    parent(field.r_component.data) .*= factor
+    parent(field.θ_component.data) .*= factor
+    parent(field.φ_component.data) .*= factor
+end
+
+
+function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{T}) where T
+    # Add source to destination
+    parent(dest.r_component.data) .+= parent(source.r_component.data)
+    parent(dest.θ_component.data) .+= parent(source.θ_component.data)
+    parent(dest.φ_component.data) .+= parent(source.φ_component.data)
 end
 
 
 
-# export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
-
-#end
+# =====================================================
+# Diagnostic functions using transform infrastructure
+# =====================================================
+function compute_kinetic_energy(fields::SHTnsVelocityFields{T}) where T
+    # Efficient kinetic energy computation in spectral space
+    
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+    
+    local_energy = zero(Float64)
+    
+    # Use l(l+1) weighting for proper spectral integration
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    # Properly weighted spectral energy
+                    weight = 1.0 / max(l_factor, 1.0)
+                    local_energy += weight * (tor_real[local_lm, 1, local_r]^2 + 
+                                             tor_imag[local_lm, 1, local_r]^2 + 
+                                             pol_real[local_lm, 1, local_r]^2 + 
+                                             pol_imag[local_lm, 1, local_r]^2)
+                end
+            end
+        end
+    end
+    
+    # Global sum
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+end

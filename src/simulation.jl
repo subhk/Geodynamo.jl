@@ -138,8 +138,8 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
             end
             
             # Update previous state
-            prev_velocity .= state.velocity.toroidal
-            prev_magnetic .= state.magnetic.toroidal
+            prev_velocity    .= state.velocity.toroidal
+            prev_magnetic    .= state.magnetic.toroidal
             prev_temperature .= state.temperature.spectral
             
             state.timestep_state.iteration += 1

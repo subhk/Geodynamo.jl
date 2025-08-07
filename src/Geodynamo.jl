@@ -9,13 +9,11 @@ module Geodynamo
     using StaticArrays
     using SHTnsSpheres
 
-
     # exports shtns_config.jl
     export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
 
     # exports pencil_decomps.jl
     export get_comm, create_pencil_topology, create_transpose_plans
-
 
     # exports field.jl
     export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField
@@ -23,10 +21,11 @@ module Geodynamo
     export create_shtns_vector_field, create_radial_domain
     export get_local_range, get_local_indices, local_data_size, get_local_data
 
-
     # export shtns_transforms.jl
     export shtns_spectral_to_physical!, shtns_physical_to_spectral!
     export shtns_vector_synthesis!, shtns_vector_analysis!
+    export shtns_compute_gradient!
+    export SHTnsTransformManager, get_transform_manager
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
@@ -42,7 +41,8 @@ module Geodynamo
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
 
     # exports thermal.jl
-    export SHTnsTemperatureField, create_shtns_temperature_field, compute_temperature_nonlinear!
+    export SHTnsTemperatureField, create_shtns_temperature_field
+    export compute_temperature_nonlinear!, zero_work_arrays!
 
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
