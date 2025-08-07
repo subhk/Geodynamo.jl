@@ -426,6 +426,116 @@ function apply_flux_bc_neumann!(temp_field::SHTnsTemperatureField{T},
 end
 
 
+function create_boundary_derivative_operator(domain::RadialDomain)
+    # Create operator for computing derivatives at boundaries
+    N = domain.N
+    bandwidth = i_KL
+    
+    # 2xN matrix: row 1 for inner boundary, row 2 for outer boundary
+    boundary_op = zeros(2, N)
+    
+    # Inner boundary coefficients
+    for idx in 1:min(bandwidth+1, N)
+        # Use forward difference stencil
+        boundary_op[1, idx] = compute_fd_coefficient(1, idx, domain.r[1:bandwidth+1, 4])
+    end
+    
+    # Outer boundary coefficients
+    for idx in max(N-bandwidth, 1):N
+        # Use backward difference stencil
+        local_idx = idx - (N - bandwidth - 1)
+        boundary_op[2, idx] = compute_fd_coefficient(bandwidth+1, local_idx, 
+                                                    domain.r[N-bandwidth:N, 4])
+    end
+    
+    return boundary_op
+end
+
+
+function compute_fd_coefficient(target_idx::Int, stencil_idx::Int, points::Vector{Float64})
+    # Compute finite difference coefficient for derivative at target point
+    n = length(points)
+    c = 1.0
+    c1 = 1.0
+    c4 = points[1] - points[target_idx]
+    
+    coeff = 0.0
+    
+    for i in 1:n
+        if i == stencil_idx
+            continue
+        end
+        c2 = 1.0
+        c5 = c4
+        c4 = points[i] - points[target_idx]
+        
+        for j in 1:n
+            if j == i || j == stencil_idx
+                continue
+            end
+            c2 *= (points[i] - points[j])
+        end
+        
+        c3 = points[i] - points[stencil_idx]
+        c2 = 1.0 / c2
+        
+        if i == target_idx
+            coeff = c1 / c3
+        end
+        
+        c1 = c2
+    end
+    
+    return coeff
+end
+
+
+function correct_for_flux_bc!(profile::Vector{T}, flux_inner::T, flux_outer::T,
+                             boundary_op::Matrix{T}, domain::RadialDomain) where T
+    # Correct temperature profile to satisfy flux boundary conditions
+    
+    # Current fluxes at boundaries
+    current_flux_inner = dot(boundary_op[1, :], profile)
+    current_flux_outer = dot(boundary_op[2, :], profile)
+    
+    # Flux errors
+    error_inner = flux_inner - current_flux_inner
+    error_outer = flux_outer - current_flux_outer
+    
+    # Apply linear correction (simplest approach)
+    # More sophisticated: use influence functions or tau method
+    N = domain.N
+    for r_idx in 1:N
+        # Linear interpolation of correction
+        α = Float64(r_idx - 1) / Float64(N - 1)
+        correction = (1.0 - α) * error_inner + α * error_outer
+        profile[r_idx] += correction / Float64(N)
+    end
+end
+
+
+function get_flux_bc_value(lm_idx::Int, boundary::Int, 
+                          temp_field::SHTnsTemperatureField{T}) where T
+    # Get prescribed flux value for given mode and boundary
+    # boundary: 1 = inner, 2 = outer
+    
+    l = temp_field.spectral.config.l_values[lm_idx]
+    m = temp_field.spectral.config.m_values[lm_idx]
+    
+    # Example: uniform heating from below, cooling from above
+    if l == 0 && m == 0
+        if boundary == 1
+            return T(1.0)   # Heating from below
+        else
+            return T(-1.0)  # Cooling from above
+        end
+    else
+        return T(0.0)  # No flux for non-axisymmetric modes
+    end
+end
+
+
+
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
     fill!(parent(temp_field.work_physical.data), zero(T))
