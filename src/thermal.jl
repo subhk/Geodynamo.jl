@@ -255,12 +255,6 @@ end
 
 
 
-
-function apply_banded_matrix_vector(matrix::BandedMatrix{T}, vector::Vector{T}) where T
-    # Apply banded matrix to vector
-    return apply_derivative_matrix(matrix, vector)
-end
-
 function get_radius_at_level(r_idx::Int)
     # Get radius at radial grid point
     # Placeholder - would come from radial domain
