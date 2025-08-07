@@ -134,9 +134,20 @@ end
 # ========================================================
 # Current density computation in spectral space
 # ========================================================
-function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}) where T
-    # Compute j = ∇ × B using spectral relationships
-    # For B = ∇ × (T r̂) + ∇ × ∇ × (P r̂), the curl has specific forms
+# ========================================================
+# Current density computation in spectral space
+# ========================================================
+function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}, 
+                                          domain::RadialDomain) where T
+    # Compute j = ∇ × B using spectral relationships with full radial derivatives
+    # For toroidal-poloidal decomposition:
+    # B = B_T + B_P where:
+    #   B_T = ∇ × (T(r,θ,φ) r̂)
+    #   B_P = ∇ × ∇ × (P(r,θ,φ) r̂)
+    #
+    # Current density j = ∇ × B:
+    #   j_T = [l(l+1)/r² - d²/dr² - 2/r d/dr] P^{lm}
+    #   j_P = -[l(l+1)/r²] T^{lm}
     
     # Get local data views
     B_tor_real = parent(mag_fields.toroidal.data_real)
@@ -153,25 +164,83 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}) w
     lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
     r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
     
-    # Apply curl relationships in spectral space
+    # Create radial derivative matrices
+    d1_matrix = create_derivative_matrix(1, domain)  # First derivative d/dr
+    d2_matrix = create_derivative_matrix(2, domain)  # Second derivative d²/dr²
+    
+    # Pre-allocate work arrays for radial profiles
+    nr = domain.N
+    pol_profile_real = zeros(T, nr)
+    pol_profile_imag = zeros(T, nr)
+    dpol_dr_real    = zeros(T, nr)
+    dpol_dr_imag    = zeros(T, nr)
+    d2pol_dr2_real  = zeros(T, nr)
+    d2pol_dr2_imag  = zeros(T, nr)
+    
+    # Process each (l,m) mode
     @inbounds for lm_idx in lm_range
         if lm_idx <= length(mag_fields.l_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            l_factor = mag_fields.l_factors[lm_idx]
+            l_factor = mag_fields.l_factors[lm_idx]  # l(l+1)
             
+            # Extract radial profiles for poloidal field
+            for r_idx in 1:nr
+                if r_idx in r_range
+                    local_r = r_idx - first(r_range) + 1
+                    if local_r <= size(B_pol_real, 3)
+                        pol_profile_real[r_idx] = B_pol_real[local_lm, 1, local_r]
+                        pol_profile_imag[r_idx] = B_pol_imag[local_lm, 1, local_r]
+                    end
+                else
+                    pol_profile_real[r_idx] = zero(T)
+                    pol_profile_imag[r_idx] = zero(T)
+                end
+            end
+            
+            # Compute radial derivatives for poloidal field
+            apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_profile_real)
+            apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_profile_imag)
+            apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_profile_real)
+            apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_profile_imag)
+            
+            # Compute current density components
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(B_tor_real, 3)
-                    # Curl in spectral space (simplified - full implementation needs radial derivatives)
-                    # j_tor = l(l+1) * B_pol / r²
-                    # j_pol = -l(l+1) * B_tor / r²
+                if local_r <= size(j_tor_real, 3)
+                    r_inv = domain.r[r_idx, 3]   # 1/r
+                    r_inv2 = domain.r[r_idx, 2]  # 1/r²
                     
-                    # For now, using simplified relationship
-                    j_tor_real[local_lm, 1, local_r] = l_factor * B_pol_real[local_lm, 1, local_r]
-                    j_tor_imag[local_lm, 1, local_r] = l_factor * B_pol_imag[local_lm, 1, local_r]
-                    j_pol_real[local_lm, 1, local_r] = -l_factor * B_tor_real[local_lm, 1, local_r]
-                    j_pol_imag[local_lm, 1, local_r] = -l_factor * B_tor_imag[local_lm, 1, local_r]
+                    # Toroidal current from poloidal field (with full derivatives)
+                    j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
+                                                        - d2pol_dr2_real[r_idx] 
+                                                        - 2.0 * r_inv * dpol_dr_real[r_idx])
+                    j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
+                                                        - d2pol_dr2_imag[r_idx] 
+                                                        - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                    
+                    # Poloidal current from toroidal field (simpler - no radial derivatives)
+                    j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
+                    j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
                 end
+            end
+        end
+    end
+end
+
+# Helper function to apply derivative matrix
+function apply_derivative_matrix!(output::Vector{T}, 
+                                matrix::BandedMatrix{T}, 
+                                input::Vector{T}) where T
+    N = matrix.size
+    bandwidth = matrix.bandwidth
+    
+    fill!(output, zero(T))
+    
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                output[i] += matrix.data[band_row, j] * input[j]
             end
         end
     end

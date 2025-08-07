@@ -119,6 +119,8 @@ function apply_banded_vector_local!(output::AbstractVector{T},
             end
         end
     end
+
+    
 end
 
 #export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
