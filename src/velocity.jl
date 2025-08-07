@@ -676,11 +676,10 @@ function compute_all_nonlinear_terms_fused!(fields::SHTnsVelocityFields{T},
     end
 end
 
-# ============================================================================
-# Optimized force additions
-# ============================================================================
-
-function add_buoyancy_optimized!(work_r::AbstractArray{T,3}, 
+# =====================
+# Addition of forces
+# =====================
+function add_thermal_buoyancy!(work_r::AbstractArray{T,3}, 
                                 scalar_field, factor::Float64) where T
     # Get the scalar field data (temperature or composition)
     if isa(scalar_field, SHTnsPhysicalField)
@@ -698,7 +697,7 @@ function add_buoyancy_optimized!(work_r::AbstractArray{T,3},
     end
 end
 
-function add_lorentz_force_spectral!(fields::SHTnsVelocityFields{T}, mag_field) where T
+function add_lorentz_force!(fields::SHTnsVelocityFields{T}, mag_field) where T
     # Compute Lorentz force in spectral space for efficiency
     # F = (∇ × B) × B / Pm
     
