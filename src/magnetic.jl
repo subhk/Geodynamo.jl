@@ -1,5 +1,22 @@
+# =========================================
+#  Magnetic field components with SHTns
+# =========================================
 #
-#   
+# Transform Flow:
+# ===============
+#  Spectral B(tor/pol) → [shtns_vector_synthesis!] → Physical B
+#                             ↓
+#                   Compute j = ∇×B in spectral
+#                             ↓
+#               Compute u×B in physical space
+#                             ↓
+# Physical (u×B) → [shtns_vector_analysis!] → Spectral (u×B)
+#                             ↓
+#               Compute ∇×(u×B) in spectral
+#                             ↓
+#                   Add to nonlinear terms
+#
+#
 struct SHTnsMagneticFields{T}
     # Physical space magnetic field
     magnetic::SHTnsVectorField{T}
@@ -37,6 +54,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
                                       domain_oc::RadialDomain, 
                                       domain_ic::RadialDomain, 
                                       pencils, pencil_spec) where T
+
     pencil_θ, pencil_φ, pencil_r = pencils
     
     # Physical space fields
@@ -59,6 +77,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
     work_tor = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     work_pol = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     work_physical = create_shtns_vector_field(T, config, domain_oc, pencils)
+    induction_physical = create_shtns_vector_field(T, config, domain_oc, pencils)
     
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
@@ -73,6 +92,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
                                 ic_toroidal, ic_poloidal, 
                                 nl_toroidal, nl_poloidal,
                                 work_tor, work_pol, work_physical,
+                                induction_physical,
                                 l_factors, transform_manager,
                                 imposed_field)
 end
@@ -83,107 +103,52 @@ end
 # ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T}, 
                                     vel_fields, rotation_rate) where T
-    # Convert spectral B to physical space
+    # Zero work arrays
+    zero_magnetic_work_arrays!(mag_fields)
+    
+    # Step 1: Convert spectral B to physical space using optimized transforms
     shtns_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal, 
                             mag_fields.magnetic)
     
-    # # Compute current density j = ∇ × B
-    # compute_current_density!(mag_fields.magnetic, mag_fields.current)
+    # Step 2: Compute current density j = ∇ × B in spectral space
+    compute_current_density_spectral!(mag_fields)
     
-    # # Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
-    # compute_induction_term!(mag_fields, vel_fields)
-
-    # Compute induction locally
-    compute_induction_term_local!(mag_fields, vel_fields)
+    # Step 3: Transform current to physical space
+    shtns_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol, 
+                            mag_fields.current)
     
-    # # Inner core rotation effects
-    # add_inner_core_rotation!(mag_fields, rotation_rate)
-
-    # Inner core effects
-    if rotation_rate != 0.0
-        add_inner_core_rotation_local!(mag_fields, rotation_rate)
+    # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
+    if vel_fields !== nothing
+        compute_induction_term!(mag_fields, vel_fields)
     end
     
-    # Transform to spectral space
-    shtns_vector_analysis!(mag_fields.magnetic, 
-                        mag_fields.nl_toroidal, mag_fields.nl_poloidal)
+    # Step 5: Inner core rotation effects
+    if rotation_rate != 0.0
+        add_inner_core_rotation!(mag_fields, rotation_rate)
+    end
+    
+    # Note: The nonlinear terms are now in mag_fields.nl_toroidal/poloidal
 end
 
-# function compute_current_density!(magnetic::SHTnsVectorField{T}, current::SHTnsVectorField{T}) where T
-#     # Compute j = ∇ × B using SHTns curl operations
-#     # This would use spectral differentiation with SHTns
-    
-#     # Placeholder - would compute curl using SHTns spectral operators
-#     for r_idx in magnetic.r_component.local_radial_range
-#         # Curl computation using SHTns
-#     end
-# end
 
-# # Vector spherical harmonic implementation
-# function compute_current_density!(magnetic::SHTnsVectorField{T}, 
-#                                            current::SHTnsVectorField{T}) where T
-    
-#     # Compute j = ∇ × B using SHTns curl operations
-#     # Compute current density using vector spherical harmonic curl operation
-#     # This is the most efficient approach for spectral methods
-    
-#     config = magnetic.r_component.config
-    
-#     # Get toroidal-poloidal representation of magnetic field
-#     B_toroidal = create_temp_spectral_field(T, config, magnetic.r_component)
-#     B_poloidal = create_temp_spectral_field(T, config, magnetic.r_component)
-    
-#     # Convert magnetic field to toroidal-poloidal decomposition
-#     shtns_vector_analysis!(magnetic, B_toroidal, B_poloidal)
-    
-#     # Compute curl in toroidal-poloidal space
-#     j_toroidal = similar(B_toroidal)
-#     j_poloidal = similar(B_poloidal)
-    
-#     compute_vector_curl_toroidal_poloidal!(B_toroidal, B_poloidal, 
-#                                           j_toroidal, j_poloidal, config)
-    
-#     # Convert back to physical vector components
-#     shtns_vector_synthesis!(j_toroidal, j_poloidal, current)
-# end
 
-# function compute_vector_curl_toroidal_poloidal!(B_toroidal::SHTnsSpectralField{T}, 
-#                                                B_poloidal::SHTnsSpectralField{T},
-#                                                j_toroidal::SHTnsSpectralField{T}, 
-#                                                j_poloidal::SHTnsSpectralField{T},
-#                                                config::SHTnsConfig) where T
-#     # Compute curl using vector spherical harmonic relationships
-#     # For B = ∇ × (T r̂) + ∇ × ∇ × (P r̂), the curl has specific forms
+
+# ==============================
+# Induction term computation
+# ==============================
+function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
+    # Compute ∇ × (u × B) for the induction equation
     
-#     @views for lm_idx in 1:B_toroidal.nlm
-#         l = config.l_values[lm_idx]
-#         m = config.m_values[lm_idx]
-#         l_factor = Float64(l * (l + 1))
-        
-#         for r_idx in B_toroidal.local_radial_range
-#             if r_idx <= size(B_toroidal.data_real, 3)
-                
-#                 # Vector spherical harmonic curl relationships
-#                 # These involve radial derivatives and l,m factors
-                
-#                 T_B = complex(B_toroidal.data_real[lm_idx, 1, r_idx], 
-#                              B_toroidal.data_imag[lm_idx, 1, r_idx])
-#                 P_B = complex(B_poloidal.data_real[lm_idx, 1, r_idx], 
-#                              B_poloidal.data_imag[lm_idx, 1, r_idx])
-                
-#                 # Simplified curl (full implementation needs proper radial derivatives)
-#                 # j has toroidal component from poloidal B and vice versa
-#                 T_j = l_factor * P_B  # Simplified relationship
-#                 P_j = -l_factor * T_B  # Simplified relationship
-                
-#                 j_toroidal.data_real[lm_idx, 1, r_idx] = real(T_j)
-#                 j_toroidal.data_imag[lm_idx, 1, r_idx] = imag(T_j)
-#                 j_poloidal.data_real[lm_idx, 1, r_idx] = real(P_j)
-#                 j_poloidal.data_imag[lm_idx, 1, r_idx] = imag(P_j)
-#             end
-#         end
-#     end
-# end
+    # Step 1: Compute u × B in physical space
+    compute_velocity_cross_magnetic!(mag_fields, vel_fields)
+    
+    # Step 2: Transform u × B to spectral space
+    shtns_vector_analysis!(mag_fields.induction_physical, 
+                          mag_fields.work_tor, mag_fields.work_pol)
+    
+    # Step 3: Compute curl of (u × B) in spectral space
+    compute_curl_of_induction!(mag_fields)
+end
 
 # # Utility function
 # function get_radius_at_level(r_idx::Int, config::SHTnsConfig)
@@ -226,53 +191,6 @@ function compute_induction_term_local!(mag_fields::SHTnsMagneticFields{T}, vel_f
     end
 end
 
-# function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
-#     # Compute u × B in physical space
-#     vel = vel_fields.velocity
-#     mag = mag_fields.magnetic
-    
-#     # u × B = (u_θ B_φ - u_φ B_θ, u_φ B_r - u_r B_φ, u_r B_θ - u_θ B_r)
-#     for r_idx in mag.r_component.local_radial_range
-#         if r_idx <= size(mag.r_component.data_r, 3) && r_idx <= size(vel.r_component.data_r, 3)
-#             for j_phi in 1:mag.r_component.nlon, i_theta in 1:mag.r_component.nlat
-#                 if (i_theta <= size(mag.r_component.data_r, 1) && 
-#                     j_phi <= size(mag.r_component.data_r, 2) &&
-#                     i_theta <= size(vel.r_component.data_r, 1) && 
-#                     j_phi <= size(vel.r_component.data_r, 2))
-                    
-#                     u_r = vel.r_component.data_r[i_theta, j_phi, r_idx]
-#                     u_θ = vel.θ_component.data_r[i_theta, j_phi, r_idx]
-#                     u_φ = vel.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-#                     B_r = mag.r_component.data_r[i_theta, j_phi, r_idx]
-#                     B_θ = mag.θ_component.data_r[i_theta, j_phi, r_idx]
-#                     B_φ = mag.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-#                     # Store u × B temporarily in magnetic field
-#                     mag.r_component.data_r[i_theta, j_phi, r_idx] = u_θ * B_φ - u_φ * B_θ
-#                     mag.θ_component.data_r[i_theta, j_phi, r_idx] = u_φ * B_r - u_r * B_φ
-#                     mag.φ_component.data_r[i_theta, j_phi, r_idx] = u_r * B_θ - u_θ * B_r
-#                 end
-#             end
-#         end
-#     end
-# end
-
-
-# function add_inner_core_rotation!(mag_fields::SHTnsMagneticFields{T}, Ω::Float64) where T
-#     # Inner core rotation: -Ω × B_ic
-#     # This affects the boundary conditions and coupling
-    
-#     # Rotation effects on inner core field (simplified)
-#     for lm_idx in 1:mag_fields.ic_toroidal.nlm
-#         for r_idx in mag_fields.ic_toroidal.local_radial_range
-#             if r_idx <= size(mag_fields.ic_toroidal.data_real, 3)
-#                 mag_fields.ic_toroidal.data_real[lm_idx, 1, r_idx] *= (1.0 - Ω * 1e-3)
-#                 mag_fields.ic_poloidal.data_real[lm_idx, 1, r_idx] *= (1.0 - Ω * 1e-3)
-#             end
-#         end
-#     end
-# end
 
 
 function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::Float64) where T
@@ -288,6 +206,26 @@ function add_inner_core_rotation_local!(mag_fields::SHTnsMagneticFields{T}, Ω::
     ic_tor_imag .*= rotation_factor
     ic_pol_real .*= rotation_factor
     ic_pol_imag .*= rotation_factor
+end
+
+
+# =======================
+# Utility functions
+# =======================
+function zero_magnetic_work_arrays!(mag_fields::SHTnsMagneticFields{T}) where T
+    # Zero all work arrays
+    fill!(parent(mag_fields.work_tor.data_real), zero(T))
+    fill!(parent(mag_fields.work_tor.data_imag), zero(T))
+    fill!(parent(mag_fields.work_pol.data_real), zero(T))
+    fill!(parent(mag_fields.work_pol.data_imag), zero(T))
+    
+    fill!(parent(mag_fields.work_physical.r_component.data), zero(T))
+    fill!(parent(mag_fields.work_physical.θ_component.data), zero(T))
+    fill!(parent(mag_fields.work_physical.φ_component.data), zero(T))
+    
+    fill!(parent(mag_fields.induction_physical.r_component.data), zero(T))
+    fill!(parent(mag_fields.induction_physical.θ_component.data), zero(T))
+    fill!(parent(mag_fields.induction_physical.φ_component.data), zero(T))
 end
 
 
