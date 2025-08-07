@@ -839,43 +839,6 @@ end
 
 
 
-function compute_vector_cross_product_shtns!(j_toroidal::SHTnsSpectralField{T}, 
-                                            j_poloidal::SHTnsSpectralField{T},
-                                            B_toroidal::SHTnsSpectralField{T}, 
-                                            B_poloidal::SHTnsSpectralField{T},
-                                            F_toroidal::SHTnsSpectralField{T}, 
-                                            F_poloidal::SHTnsSpectralField{T}) where T
-
-    # Compute cross product j × B in vector spherical harmonic space
-    # This is a complex operation involving coupling between different l,m modes
-    # For full implementation, would need vector spherical harmonic coupling coefficients
-    
-    # Simplified implementation - direct mode-by-mode operation
-    @views for lm_idx in 1:j_toroidal.nlm
-        for r_idx in j_toroidal.local_radial_range
-            if r_idx <= size(j_toroidal.data_real, 3)
-                # Simplified cross product (would need proper vector SH coupling)
-                F_toroidal.data_real[lm_idx, 1, r_idx] = 
-                    j_toroidal.data_real[lm_idx, 1, r_idx] * B_poloidal.data_real[lm_idx, 1, r_idx] -
-                    j_toroidal.data_imag[lm_idx, 1, r_idx] * B_poloidal.data_imag[lm_idx, 1, r_idx]
-                
-                F_toroidal.data_imag[lm_idx, 1, r_idx] = 
-                    j_toroidal.data_real[lm_idx, 1, r_idx] * B_poloidal.data_imag[lm_idx, 1, r_idx] +
-                    j_toroidal.data_imag[lm_idx, 1, r_idx] * B_poloidal.data_real[lm_idx, 1, r_idx]
-                
-                F_poloidal.data_real[lm_idx, 1, r_idx] = 
-                    j_poloidal.data_real[lm_idx, 1, r_idx] * B_toroidal.data_real[lm_idx, 1, r_idx] -
-                    j_poloidal.data_imag[lm_idx, 1, r_idx] * B_toroidal.data_imag[lm_idx, 1, r_idx]
-                
-                F_poloidal.data_imag[lm_idx, 1, r_idx] = 
-                    j_poloidal.data_real[lm_idx, 1, r_idx] * B_toroidal.data_imag[lm_idx, 1, r_idx] +
-                    j_poloidal.data_imag[lm_idx, 1, r_idx] * B_toroidal.data_real[lm_idx, 1, r_idx]
-            end
-        end
-    end
-end
-
-
 
 # export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
 
