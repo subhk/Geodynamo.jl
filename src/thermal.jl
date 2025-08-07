@@ -643,7 +643,7 @@ function apply_influence_correction!(profile::Vector{T}, flux_inner::T, flux_out
     # Apply correction using influence functions
     
     # Compute current fluxes
-    dr_matrix = create_derivative_matrix(1, domain)
+    dr_matrix  = create_derivative_matrix(1, domain)
     dprofile_dr = apply_derivative_operator(dr_matrix, profile)
     current_flux_inner = dprofile_dr[1]
     current_flux_outer = dprofile_dr[end]
@@ -662,6 +662,46 @@ function apply_influence_correction!(profile::Vector{T}, flux_inner::T, flux_out
     end
 end
 
+
+function apply_derivative_operator(dr_matrix::BandedMatrix{T}, field::Vector{T}) where T
+    # Apply banded derivative matrix to field
+    N = dr_matrix.size
+    bandwidth = dr_matrix.bandwidth
+    result = zeros(T, N)
+    
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                result[i] += dr_matrix.data[band_row, j] * field[j]
+            end
+        end
+    end
+    
+    return result
+end
+
+
+function extract_radial_profile(data::AbstractArray{T,3}, local_lm::Int, nr::Int,
+                               pencil::Pencil{3}) where T
+    # Extract radial profile for a given (l,m) mode
+    profile = zeros(T, nr)
+    r_range = get_local_range(pencil, 3)
+    
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(data, 3) && r_idx <= nr
+            profile[r_idx] = data[local_lm, 1, local_r]
+        end
+    end
+    
+    # MPI gather if needed
+    if MPI.Initialized() && MPI.Comm_size(get_comm()) > 1
+        MPI.Allreduce!(profile, MPI.SUM, get_comm())
+    end
+    
+    return profile
+end
 
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
