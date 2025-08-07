@@ -793,50 +793,6 @@ end
 
 
 
-# Alternative implementation using vector spherical harmonic transforms
-function add_lorentz_force_vectorSH!(fields::SHTnsVelocityFields{T}, mag_field) where T
-    # Alternative implementation using vector spherical harmonic decomposition
-    # This is more efficient for vector fields and maintains spectral accuracy
-    
-    if mag_field === nothing
-        return
-    end
-    
-    # Compute current density in spectral space using vector curl
-    j_toroidal = similar(mag_field.toroidal)
-    j_poloidal = similar(mag_field.poloidal)
-    
-    # Vector curl: j = ∇ × B
-    compute_vector_curl_shtns!(mag_field.toroidal, mag_field.poloidal, 
-                              j_toroidal, j_poloidal)
-    
-    # Compute Lorentz force: F = j × B in vector spectral space
-    F_toroidal = similar(fields.toroidal)
-    F_poloidal = similar(fields.poloidal)
-    
-    compute_vector_cross_product_shtns!(j_toroidal, j_poloidal,
-                                       mag_field.toroidal, mag_field.poloidal,
-                                       F_toroidal, F_poloidal)
-    
-    # Add to velocity equation
-    scale_factor = 1.0 / d_Pm
-    @views for lm_idx in 1:fields.toroidal.nlm
-        for r_idx in fields.toroidal.local_radial_range
-            if r_idx <= size(fields.toroidal.data_real, 3)
-                fields.toroidal.data_real[lm_idx, 1, r_idx] += 
-                    scale_factor * F_toroidal.data_real[lm_idx, 1, r_idx]
-                fields.toroidal.data_imag[lm_idx, 1, r_idx] += 
-                    scale_factor * F_toroidal.data_imag[lm_idx, 1, r_idx]
-                
-                fields.poloidal.data_real[lm_idx, 1, r_idx] += 
-                    scale_factor * F_poloidal.data_real[lm_idx, 1, r_idx]
-                fields.poloidal.data_imag[lm_idx, 1, r_idx] += 
-                    scale_factor * F_poloidal.data_imag[lm_idx, 1, r_idx]
-            end
-        end
-    end
-end
-
 
 
 
