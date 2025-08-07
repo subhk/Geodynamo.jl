@@ -839,6 +839,38 @@ function apply_mode_mixed_bc!(spec_real::AbstractArray{T,3},
 end
 
 
+function apply_single_flux_bc!(profile::Vector{T}, flux::T, 
+                              boundary::Int, domain::RadialDomain) where T
+    # Apply flux BC at one boundary while keeping the other fixed
+    # boundary: 1 = inner, 2 = outer
+    
+    N = domain.N
+    dr_matrix = create_derivative_matrix(1, domain)
+    
+    # Compute current flux at the specified boundary
+    dprofile_dr = apply_derivative_operator(dr_matrix, profile)
+    current_flux = boundary == 1 ? dprofile_dr[1] : dprofile_dr[end]
+    
+    # Flux error
+    flux_error = flux - current_flux
+    
+    # Create correction function that vanishes at the fixed boundary
+    correction = zeros(T, N)
+    for r_idx in 1:N
+        ξ = Float64(r_idx - 1) / Float64(N - 1)
+        if boundary == 1
+            # Correction for inner flux, zero at outer
+            correction[r_idx] = (1.0 - ξ) * flux_error
+        else
+            # Correction for outer flux, zero at inner
+            correction[r_idx] = ξ * flux_error
+        end
+    end
+    
+    # Apply correction
+    profile .+= correction ./ Float64(N)
+end
+
 
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
