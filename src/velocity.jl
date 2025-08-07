@@ -619,44 +619,45 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, domain::RadialDo
 end
 
 
-
-function compute_enstrophy(fields::SHTnsVelocityFields{T}) where T
+function compute_enstrophy(fields::SHTnsVelocityFields{T}, domain::RadialDomain) where T
     # Compute enstrophy from vorticity spectral coefficients
     
-    # First ensure vorticity is computed
-    compute_vorticity_spectral!(fields)
-    
-    vort_tor_real = parent(fields.work_tor.data_real)
-    vort_tor_imag = parent(fields.work_tor.data_imag)
-    vort_pol_real = parent(fields.work_pol.data_real)
-    vort_pol_imag = parent(fields.work_pol.data_imag)
+    vort_tor_real = parent(fields.vort_toroidal.data_real)
+    vort_tor_imag = parent(fields.vort_toroidal.data_imag)
+    vort_pol_real = parent(fields.vort_poloidal.data_real)
+    vort_pol_imag = parent(fields.vort_poloidal.data_imag)
     
     local_enstrophy = zero(Float64)
     
-    lm_range = get_local_range(fields.work_tor.pencil, 1)
-    r_range = get_local_range(fields.work_tor.pencil, 3)
+    lm_range = get_local_range(fields.vort_toroidal.pencil, 1)
+    r_range = get_local_range(fields.vort_toroidal.pencil, 3)
     
     @inbounds for lm_idx in lm_range
-        if lm_idx <= fields.work_tor.nlm
+        if lm_idx <= fields.vort_toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
+            weight = 1.0 / max(l_factor, 1.0)
             
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(vort_tor_real, 3)
-                    weight = 1.0 / max(l_factor, 1.0)
-                    local_enstrophy += weight * (vort_tor_real[local_lm, 1, local_r]^2 + 
-                                                vort_tor_imag[local_lm, 1, local_r]^2 + 
-                                                vort_pol_real[local_lm, 1, local_r]^2 + 
-                                                vort_pol_imag[local_lm, 1, local_r]^2)
+                    r = domain.r[r_idx, 4]
+                    r_weight = r^2 * domain.integration_weights[r_idx]
+                    
+                    local_enstrophy += weight * r_weight * (
+                        vort_tor_real[local_lm, 1, local_r]^2 + 
+                        vort_tor_imag[local_lm, 1, local_r]^2 + 
+                        vort_pol_real[local_lm, 1, local_r]^2 + 
+                        vort_pol_imag[local_lm, 1, local_r]^2
+                    )
                 end
             end
         end
     end
     
-    # Global sum
     return 0.5 * MPI.Allreduce(local_enstrophy, MPI.SUM, get_comm())
 end
+
 
 # # Export functions
 # export SHTnsVelocityFields, create_shtns_velocity_fields
