@@ -53,15 +53,16 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     # Spectral fields
     toroidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
     poloidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    vort_toroidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    vort_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
     nl_toroidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
     nl_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    pressure    = create_shtns_spectral_field(T, config, domain, pencil_spec)
     
     # Work arrays
     work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
     work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
-
     work_physical = create_shtns_vector_field(T, config, domain, pencils)
+    advection_physical = create_shtns_vector_field(T, config, domain, pencils)
     
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
@@ -73,10 +74,22 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
         coriolis_factors[2, i] = cos(config.theta_grid[i])
     end
     
-    return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal, 
-                                  nl_toroidal, nl_poloidal, pressure,
+    # Create radial derivative matrices
+    dr_matrix = create_derivative_matrix(1, domain)
+    d2r_matrix = create_derivative_matrix(2, domain)
+    laplacian_matrix = create_radial_laplacian(domain)
+    
+    # Create transform manager
+    transform_manager = get_transform_manager(T, config, pencil_spec)
+    
+    return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal,
+                                  vort_toroidal, vort_poloidal,
+                                  nl_toroidal, nl_poloidal,
                                   work_tor, work_pol, work_physical,
-                                  l_factors, coriolis_factors)
+                                  advection_physical,
+                                  l_factors, coriolis_factors,
+                                  dr_matrix, d2r_matrix, laplacian_matrix,
+                                  transform_manager)
 end
 
 
@@ -84,217 +97,94 @@ end
 # Main nonlinear computation
 # =============================
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
-                                    temp_field, comp_field, mag_field) where T
-
-    # Convert spectral toroidal/poloidal to physical velocity
+                                    temp_field, comp_field, mag_field,
+                                    domain::RadialDomain) where T
+    # Zero work arrays once
+    zero_velocity_work_arrays!(fields)
+    
+    # Step 1: Use optimized vector synthesis from shtns_transforms.jl
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
-    # Compute vorticity from velocity
-    compute_vorticity_shtns!(fields.velocity, fields.vorticity)
+    # Step 2: Compute vorticity in spectral space with full derivatives
+    compute_vorticity_spectral_full!(fields, domain)
     
-    # Compute u × ω (advection term)
-    compute_advection_term!(fields)
+    # Step 3: Transform vorticity to physical space
+    shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
-    # Add Coriolis force: -2Ω × u
-    add_coriolis_force!(fields)
+    # Step 4: Compute all nonlinear terms in physical space with optimizations
+    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
     
-    # Add buoyancy forces
-    add_thermal_buoyancy!(fields, temp_field)
-    if comp_field !== nothing
-        add_compositional_buoyancy!(fields, comp_field)
-    end
-    
-    # Add Lorentz force: (∇ × B) × B
-    if mag_field !== nothing
-        #add_lorentz_force!(fields, mag_field)
-        add_lorentz_force_vectorSH!(fields, mag_field)
-    end
-    
-    # Transform nonlinear terms back to spectral space
-    shtns_vector_analysis!(fields.velocity, fields.nl_toroidal, fields.nl_poloidal)
+    # Step 5: Use optimized vector analysis to go back to spectral
+    shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
 end
 
-# function compute_vorticity!(velocity::SHTnsVectorField{T}, vorticity::SHTnsVectorField{T}) where T
-#     # Compute vorticity = ∇ × u using SHTns
-#     # This would use SHTns curl operations
-    
-#     # Simplified implementation - would use proper SHTns curl
-#     config = velocity.r_component.config
-    
-#     # For now, copy structure (placeholder)
-#     for r_idx in velocity.r_component.local_radial_range
-#         # Compute curl components using SHTns operators
-#         # ω_r = (1/sin θ)(∂v_φ/∂θ - ∂(sin θ v_θ)/∂φ)
-#         # ω_θ = (1/sin θ)(∂v_r/∂φ) - ∂v_φ/∂r
-#         # ω_φ = ∂v_θ/∂r - (1/r)(∂v_r/∂θ)
-        
-#         # This requires spectral differentiation - placeholder
-#     end
-# end
 
 
-# Alternative implementation using vector spherical harmonics
-function compute_vorticity_vector_sh!(velocity::SHTnsVectorField{T}, 
-                                     vorticity::SHTnsVectorField{T}) where T
-    # Compute vorticity using vector spherical harmonic operations
-    # This approach works directly with toroidal-poloidal decomposition
-    
-    # First, we need to get the toroidal-poloidal representation of velocity
-    # This requires access to the velocity's spectral representation
-    # For this example, assume we have access to toroidal and poloidal components
-    
-    config = velocity.r_component.config
-    nlm = config.nlm
-    
-    # Create temporary toroidal-poloidal fields for velocity
-    vel_toroidal = create_temp_spectral_field(T, config, velocity.r_component)
-    vel_poloidal = create_temp_spectral_field(T, config, velocity.r_component)
-    
-    # Convert velocity to toroidal-poloidal (this would be done by vector analysis)
-    shtns_vector_analysis!(velocity, vel_toroidal, vel_poloidal)
-    
-    # Create vorticity toroidal-poloidal fields
-    vort_toroidal = similar(vel_toroidal)
-    vort_poloidal = similar(vel_poloidal)
-    
-    # Compute curl using vector spherical harmonic relations
-    compute_curl_vector_sh!(vel_toroidal, vel_poloidal, vort_toroidal, vort_poloidal, config)
-    
-    # Convert back to physical vector components
-    shtns_vector_synthesis!(vort_toroidal, vort_poloidal, vorticity)
-end
-
-function compute_curl_vector_sh!(vel_toroidal::SHTnsSpectralField{T}, 
-                                vel_poloidal::SHTnsSpectralField{T},
-                                vort_toroidal::SHTnsSpectralField{T}, 
-                                vort_poloidal::SHTnsSpectralField{T},
-                                config::SHTnsConfig) where T
-    # Compute curl using vector spherical harmonic relationships
-    # For vector field v = ∇ × (T r̂) + ∇ × ∇ × (P r̂)
-    # The curl ∇ × v has specific relationships with T and P
-    
-    @views for lm_idx in 1:vel_toroidal.nlm
-        l = config.l_values[lm_idx]
-        m = config.m_values[lm_idx]
-        
-        # Vector spherical harmonic curl relationships
-        l_factor = Float64(l * (l + 1))
-        
-        for r_idx in vel_toroidal.local_radial_range
-            if r_idx <= size(vel_toroidal.data_real, 3)
-                
-                # Get velocity toroidal and poloidal coefficients
-                T_vel_real = vel_toroidal.data_real[lm_idx, 1, r_idx]
-                T_vel_imag = vel_toroidal.data_imag[lm_idx, 1, r_idx]
-                P_vel_real = vel_poloidal.data_real[lm_idx, 1, r_idx]
-                P_vel_imag = vel_poloidal.data_imag[lm_idx, 1, r_idx]
-                
-                # Curl relationships (simplified - full implementation needs radial derivatives)
-                # These would involve radial derivatives of T and P and coupling between modes
-                
-                # For curl of toroidal field: contributes to poloidal vorticity
-                vort_poloidal.data_real[lm_idx, 1, r_idx] = l_factor * T_vel_real
-                vort_poloidal.data_imag[lm_idx, 1, r_idx] = l_factor * T_vel_imag
-                
-                # For curl of poloidal field: contributes to toroidal vorticity
-                vort_toroidal.data_real[lm_idx, 1, r_idx] = -l_factor * P_vel_real
-                vort_toroidal.data_imag[lm_idx, 1, r_idx] = -l_factor * P_vel_imag
-            end
-        end
-    end
-end
-
-# =========================================
-# Vorticity computation in spectral space
-# =========================================
-function compute_vorticity_spectral!(fields::SHTnsVelocityFields{T}) where T
-    # Compute vorticity directly in spectral space using l(l+1) factors
-    # ω = ∇ × u, which in toroidal-poloidal space has simple relationships
+# =================================================
+# Vorticity computation with radial derivatives
+# =================================================
+function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
+                                         domain::RadialDomain) where T
+    # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
+    # For toroidal-poloidal decomposition:
+    # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol
+    # ω_pol = -l(l+1)/r² u_tor
     
     # Get local data views
-    tor_real = parent(fields.toroidal.data_real)
-    tor_imag = parent(fields.toroidal.data_imag)
-    pol_real = parent(fields.poloidal.data_real)
-    pol_imag = parent(fields.poloidal.data_imag)
+    u_tor_real = parent(fields.toroidal.data_real)
+    u_tor_imag = parent(fields.toroidal.data_imag)
+    u_pol_real = parent(fields.poloidal.data_real)
+    u_pol_imag = parent(fields.poloidal.data_imag)
     
-    vort_tor_real = parent(fields.work_tor.data_real)
-    vort_tor_imag = parent(fields.work_tor.data_imag)
-    vort_pol_real = parent(fields.work_pol.data_real)
-    vort_pol_imag = parent(fields.work_pol.data_imag)
+    ω_tor_real = parent(fields.vort_toroidal.data_real)
+    ω_tor_imag = parent(fields.vort_toroidal.data_imag)
+    ω_pol_real = parent(fields.vort_poloidal.data_real)
+    ω_pol_imag = parent(fields.vort_poloidal.data_imag)
     
     # Get local ranges
     lm_range = get_local_range(fields.toroidal.pencil, 1)
     r_range = get_local_range(fields.toroidal.pencil, 3)
     
-    # Apply curl relationships in spectral space
+    nr = domain.N
+    
+    # Process each (l,m) mode
     @inbounds for lm_idx in lm_range
-        if lm_idx <= fields.toroidal.nlm
+        if lm_idx <= length(fields.l_factors)
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
             
+            # Extract radial profiles
+            pol_profile_real = extract_local_radial_profile(u_pol_real, local_lm, nr, r_range)
+            pol_profile_imag = extract_local_radial_profile(u_pol_imag, local_lm, nr, r_range)
+            tor_profile_real = extract_local_radial_profile(u_tor_real, local_lm, nr, r_range)
+            tor_profile_imag = extract_local_radial_profile(u_tor_imag, local_lm, nr, r_range)
+            
+            # Compute radial derivatives for poloidal component
+            dpol_dr_real = apply_derivative_local(fields.dr_matrix, pol_profile_real)
+            dpol_dr_imag = apply_derivative_local(fields.dr_matrix, pol_profile_imag)
+            d2pol_dr2_real = apply_derivative_local(fields.d2r_matrix, pol_profile_real)
+            d2pol_dr2_imag = apply_derivative_local(fields.d2r_matrix, pol_profile_imag)
+            
+            # Compute vorticity components
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(tor_real, 3)
-                    # Vorticity from velocity in spectral space
-                    # ω_tor = l(l+1) * u_pol
-                    # ω_pol = -l(l+1) * u_tor
-                    vort_tor_real[local_lm, 1, local_r] = l_factor * pol_real[local_lm, 1, local_r]
-                    vort_tor_imag[local_lm, 1, local_r] = l_factor * pol_imag[local_lm, 1, local_r]
-                    vort_pol_real[local_lm, 1, local_r] = -l_factor * tor_real[local_lm, 1, local_r]
-                    vort_pol_imag[local_lm, 1, local_r] = -l_factor * tor_imag[local_lm, 1, local_r]
+                if local_r <= size(ω_tor_real, 3)
+                    r_inv = domain.r[r_idx, 3]   # 1/r
+                    r_inv2 = domain.r[r_idx, 2]  # 1/r²
+                    
+                    # Toroidal vorticity from poloidal velocity (with full derivatives)
+                    ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
+                                                        - d2pol_dr2_real[r_idx] 
+                                                        - 2.0 * r_inv * dpol_dr_real[r_idx])
+                    ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
+                                                        - d2pol_dr2_imag[r_idx] 
+                                                        - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                    
+                    # Poloidal vorticity from toroidal velocity
+                    ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
+                    ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
                 end
             end
-        end
-    end
-end
-
-
-function compute_radial_vorticity_component!(velocity::SHTnsVectorField{T}, 
-                                           vorticity::SHTnsVectorField{T}, 
-                                           r_idx::Int, config::SHTnsConfig) where T
-    # Compute radial component of vorticity
-    # ω_r = (1/(r sin θ)) * [∂u_φ/∂θ - ∂(sin θ u_θ)/∂φ]
-    
-    sht = config.sht
-    
-    # Extract u_θ and u_φ at this radial level
-    u_theta = zeros(ComplexF64, config.nlat, config.nlon)
-    u_phi = zeros(ComplexF64, config.nlat, config.nlon)
-    
-    for j_phi in 1:config.nlon, i_theta in 1:config.nlat
-        if (i_theta <= size(velocity.θ_component.data_r, 1) && 
-            j_phi <= size(velocity.θ_component.data_r, 2))
-            
-            u_theta[i_theta, j_phi] = complex(velocity.θ_component.data_r[i_theta, j_phi, r_idx])
-            u_phi[i_theta, j_phi] = complex(velocity.φ_component.data_r[i_theta, j_phi, r_idx])
-        end
-    end
-    
-    # Analyze to get spectral coefficients
-    u_theta_coeffs = analysis(sht, u_theta)
-    u_phi_coeffs = analysis(sht, u_phi)
-    
-    # Compute derivatives
-    du_phi_dtheta = synthesis_dtheta(sht, u_phi_coeffs)
-    du_theta_dphi = synthesis_dphi(sht, u_theta_coeffs)
-    
-    # Compute radial vorticity component
-    r = 1.0  # Would get from radial domain
-    r_inv = 1.0 / max(r, 1e-10)
-    
-    for j_phi in 1:config.nlon, i_theta in 1:config.nlat
-        if (i_theta <= size(vorticity.r_component.data_r, 1) && 
-            j_phi <= size(vorticity.r_component.data_r, 2))
-            
-            theta = config.theta_grid[i_theta]
-            sin_theta = sin(theta)
-            sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-            
-            omega_r = r_inv * sin_theta_inv * 
-                     (real(du_phi_dtheta[i_theta, j_phi]) - 
-                      sin_theta * real(du_theta_dphi[i_theta, j_phi]))
-            
-            vorticity.r_component.data_r[i_theta, j_phi, r_idx] = omega_r
         end
     end
 end
