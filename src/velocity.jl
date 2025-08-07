@@ -790,12 +790,8 @@ function compute_cross_product_jB!(j_field::SHTnsVectorField{T},
 end
 
 
+# ====================
+# Utility functions
+# ====================
 
 
-
-
-
-
-# export SHTnsVelocityFields, create_shtns_velocity_fields, compute_velocity_nonlinear!
-
-#end
