@@ -791,46 +791,6 @@ end
 
 
 
-
-
-
-# function compute_curl_theta_component(sht, B_r_coeffs::Vector{ComplexF64}, 
-#                                      B_φ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
-#     # j_θ = (1/r) * [∂B_r/∂φ/(sin θ) - ∂(r B_φ)/∂r]
-    
-#     # Get grid
-#     nlat, nlon = size(synthesis(sht, B_r_coeffs))
-#     theta_grid = get_theta_array(sht)
-    
-#     # Compute ∂B_r/∂φ
-#     dB_r_dphi_phys = synthesis_dphi(sht, B_r_coeffs)
-    
-#     # Divide by sin θ
-#     dB_r_dphi_over_sinθ = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat
-#         sin_theta = sin(theta_grid[i_theta])
-#         sin_theta_inv = 1.0 / max(sin_theta, 1e-10)
-#         for j_phi in 1:nlon
-#             dB_r_dphi_over_sinθ[i_theta, j_phi] = sin_theta_inv * dB_r_dphi_phys[i_theta, j_phi]
-#         end
-#     end
-    
-#     # For ∂(r B_φ)/∂r, we need radial derivative
-#     # This requires finite differences in radial direction
-#     # For now, approximate as r * ∂B_φ/∂r + B_φ ≈ B_φ (simplified)
-#     B_φ_phys = synthesis(sht, B_φ_coeffs)
-    
-#     # Compute j_θ  
-#     j_θ_phys = zeros(ComplexF64, nlat, nlon)
-#     for i_theta in 1:nlat, j_phi in 1:nlon
-#         j_θ_phys[i_theta, j_phi] = r_inv * 
-#             (dB_r_dphi_over_sinθ[i_theta, j_phi] - B_φ_phys[i_theta, j_phi])
-#     end
-    
-#     return analysis(sht, j_θ_phys)
-# end
-
-
 # function compute_curl_phi_component(sht, B_r_coeffs::Vector{ComplexF64}, 
 #                                    B_θ_coeffs::Vector{ComplexF64}, r::Float64, r_inv::Float64)
 #     # j_φ = (1/r) * [∂(r B_θ)/∂r - ∂B_r/∂θ]
