@@ -619,6 +619,35 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, domain::RadialDo
 end
 
 
+function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
+    # Compute Reynolds stress tensor <u_i u_j>
+    # This requires transforming to physical space and computing products
+    
+    vel_r = parent(fields.velocity.r_component.data)
+    vel_θ = parent(fields.velocity.θ_component.data)
+    vel_φ = parent(fields.velocity.φ_component.data)
+    
+    # Compute all 6 independent components
+    R_rr = mean(vel_r .* vel_r)
+    R_θθ = mean(vel_θ .* vel_θ)
+    R_φφ = mean(vel_φ .* vel_φ)
+    R_rθ = mean(vel_r .* vel_θ)
+    R_rφ = mean(vel_r .* vel_φ)
+    R_θφ = mean(vel_θ .* vel_φ)
+    
+    # Global averages
+    R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_θθ = MPI.Allreduce(R_θθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_φφ = MPI.Allreduce(R_φφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rθ = MPI.Allreduce(R_rθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rφ = MPI.Allreduce(R_rφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_θφ = MPI.Allreduce(R_θφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    
+    return (R_rr, R_θθ, R_φφ, R_rθ, R_rφ, R_θφ)
+end
+
+
+
 function compute_enstrophy(fields::SHTnsVelocityFields{T}, domain::RadialDomain) where T
     # Compute enstrophy from vorticity spectral coefficients
     
