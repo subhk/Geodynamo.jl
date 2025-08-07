@@ -812,3 +812,10 @@ function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
     parent(field.φ_component.data) .*= factor
 end
 
+
+function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{T}) where T
+    # Add source to destination
+    parent(dest.r_component.data) .+= parent(source.r_component.data)
+    parent(dest.θ_component.data) .+= parent(source.θ_component.data)
+    parent(dest.φ_component.data) .+= parent(source.φ_component.data)
+end
