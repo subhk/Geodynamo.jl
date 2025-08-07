@@ -819,3 +819,45 @@ function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{
     parent(dest.θ_component.data) .+= parent(source.θ_component.data)
     parent(dest.φ_component.data) .+= parent(source.φ_component.data)
 end
+
+
+
+# =====================================================
+# Diagnostic functions using transform infrastructure
+# =====================================================
+function compute_kinetic_energy(fields::SHTnsVelocityFields{T}) where T
+    # Efficient kinetic energy computation in spectral space
+    
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+    
+    local_energy = zero(Float64)
+    
+    # Use l(l+1) weighting for proper spectral integration
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    # Properly weighted spectral energy
+                    weight = 1.0 / max(l_factor, 1.0)
+                    local_energy += weight * (tor_real[local_lm, 1, local_r]^2 + 
+                                             tor_imag[local_lm, 1, local_r]^2 + 
+                                             pol_real[local_lm, 1, local_r]^2 + 
+                                             pol_imag[local_lm, 1, local_r]^2)
+                end
+            end
+        end
+    end
+    
+    # Global sum
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+end
