@@ -160,7 +160,44 @@ end
 
 
 
-
+function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
+    # Compute ∇ × (u × B) in spectral space
+    # This becomes the nonlinear term for the induction equation
+    
+    # Get local data views
+    uxB_tor_real = parent(mag_fields.work_tor.data_real)
+    uxB_tor_imag = parent(mag_fields.work_tor.data_imag)
+    uxB_pol_real = parent(mag_fields.work_pol.data_real)
+    uxB_pol_imag = parent(mag_fields.work_pol.data_imag)
+    
+    nl_tor_real = parent(mag_fields.nl_toroidal.data_real)
+    nl_tor_imag = parent(mag_fields.nl_toroidal.data_imag)
+    nl_pol_real = parent(mag_fields.nl_poloidal.data_real)
+    nl_pol_imag = parent(mag_fields.nl_poloidal.data_imag)
+    
+    # Get local ranges
+    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
+    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    
+    # Apply curl in spectral space
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(mag_fields.l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = mag_fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(uxB_tor_real, 3)
+                    # Curl of (u × B)
+                    nl_tor_real[local_lm, 1, local_r] = l_factor * uxB_pol_real[local_lm, 1, local_r]
+                    nl_tor_imag[local_lm, 1, local_r] = l_factor * uxB_pol_imag[local_lm, 1, local_r]
+                    nl_pol_real[local_lm, 1, local_r] = -l_factor * uxB_tor_real[local_lm, 1, local_r]
+                    nl_pol_imag[local_lm, 1, local_r] = -l_factor * uxB_tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+    end
+end
 
 
 # ========================================================
