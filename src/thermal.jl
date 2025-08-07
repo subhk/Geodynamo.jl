@@ -806,6 +806,40 @@ function apply_mode_neumann_bc!(spec_real::AbstractArray{T,3},
 end
 
 
+function apply_mode_mixed_bc!(spec_real::AbstractArray{T,3}, 
+                             spec_imag::AbstractArray{T,3},
+                             local_lm::Int, lm_idx::Int,
+                             bc_inner::Int, bc_outer::Int,
+                             temp_field::SHTnsTemperatureField{T},
+                             domain::RadialDomain) where T
+    # Apply mixed BC (one Dirichlet, one Neumann)
+    # This requires a special treatment
+    
+    profile = extract_radial_profile(spec_real, local_lm, domain.N, 
+                                    temp_field.spectral.pencil)
+    
+    # Create modified influence functions for mixed BC
+    if bc_inner == 1  # Dirichlet at inner
+        # Fix temperature at inner, flux at outer
+        profile[1] = temp_field.boundary_values[1, lm_idx]
+        flux_outer = get_flux_bc_value(lm_idx, 2, temp_field)
+        
+        # Apply outer flux correction while preserving inner value
+        apply_single_flux_bc!(profile, flux_outer, 2, domain)
+    else  # Dirichlet at outer
+        # Fix temperature at outer, flux at inner
+        profile[end] = temp_field.boundary_values[2, lm_idx]
+        flux_inner = get_flux_bc_value(lm_idx, 1, temp_field)
+        
+        # Apply inner flux correction while preserving outer value
+        apply_single_flux_bc!(profile, flux_inner, 1, domain)
+    end
+    
+    store_radial_profile!(spec_real, profile, local_lm, temp_field.spectral.pencil)
+end
+
+
+
 
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
