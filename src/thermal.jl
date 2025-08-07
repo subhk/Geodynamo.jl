@@ -1,5 +1,6 @@
-#
-#    
+# ===============================================================
+# Temperature  field components with optimized SHTns transforms
+# ===============================================================
 struct SHTnsTemperatureField{T}
     # Physical space temperature
     temperature::SHTnsPhysicalField{T}
@@ -11,10 +12,29 @@ struct SHTnsTemperatureField{T}
     # Nonlinear terms (advection)
     nonlinear::SHTnsSpectralField{T}
     
+    # Work arrays for efficient computation
+    work_spectral::SHTnsSpectralField{T}
+    work_physical::SHTnsPhysicalField{T}
+    advection_physical::SHTnsPhysicalField{T}
+    
+    # Gradient spectral components for efficiency
+    grad_theta_spec::SHTnsSpectralField{T}
+    grad_phi_spec::SHTnsSpectralField{T}
+    
     # Sources and boundary conditions
     internal_sources::Vector{T}
     boundary_values::Matrix{T}
+    
+    # Pre-computed coefficients
+    l_factors::Vector{Float64}  # l(l+1) values
+    
+    # Transform manager
+    transform_manager::SHTnsTransformManager{T}
+    
+    # Radial derivative matrix for gradient computation
+    dr_matrix::BandedMatrix{T}
 end
+
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
                                         domain::RadialDomain, 
