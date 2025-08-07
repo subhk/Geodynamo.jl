@@ -426,6 +426,45 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
 end
 
 
+function apply_stress_free_bc!(fields::SHTnsVelocityFields{T}, 
+                               domain::RadialDomain) where T
+    # Apply stress-free boundary conditions: d(rT)/dr = 0
+    # This requires modifying the toroidal field near boundaries
+    
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    nr = domain.N
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            # Extract radial profile
+            tor_profile_real = extract_local_radial_profile(tor_real, local_lm, nr,
+                                                           get_local_range(fields.toroidal.pencil, 3))
+            
+            # Apply stress-free correction
+            apply_stress_free_correction!(tor_profile_real, domain)
+            
+            # Store corrected profile
+            store_local_radial_profile!(tor_real, tor_profile_real, local_lm,
+                                       get_local_range(fields.toroidal.pencil, 3))
+            
+            # Repeat for imaginary part
+            if any(x -> abs(x) > 1e-12, view(tor_imag, local_lm, 1, :))
+                tor_profile_imag = extract_local_radial_profile(tor_imag, local_lm, nr,
+                                                               get_local_range(fields.toroidal.pencil, 3))
+                apply_stress_free_correction!(tor_profile_imag, domain)
+                store_local_radial_profile!(tor_imag, tor_profile_imag, local_lm,
+                                           get_local_range(fields.toroidal.pencil, 3))
+            end
+        end
+    end
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
