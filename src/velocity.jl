@@ -189,151 +189,96 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     end
 end
 
-
-function compute_advection_term!(fields::SHTnsVelocityFields{T}) where T
-    # Compute u × ω in physical space
-    vel = fields.velocity
-    vort = fields.vorticity
+# ============================================================================
+# Optimized nonlinear term computation
+# ============================================================================
+function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
+                                               temp_field, comp_field, mag_field,
+                                               domain::RadialDomain) where T
+    # Compute all forces in a single optimized loop
     
-    # u × ω = (u_θ ω_φ - u_φ ω_θ, u_φ ω_r - u_r ω_φ, u_r ω_θ - u_θ ω_r)
-
-    for r_idx in vel.r_component.local_radial_range
-        if r_idx <= size(vel.r_component.data_r, 3)
-            for j_phi in 1:vel.r_component.nlon, i_theta in 1:vel.r_component.nlat
-                if i_theta <= size(vel.r_component.data_r, 1) && j_phi <= size(vel.r_component.data_r, 2)
-                    u_r = vel.r_component.data_r[i_theta, j_phi, r_idx]
-                    u_θ = vel.θ_component.data_r[i_theta, j_phi, r_idx]
-                    u_φ = vel.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    ω_r = vort.r_component.data_r[i_theta, j_phi, r_idx]
-                    ω_θ = vort.θ_component.data_r[i_theta, j_phi, r_idx]
-                    ω_φ = vort.φ_component.data_r[i_theta, j_phi, r_idx]
-                    
-                    # Store advection in velocity field temporarily
-                    vel.r_component.data_r[i_theta, j_phi, r_idx] = d_Ro * (u_θ * ω_φ - u_φ * ω_θ)
-                    vel.θ_component.data_r[i_theta, j_phi, r_idx] = d_Ro * (u_φ * ω_r - u_r * ω_φ)
-                    vel.φ_component.data_r[i_theta, j_phi, r_idx] = d_Ro * (u_r * ω_θ - u_θ * ω_r)
-                end
-            end
-        end
-    end
-end
-
-
-function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
-    # Coriolis force: -2Ω × u assuming rotation about z-axis
-    # In spherical coordinates: Ω = Ω(cos θ ê_r - sin θ ê_θ)
-
+    # Get all data views
     vel_r = parent(fields.velocity.r_component.data)
     vel_θ = parent(fields.velocity.θ_component.data)
     vel_φ = parent(fields.velocity.φ_component.data)
     
-    config = fields.velocity.r_component.config
-    theta_grid = config.theta_grid
+    vort_r = parent(fields.vorticity.r_component.data)
+    vort_θ = parent(fields.vorticity.θ_component.data)
+    vort_φ = parent(fields.vorticity.φ_component.data)
     
-    # Get local indices
+    adv_r = parent(fields.advection_physical.r_component.data)
+    adv_θ = parent(fields.advection_physical.θ_component.data)
+    adv_φ = parent(fields.advection_physical.φ_component.data)
+    
+    # Get dimensions
     local_size = size(vel_r)
+    nlat = fields.velocity.r_component.config.nlat
+    nlon = fields.velocity.r_component.config.nlon
     
-    for k in 1:local_size[3], j in 1:local_size[2], i in 1:local_size[1]
-        if i <= length(theta_grid)
-            theta = theta_grid[i]
-            cos_theta = cos(theta)
-            sin_theta = sin(theta)
-            
-            u_r = vel_r[i, j, k]
-            u_θ = vel_θ[i, j, k]
-            u_φ = vel_φ[i, j, k]
-            
-            vel_r[i, j, k] += -2.0 * (-sin_theta * u_φ)
-            vel_θ[i, j, k] += -2.0 * (cos_theta  * u_φ)
-            vel_φ[i, j, k] += -2.0 * (-cos_theta * u_θ + sin_theta * u_r)
+    # Main fused computation loop with cache blocking
+    @inbounds for k in 1:local_size[3]
+        # Get radius for this level
+        r_idx = k + first(get_local_range(fields.velocity.r_component.pencil, 3)) - 1
+        if r_idx <= domain.N
+            r = domain.r[r_idx, 4]
+            r_inv = domain.r[r_idx, 3]
+        else
+            r = 1.0
+            r_inv = 1.0
         end
-    end
-end
-
-
-function add_thermal_buoyancy!(work_r::AbstractArray{T,3}, 
-                                scalar_field, factor::Float64) where T
-    # Get the scalar field data (temperature or composition)
-    if isa(scalar_field, SHTnsPhysicalField)
-        scalar_data = parent(scalar_field.data)
-    else
-        # If it's already in physical space from temperature module
-        scalar_data = parent(scalar_field.temperature.data)
-    end
-    
-    # Vectorized addition of buoyancy
-    @inbounds @simd for idx in eachindex(work_r)
-        if idx <= length(scalar_data)
-            work_r[idx] += factor * scalar_data[idx]
-        end
-    end
-end
-
-
-function add_lorentz_force_spectral!(fields::SHTnsVelocityFields{T}, mag_field) where T
-    # Compute Lorentz force in spectral space for efficiency
-    # F = (∇ × B) × B / Pm
-    
-    # First compute current density j = ∇ × B in spectral space
-    compute_magnetic_curl_spectral!(mag_field, fields.work_tor, fields.work_pol, fields.l_factors)
-    
-    # Transform j to physical space
-    shtns_vector_synthesis!(fields.work_tor, fields.work_pol, fields.work_physical)
-    
-    # Also need B in physical space (should already be there from mag_field computation)
-    # If not, transform it
-    if !is_in_physical_space(mag_field.magnetic)
-        shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
-    end
-    
-    # Compute j × B in physical space
-    compute_cross_product_jB!(fields.work_physical, mag_field.magnetic, fields.work_physical)
-    
-    # Scale by 1/Pm
-    scale_field!(fields.work_physical, 1.0 / d_Pm)
-    
-    # Add to existing forces
-    add_vector_fields!(fields.work_physical, fields.work_physical)
-end
-
-
-function compute_magnetic_curl_spectral!(mag_field, j_tor::SHTnsSpectralField{T}, 
-                                        j_pol::SHTnsSpectralField{T}, l_factors) where T
-    # Compute j = ∇ × B in spectral space
-    
-    mag_tor_real = parent(mag_field.toroidal.data_real)
-    mag_tor_imag = parent(mag_field.toroidal.data_imag)
-    mag_pol_real = parent(mag_field.poloidal.data_real)
-    mag_pol_imag = parent(mag_field.poloidal.data_imag)
-    
-    j_tor_real = parent(j_tor.data_real)
-    j_tor_imag = parent(j_tor.data_imag)
-    j_pol_real = parent(j_pol.data_real)
-    j_pol_imag = parent(j_pol.data_imag)
-    
-    lm_range = get_local_range(j_tor.pencil, 1)
-    r_range  = get_local_range(j_tor.pencil, 3)
-    
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= length(l_factors)
-            local_lm = lm_idx - first(lm_range) + 1
-            l_factor = l_factors[lm_idx]
+        
+        for j in 1:local_size[2]
+            # Get pre-computed Coriolis factors for this latitude
+            theta_idx = min(j, nlat)
+            sin_theta = fields.coriolis_factors[1, theta_idx]
+            cos_theta = fields.coriolis_factors[2, theta_idx]
             
-            @simd for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(mag_tor_real, 3)
-                    # Curl in spectral space
-                    j_tor_real[local_lm, 1, local_r] = l_factor * mag_pol_real[local_lm, 1, local_r]
-                    j_tor_imag[local_lm, 1, local_r] = l_factor * mag_pol_imag[local_lm, 1, local_r]
-                    j_pol_real[local_lm, 1, local_r] = -l_factor * mag_tor_real[local_lm, 1, local_r]
-                    j_pol_imag[local_lm, 1, local_r] = -l_factor * mag_tor_imag[local_lm, 1, local_r]
+            @simd for i in 1:local_size[1]
+                linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
+                
+                if linear_idx <= length(vel_r)
+                    # Load velocity and vorticity components
+                    u_r = vel_r[linear_idx]
+                    u_θ = vel_θ[linear_idx]
+                    u_φ = vel_φ[linear_idx]
+                    
+                    ω_r = vort_r[linear_idx]
+                    ω_θ = vort_θ[linear_idx]
+                    ω_φ = vort_φ[linear_idx]
+                    
+                    # Advection: u × ω (scaled by Rossby number)
+                    adv_r_val = d_Ro * (u_θ * ω_φ - u_φ * ω_θ)
+                    adv_θ_val = d_Ro * (u_φ * ω_r - u_r * ω_φ)
+                    adv_φ_val = d_Ro * (u_r * ω_θ - u_θ * ω_r)
+                    
+                    # Coriolis: -2Ω × u
+                    cor_r = -2.0 * (-sin_theta * u_φ)
+                    cor_θ = -2.0 * (cos_theta * u_φ)
+                    cor_φ = -2.0 * (-cos_theta * u_θ + sin_theta * u_r)
+                    
+                    # Store combined result
+                    adv_r[linear_idx] = adv_r_val + cor_r
+                    adv_θ[linear_idx] = adv_θ_val + cor_θ
+                    adv_φ[linear_idx] = adv_φ_val + cor_φ
                 end
             end
         end
     end
+    
+    # Add buoyancy forces with proper scaling
+    if temp_field !== nothing
+        add_buoyancy_force_optimized!(adv_r, temp_field, d_Ra * d_Pr, domain)
+    end
+    
+    if comp_field !== nothing
+        add_buoyancy_force_optimized!(adv_r, comp_field, d_Ra_C * d_Sc, domain)
+    end
+    
+    # Add Lorentz force if magnetic field present
+    if mag_field !== nothing
+        add_lorentz_force_optimized!(fields, mag_field, domain)
+    end
 end
-
 
 
 # ============================================================================
