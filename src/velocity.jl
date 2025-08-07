@@ -531,6 +531,47 @@ function apply_derivative_local(matrix::BandedMatrix{T}, field::Vector{T}) where
 end
 
 
+function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
+                                 l_factor::Float64, domain::RadialDomain) where T
+    # Solve (∇²_r - l(l+1)/r²) u = source
+    # This is a simplified solver - in practice would use more sophisticated methods
+    
+    N = domain.N
+    solution = zeros(T, N)
+    
+    # Build full operator for this l value
+    operator = zeros(T, N, N)
+    bandwidth = laplacian.bandwidth
+    
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                operator[i, j] = laplacian.data[band_row, j]
+                if i == j
+                    # Add -l(l+1)/r² term to diagonal
+                    r_inv2 = domain.r[i, 2]
+                    operator[i, j] -= l_factor * r_inv2
+                end
+            end
+        end
+    end
+    
+    # Apply boundary conditions (solution vanishes at boundaries)
+    operator[1, :] .= 0.0
+    operator[1, 1] = 1.0
+    operator[N, :] .= 0.0
+    operator[N, N] = 1.0
+    source[1] = 0.0
+    source[N] = 0.0
+    
+    # Solve linear system (would use iterative solver in practice)
+    solution = operator \ source
+    
+    return solution
+end
+
+
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
