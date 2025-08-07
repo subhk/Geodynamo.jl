@@ -313,6 +313,64 @@ function add_internal_sources_optimized!(temp_field::SHTnsTemperatureField{T}) w
 end
     
 
+
+# ============================================================================
+# Boundary condition application in spectral space
+# ============================================================================
+function apply_temperature_boundary_conditions!(temp_field::SHTnsTemperatureField{T}, 
+                                               domain::RadialDomain) where T
+    # Apply boundary conditions at inner and outer boundaries
+    # BC types: 1 → Fixed temperature (Dirichlet)
+    #           2 → Fixed flux (Neumann)
+    
+    if i_tmp_bc == 1  # Fixed temperature BC
+        apply_temperature_bc_dirichlet!(temp_field, domain)
+    elseif i_tmp_bc == 2  # Fixed flux BC
+        apply_flux_bc_neumann!(temp_field, domain)
+    end
+end
+
+
+function apply_temperature_bc_dirichlet!(temp_field::SHTnsTemperatureField{T}, 
+                                        domain::RadialDomain) where T
+    # Apply fixed temperature boundary conditions
+    
+    spec_real = parent(temp_field.spectral.data_real)
+    spec_imag = parent(temp_field.spectral.data_imag)
+    
+    lm_range = get_local_range(temp_field.spectral.pencil, 1)
+    r_range = get_local_range(temp_field.spectral.pencil, 3)
+    
+    # Inner boundary (r_idx = 1)
+    if 1 in r_range
+        local_r = 1 - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= temp_field.spectral.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                if local_lm <= size(spec_real, 1)
+                    spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
+                    spec_imag[local_lm, 1, local_r] = 0.0  # Real BC
+                end
+            end
+        end
+    end
+    
+    # Outer boundary (r_idx = N)
+    if domain.N in r_range
+        local_r = domain.N - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= temp_field.spectral.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                if local_lm <= size(spec_real, 1) && local_r <= size(spec_real, 3)
+                    spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
+                    spec_imag[local_lm, 1, local_r] = 0.0  # Real BC
+                end
+            end
+        end
+    end
+end
+
+
 function zero_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     # Efficiently zero work arrays
     fill!(parent(temp_field.work_physical.data), zero(T))
