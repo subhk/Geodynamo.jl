@@ -793,7 +793,17 @@ function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
     fill!(parent(fields.work_physical.r_component.data), zero(T))
     fill!(parent(fields.work_physical.θ_component.data), zero(T))
     fill!(parent(fields.work_physical.φ_component.data), zero(T))
+    
+    fill!(parent(fields.advection_physical.r_component.data), zero(T))
+    fill!(parent(fields.advection_physical.θ_component.data), zero(T))
+    fill!(parent(fields.advection_physical.φ_component.data), zero(T))
+    
+    fill!(parent(fields.vort_toroidal.data_real), zero(T))
+    fill!(parent(fields.vort_toroidal.data_imag), zero(T))
+    fill!(parent(fields.vort_poloidal.data_real), zero(T))
+    fill!(parent(fields.vort_poloidal.data_imag), zero(T))
 end
+
 
 function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
     # Scale all components of a vector field
