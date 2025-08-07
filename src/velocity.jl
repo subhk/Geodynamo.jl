@@ -362,7 +362,7 @@ function add_coriolis_force_local!(fields::SHTnsVelocityFields{T}) where T
 end
 
 
-function add_thermal_buoyancy_local!(work_r::AbstractArray{T,3}, 
+function add_thermal_buoyancy!(work_r::AbstractArray{T,3}, 
                                 scalar_field, factor::Float64) where T
     # Get the scalar field data (temperature or composition)
     if isa(scalar_field, SHTnsPhysicalField)
@@ -378,6 +378,33 @@ function add_thermal_buoyancy_local!(work_r::AbstractArray{T,3},
             work_r[idx] += factor * scalar_data[idx]
         end
     end
+end
+
+
+function add_lorentz_force_spectral!(fields::SHTnsVelocityFields{T}, mag_field) where T
+    # Compute Lorentz force in spectral space for efficiency
+    # F = (∇ × B) × B / Pm
+    
+    # First compute current density j = ∇ × B in spectral space
+    compute_magnetic_curl_spectral!(mag_field, fields.work_tor, fields.work_pol, fields.l_factors)
+    
+    # Transform j to physical space
+    shtns_vector_synthesis!(fields.work_tor, fields.work_pol, fields.work_physical)
+    
+    # Also need B in physical space (should already be there from mag_field computation)
+    # If not, transform it
+    if !is_in_physical_space(mag_field.magnetic)
+        shtns_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic)
+    end
+    
+    # Compute j × B in physical space
+    compute_cross_product_jB!(fields.work_physical, mag_field.magnetic, fields.work_physical)
+    
+    # Scale by 1/Pm
+    scale_field!(fields.work_physical, 1.0 / d_Pm)
+    
+    # Add to existing forces
+    add_vector_fields!(fields.work_physical, fields.work_physical)
 end
 
 
