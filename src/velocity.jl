@@ -837,7 +837,7 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}) where T
     
     # Use l(l+1) weighting for proper spectral integration
     lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range = get_local_range(fields.toroidal.pencil, 3)
+    r_range  = get_local_range(fields.toroidal.pencil, 3)
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
@@ -860,4 +860,43 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}) where T
     
     # Global sum
     return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+end
+
+
+function compute_enstrophy(fields::SHTnsVelocityFields{T}) where T
+    # Compute enstrophy from vorticity spectral coefficients
+    
+    # First ensure vorticity is computed
+    compute_vorticity_spectral!(fields)
+    
+    vort_tor_real = parent(fields.work_tor.data_real)
+    vort_tor_imag = parent(fields.work_tor.data_imag)
+    vort_pol_real = parent(fields.work_pol.data_real)
+    vort_pol_imag = parent(fields.work_pol.data_imag)
+    
+    local_enstrophy = zero(Float64)
+    
+    lm_range = get_local_range(fields.work_tor.pencil, 1)
+    r_range = get_local_range(fields.work_tor.pencil, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.work_tor.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(vort_tor_real, 3)
+                    weight = 1.0 / max(l_factor, 1.0)
+                    local_enstrophy += weight * (vort_tor_real[local_lm, 1, local_r]^2 + 
+                                                vort_tor_imag[local_lm, 1, local_r]^2 + 
+                                                vort_pol_real[local_lm, 1, local_r]^2 + 
+                                                vort_pol_imag[local_lm, 1, local_r]^2)
+                end
+            end
+        end
+    end
+    
+    # Global sum
+    return 0.5 * MPI.Allreduce(local_enstrophy, MPI.SUM, get_comm())
 end
