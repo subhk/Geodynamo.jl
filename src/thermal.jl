@@ -112,9 +112,9 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
 end
 
 
-# ============================================================================
+# ==================================================
 # Optimized gradient computation using SHTns
-# ============================================================================
+# ==================================================
 function compute_temperature_gradient!(temp_field::SHTnsTemperatureField{T}, 
                                                 domain::RadialDomain) where T
     # Compute gradient using SHTns optimized routines
@@ -247,98 +247,66 @@ function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T},
 end
 
 
-function apply_gradient_boundary_conditions!(temp_field::SHTnsTemperatureField{T}, 
-                                           domain::RadialDomain) where T
-    # Apply boundary conditions to temperature gradients
-    # This is important for proper heat flux calculations
+# ================================
+# Fused advection computation
+# ================================
+function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, 
+                                             vel_fields) where T
+    # Compute -u·∇T with fused operations for efficiency
     
-    N = domain.N
-    
-    # Inner boundary (r = ri)
-    for i_theta in 1:temp_field.gradient.r_component.nlat, j_phi in 1:temp_field.gradient.r_component.nlon
-        if (i_theta <= size(temp_field.gradient.r_component.data_r, 1) && 
-            j_phi <= size(temp_field.gradient.r_component.data_r, 2))
-            
-            # Apply boundary condition based on thermal boundary condition type
-            # For fixed temperature: gradient determined by derivative
-            # For fixed heat flux: gradient is prescribed
-            
-            if i_tmp_bc == 1  # Fixed temperature BC
-                # Gradient computed from finite differences (already done)
-                # No additional modification needed
-            elseif i_tmp_bc == 2  # Fixed heat flux BC
-                # Set radial gradient to prescribed value
-                prescribed_heat_flux = get_prescribed_heat_flux(i_theta, j_phi)  # Would come from BC
-                temp_field.gradient.r_component.data_r[i_theta, j_phi, 1] = prescribed_heat_flux
-                temp_field.gradient.r_component.data_r[i_theta, j_phi, N] = prescribed_heat_flux
-            end
-        end
-    end
-end
-
-
-function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, vel_fields) where T
-    # Compute -u · ∇T
-    # vel = vel_fields.velocity
-    # grad = temp_field.gradient
-
     # Get local data views
-    work_data = parent(temp_field.work_physical.data)
-
-    vel_r   = parent(vel_fields.velocity.r_component.data)
-    vel_θ   = parent(vel_fields.velocity.θ_component.data)
-    vel_φ   = parent(vel_fields.velocity.φ_component.data)
-    grad_r  = parent(temp_field.gradient.r_component.data)
-    grad_θ  = parent(temp_field.gradient.θ_component.data)
-    grad_φ  = parent(temp_field.gradient.φ_component.data)
+    u_r = parent(vel_fields.velocity.r_component.data)
+    u_θ = parent(vel_fields.velocity.θ_component.data)
+    u_φ = parent(vel_fields.velocity.φ_component.data)
     
-    # Get dimensions
-    local_size = size(work_data)
+    grad_r = parent(temp_field.gradient.r_component.data)
+    grad_θ = parent(temp_field.gradient.θ_component.data)
+    grad_φ = parent(temp_field.gradient.φ_component.data)
     
-    # Get dimensions
-    local_size = size(work_data)
+    advection = parent(temp_field.advection_physical.data)
     
-    # Fused loop for advection computation
-    @inbounds @simd for idx in eachindex(work_data)
-        if idx <= length(vel_r) && idx <= length(grad_r)
-            # Compute -u·∇T with fused operations
-            work_data[idx] = -(vel_r[idx] * grad_r[idx] + 
-                              vel_θ[idx] * grad_θ[idx] + 
-                              vel_φ[idx] * grad_φ[idx])
+    # Fused computation of -u·∇T
+    @inbounds @simd for idx in eachindex(advection)
+        if idx <= length(u_r) && idx <= length(grad_r)
+            advection[idx] = -(u_r[idx] * grad_r[idx] + 
+                              u_θ[idx] * grad_θ[idx] + 
+                              u_φ[idx] * grad_φ[idx])
         end
     end
 end
 
 
-function add_internal_sources_spectral!(temp_field::SHTnsTemperatureField{T}) where T
-    # Work directly in spectral space for efficiency
+# =======================================
+# Optimized internal source addition
+# =======================================
+function add_internal_sources_optimized!(temp_field::SHTnsTemperatureField{T}) where T
+    # Add internal heat sources efficiently
+    # Sources are typically axisymmetric (l,m=0 modes)
     
-    # Get local data
-    nl_real = parent(temp_field.nonlinear.data_real)
-    nl_imag = parent(temp_field.nonlinear.data_imag)
+    advection = parent(temp_field.advection_physical.data)
     
-    # Find l=m=0 mode locally
-    lm_range = get_local_range(temp_field.spectral.pencil, 1)
-    r_range = get_local_range(temp_field.spectral.pencil, 3)
+    # Get local ranges
+    r_range = get_local_range(temp_field.advection_physical.pencil, 3)
     
-    # Check if l=m=0 is in local range
-    for lm_idx in lm_range
-        if lm_idx <= temp_field.spectral.nlm
-            l = temp_field.spectral.config.l_values[lm_idx]
-            m = temp_field.spectral.config.m_values[lm_idx]
-            
-            if l == 0 && m == 0
-                local_lm = lm_idx - first(lm_range) + 1
+    # Add volumetric heating (if present)
+    if !all(iszero, temp_field.internal_sources)
+        nlat = temp_field.advection_physical.nlat
+        nlon = temp_field.advection_physical.nlon
+        
+        @inbounds for r_idx in r_range
+            if r_idx <= length(temp_field.internal_sources)
+                local_r = r_idx - first(r_range) + 1
+                source_value = temp_field.internal_sources[r_idx]
                 
-                # Add sources only to l=m=0 mode
-                @inbounds @simd for r_idx in r_range
-                    local_r = r_idx - first(r_range) + 1
-                    if r_idx <= length(temp_field.internal_sources) && 
-                       local_r <= size(nl_real, 3)
-                        nl_real[local_lm, 1, local_r] += temp_field.internal_sources[r_idx]
+                # Add uniformly across the sphere at this radius
+                @simd for j in 1:nlon
+                    for i in 1:nlat
+                        linear_idx = i + (j-1)*nlat + (local_r-1)*nlat*nlon
+                        if linear_idx <= length(advection)
+                            advection[linear_idx] += source_value
+                        end
                     end
                 end
-                break  # Only one l=m=0 mode
             end
         end
     end
