@@ -838,44 +838,6 @@ function add_lorentz_force_vectorSH!(fields::SHTnsVelocityFields{T}, mag_field) 
 end
 
 
-function compute_vector_curl_shtns!(B_toroidal::SHTnsSpectralField{T}, 
-                                   B_poloidal::SHTnsSpectralField{T},
-                                   j_toroidal::SHTnsSpectralField{T}, 
-                                   j_poloidal::SHTnsSpectralField{T}) where T
-    # Compute curl of vector field in vector spherical harmonic space
-    # For toroidal-poloidal decomposition:
-    # If B = ∇ × (T r̂) + ∇ × ∇ × (P r̂)
-    # Then ∇ × B has specific relationships between T,P and curl components
-    
-    config = B_toroidal.config
-    
-    @views for lm_idx in 1:B_toroidal.nlm
-        l = config.l_values[lm_idx]
-        m = config.m_values[lm_idx]
-        
-        # Vector spherical harmonic curl operations
-        # This involves derivatives and l,m-dependent operations
-        l_factor = Float64(l * (l + 1))
-        
-        for r_idx in B_toroidal.local_radial_range
-            if r_idx <= size(B_toroidal.data_real, 3)
-                # Simplified curl operation (would need full vector SH implementation)
-                # j_toroidal comes from poloidal component derivatives
-                j_toroidal.data_real[lm_idx, 1, r_idx] = 
-                    l_factor * B_poloidal.data_real[lm_idx, 1, r_idx]
-                j_toroidal.data_imag[lm_idx, 1, r_idx] = 
-                    l_factor * B_poloidal.data_imag[lm_idx, 1, r_idx]
-                
-                # j_poloidal comes from toroidal component derivatives  
-                j_poloidal.data_real[lm_idx, 1, r_idx] = 
-                    -l_factor * B_toroidal.data_real[lm_idx, 1, r_idx]
-                j_poloidal.data_imag[lm_idx, 1, r_idx] = 
-                    -l_factor * B_toroidal.data_imag[lm_idx, 1, r_idx]
-            end
-        end
-    end
-end
-
 
 function compute_vector_cross_product_shtns!(j_toroidal::SHTnsSpectralField{T}, 
                                             j_poloidal::SHTnsSpectralField{T},
