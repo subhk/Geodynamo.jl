@@ -268,7 +268,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add buoyancy forces with proper scaling
     if temp_field !== nothing
-        add_buoyancy_force!(adv_r, temp_field, d_Ra * d_Pr, domain)
+        add_thermal_buoyancy_force!(adv_r, temp_field, d_Ra * d_Pr, domain)
     end
     
     if comp_field !== nothing
@@ -282,7 +282,148 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
 end
 
 
+# =====================================
+# Thermal buoyancy force addition
+# =====================================
+function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3}, 
+                                      scalar_field, factor::Float64,
+                                      domain::RadialDomain) where T
+    # Add buoyancy force with proper radial scaling
+    
+    # Get scalar field data
+    if isa(scalar_field, SHTnsPhysicalField)
+        scalar_data = parent(scalar_field.data)
+    else
+        scalar_data = parent(scalar_field.temperature.data)
+    end
+    
+    # Get local radial range
+    r_range = get_local_range(scalar_field.pencil, 3)
+    
+    # Vectorized addition with radial dependence
+    @inbounds @simd for idx in eachindex(force_r)
+        if idx <= length(scalar_data)
+            # Get radial index for this point
+            k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
+            r_idx = k + first(r_range) - 1
+            
+            if r_idx <= domain.N
+                # Include radial dependence for spherical geometry
+                r = domain.r[r_idx, 4]
+                gravity_factor = r^2  # Gravity scales as r² in spherical geometry
+                force_r[idx] += factor * gravity_factor * scalar_data[idx]
+            else
+                force_r[idx] += factor * scalar_data[idx]
+            end
+        end
+    end
+end
 
+
+# ===============================
+# Lorentz force computation
+# ===============================
+function add_lorentz_force!(fields::SHTnsVelocityFields{T}, 
+                                     mag_field::SHTnsMagneticFields{T},
+                                     domain::RadialDomain) where T
+    # Compute Lorentz force F = (∇ × B) × B / Pm more efficiently
+    
+    # Step 1: Current density j = ∇ × B is already computed in mag_field
+    # We can reuse it from the magnetic field computation
+    
+    # Step 2: Compute j × B in physical space
+    j_r = parent(mag_field.current.r_component.data)
+    j_θ = parent(mag_field.current.θ_component.data)
+    j_φ = parent(mag_field.current.φ_component.data)
+    
+    B_r = parent(mag_field.magnetic.r_component.data)
+    B_θ = parent(mag_field.magnetic.θ_component.data)
+    B_φ = parent(mag_field.magnetic.φ_component.data)
+    
+    adv_r = parent(fields.advection_physical.r_component.data)
+    adv_θ = parent(fields.advection_physical.θ_component.data)
+    adv_φ = parent(fields.advection_physical.φ_component.data)
+    
+    # Fused loop for j × B / Pm
+    Pm_inv = 1.0 / d_Pm
+    
+    @inbounds @simd for idx in eachindex(j_r)
+        if idx <= length(B_r)
+            # Add Lorentz force to existing forces
+            adv_r[idx] += Pm_inv * (j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx])
+            adv_θ[idx] += Pm_inv * (j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx])
+            adv_φ[idx] += Pm_inv * (j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx])
+        end
+    end
+end
+
+
+# =====================================
+# Boundary conditions for velocity
+# =====================================
+function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T}, 
+                                           domain::RadialDomain) where T
+    # Apply no-slip or stress-free boundary conditions
+    
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    
+    lm_range = get_local_range(fields.poloidal.pencil, 1)
+    r_range = get_local_range(fields.poloidal.pencil, 3)
+    
+    # No-penetration: poloidal field vanishes at boundaries
+    if 1 in r_range
+        local_r = 1 - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= fields.poloidal.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                pol_real[local_lm, 1, local_r] = 0.0
+                pol_imag[local_lm, 1, local_r] = 0.0
+            end
+        end
+    end
+    
+    if domain.N in r_range
+        local_r = domain.N - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= fields.poloidal.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                pol_real[local_lm, 1, local_r] = 0.0
+                pol_imag[local_lm, 1, local_r] = 0.0
+            end
+        end
+    end
+    
+    # For no-slip: toroidal field also vanishes
+    # For stress-free: d(rT)/dr = 0 at boundaries
+    if i_vel_bc == 1  # No-slip
+        if 1 in r_range
+            local_r = 1 - first(r_range) + 1
+            @inbounds for lm_idx in lm_range
+                if lm_idx <= fields.toroidal.nlm
+                    local_lm = lm_idx - first(lm_range) + 1
+                    tor_real[local_lm, 1, local_r] = 0.0
+                    tor_imag[local_lm, 1, local_r] = 0.0
+                end
+            end
+        end
+        
+        if domain.N in r_range
+            local_r = domain.N - first(r_range) + 1
+            @inbounds for lm_idx in lm_range
+                if lm_idx <= fields.toroidal.nlm
+                    local_lm = lm_idx - first(lm_range) + 1
+                    tor_real[local_lm, 1, local_r] = 0.0
+                    tor_imag[local_lm, 1, local_r] = 0.0
+                end
+            end
+        end
+    elseif i_vel_bc == 2  # Stress-free
+        apply_stress_free_bc!(fields, domain)
+    end
+end
 
 
 # =====================================================
