@@ -254,14 +254,6 @@ function apply_gradient_boundary_conditions!(temp_field::SHTnsTemperatureField{T
 end
 
 
-
-function get_prescribed_heat_flux(i_theta::Int, j_phi::Int)
-    # Get prescribed heat flux for boundary conditions
-    # Placeholder - would come from boundary condition specification
-    return 0.0
-end
-
-
 function compute_temperature_advection!(temp_field::SHTnsTemperatureField{T}, vel_fields) where T
     # Compute -u · ∇T
     # vel = vel_fields.velocity
