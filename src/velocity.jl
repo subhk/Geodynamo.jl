@@ -13,21 +13,31 @@ struct SHTnsVelocityFields{T}
     toroidal::SHTnsSpectralField{T}
     poloidal::SHTnsSpectralField{T}
     
+    # Vorticity in spectral space (for efficient curl computation)
+    vort_toroidal::SHTnsSpectralField{T}
+    vort_poloidal::SHTnsSpectralField{T}
+    
     # Nonlinear terms
     nl_toroidal::SHTnsSpectralField{T}
     nl_poloidal::SHTnsSpectralField{T}
-    
-    # Pressure (for pressure correction)
-    pressure::SHTnsSpectralField{T}
     
     # Work arrays for efficient computation
     work_tor::SHTnsSpectralField{T}
     work_pol::SHTnsSpectralField{T}
     work_physical::SHTnsVectorField{T}
+    advection_physical::SHTnsVectorField{T}
     
     # Pre-computed coefficients
     l_factors::Vector{Float64}          # l(l+1) values
     coriolis_factors::Matrix{Float64}   # Pre-computed Coriolis terms
+    
+    # Radial derivative matrices
+    dr_matrix::BandedMatrix{T}          # First derivative
+    d2r_matrix::BandedMatrix{T}         # Second derivative
+    laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
+    
+    # Transform manager for efficient transforms
+    transform_manager::SHTnsTransformManager{T}
 end
 
 
