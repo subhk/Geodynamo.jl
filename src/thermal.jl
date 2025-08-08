@@ -28,65 +28,89 @@ struct SHTnsTemperatureField{T}
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpectralField{T}
     grad_phi_spec::SHTnsSpectralField{T}
+    grad_r_spec::SHTnsSpectralField{T}
     
     # Sources and boundary conditions
-    internal_sources::Vector{T}
-    boundary_values::Matrix{T}
+    internal_sources::Vector{T}        # Radial profile of heating
+    boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
+    bc_type_inner::Vector{Int}         # BC type for each mode at inner
+    bc_type_outer::Vector{Int}         # BC type for each mode at outer
     
     # Pre-computed coefficients
-    l_factors::Vector{Float64}  # l(l+1) values
+    l_factors::Vector{Float64}         # l(l+1) values
     
-    # Transform manager
+    # Configuration and transform manager
+    config::SHTnsConfig
     transform_manager::SHTnsTransformManager{T}
     
-    # Radial derivative matrix for gradient computation
+    # Radial derivative matrices
     dr_matrix::BandedMatrix{T}
+    d2r_matrix::BandedMatrix{T}
+    
+    # Performance tracking
+    computation_time::Ref{Float64}
+    transform_time::Ref{Float64}
+    comm_time::Ref{Float64}
 end
 
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
-                                        domain::RadialDomain, 
-                                        pencils, pencil_spec) where T
-    pencil_θ, pencil_φ, pencil_r = pencils
+                                        domain::RadialDomain) where T
+    # Use config's pencils directly
+    pencils = config.pencils
     
-    # Temperature field
-    temperature = create_shtns_physical_field(T, config, domain, pencil_r)
+    # Temperature field in r-pencil for efficient radial operations
+    temperature = create_shtns_physical_field(T, config, domain, pencils.r)
     
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, domain, pencils)
+    gradient = create_shtns_vector_field(T, config, domain, 
+                                        (pencils.θ, pencils.φ, pencils.r))
     
-    # Spectral representation
-    spectral  = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    nonlinear = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    # Spectral representation using spectral pencil
+    spectral  = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    nonlinear = create_shtns_spectral_field(T, config, domain, pencils.spec)
     
     # Work arrays
-    work_spectral = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    work_physical = create_shtns_physical_field(T, config, domain, pencil_r)
-    advection_physical = create_shtns_physical_field(T, config, domain, pencil_r)
+    work_spectral = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    work_physical = create_shtns_physical_field(T, config, domain, pencils.r)
+    advection_physical = create_shtns_physical_field(T, config, domain, pencils.r)
     
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    grad_phi_spec = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    grad_theta_spec = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    grad_phi_spec = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    grad_r_spec = create_shtns_spectral_field(T, config, domain, pencils.spec)
     
     # Sources and boundary conditions
     internal_sources = zeros(T, domain.N)
-    boundary_values  = zeros(T, 2, config.nlm)  # ICB and CMB values
+    boundary_values  = zeros(T, 2, config.nlm)
+    
+    # Default BC types (1 = Dirichlet, 2 = Neumann)
+    bc_type_inner = ones(Int, config.nlm)  # Default to fixed temperature
+    bc_type_outer = ones(Int, config.nlm)
     
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
-    # Create transform manager
-    transform_manager = get_transform_manager(T, config, pencil_spec)
+    # Get transform manager from config
+    transform_manager = get_transform_manager(T, config)
     
-    # Create radial derivative matrix
+    # Create radial derivative matrices
     dr_matrix = create_derivative_matrix(1, domain)
+    d2r_matrix = create_derivative_matrix(2, domain)
     
-    return SHTnsTemperatureField{T}(temperature, gradient, spectral, nonlinear,
-                                    work_spectral, work_physical, advection_physical,
-                                    grad_theta_spec, grad_phi_spec,
-                                    internal_sources, boundary_values,
-                                    l_factors, transform_manager, dr_matrix)
+    return SHTnsTemperatureField{T}(
+        temperature, gradient, spectral, nonlinear,
+        work_spectral, work_physical, advection_physical,
+        grad_theta_spec, grad_phi_spec, grad_r_spec,
+        internal_sources, boundary_values,
+        bc_type_inner, bc_type_outer,
+        l_factors, config, transform_manager,
+        dr_matrix, d2r_matrix,
+        Ref(0.0), Ref(0.0), Ref(0.0)
+    )
+    
 end
+
 
 
 # ==========================================================
