@@ -244,6 +244,29 @@ function create_shtns_pencils(topology::PencilArrays.Topology,
 end
 
 
+"""
+    analyze_pencil_balance(pencil, name)
+    
+Analyze load balance for a specific pencil.
+"""
+function analyze_pencil_balance(pencil::Pencil, name::Symbol)
+    comm = get_comm()
+    rank = get_rank()
+    
+    local_size = prod(size_local(pencil))
+    all_sizes = MPI.Gather(local_size, comm; root=0)
+    
+    if rank == 0 && !isempty(all_sizes)
+        min_size = minimum(all_sizes)
+        max_size = maximum(all_sizes)
+        imbalance = (max_size - min_size) / max_size * 100
+        
+        status = imbalance < 5 ? "✓" : imbalance < 15 ? "○" : "✗"
+        println("  $name pencil: $status $(round(imbalance, digits=1))% imbalance")
+    end
+end
+
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
