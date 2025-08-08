@@ -1316,12 +1316,12 @@ end
 # ============================================================================
 # Export functions
 # ============================================================================
-export SHTnsTemperatureField, create_shtns_temperature_field
-export compute_temperature_nonlinear!
-export compute_nusselt_number, compute_thermal_energy
-export compute_surface_flux, get_temperature_statistics
-export zero_temperature_work_arrays!
-export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
+# export SHTnsTemperatureField, create_shtns_temperature_field
+# export compute_temperature_nonlinear!
+# export compute_nusselt_number, compute_thermal_energy
+# export compute_surface_flux, get_temperature_statistics
+# export zero_temperature_work_arrays!
+# export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
 
 
 #export print_temperature_performance

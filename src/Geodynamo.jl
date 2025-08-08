@@ -58,7 +58,11 @@ module Geodynamo
 
     # exports thermal.jl
     export SHTnsTemperatureField, create_shtns_temperature_field
-    export compute_temperature_nonlinear!, zero_work_arrays!
+    export compute_temperature_nonlinear!
+    export compute_nusselt_number, compute_thermal_energy
+    export compute_surface_flux, get_temperature_statistics
+    export zero_temperature_work_arrays!
+    export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
 
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
