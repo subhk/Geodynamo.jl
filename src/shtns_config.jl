@@ -318,6 +318,30 @@ function print_shtns_config_summary(nlat, nlon, lmax, mmax, nlm,
 end
 
 
+"""
+    get_mode_index(config::SHTnsConfig, l::Int, m::Int)
+    
+Get linear index for (l,m) mode.
+"""
+function get_mode_index(config::SHTnsConfig, l::Int, m::Int)
+    return get(config.lm_index, (l, m), 0)
+end
+
+"""
+    is_mode_local(config::SHTnsConfig, l::Int, m::Int)
+    
+Check if (l,m) mode is on local process.
+"""
+function is_mode_local(config::SHTnsConfig, l::Int, m::Int)
+    idx = get_mode_index(config, l, m)
+    if idx == 0
+        return false
+    end
+    
+    lm_range = range_local(config.pencils.spec, 1)
+    return idx in lm_range
+end
+
 
 
 # Parallel decomposition with SHTns
