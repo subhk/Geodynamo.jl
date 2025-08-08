@@ -112,16 +112,22 @@ end
 const TRANSFORM_MANAGERS = Dict{UInt64, SHTnsTransformManager}()
 const MANAGER_LOCK = ReentrantLock()
 
-function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}) where T
-    thread_id = Threads.threadid()
-    key = hash((thread_id, T, config.nlm, config.nlat, config.nlon))
+"""
+    get_transform_manager(::Type{T}, config::SHTnsConfig) where T
     
-    if !haskey(TRANSFORM_MANAGERS, key)
-        TRANSFORM_MANAGERS[key] = create_transform_manager(T, config, pencil)
+Get or create transform manager with caching and thread safety.
+"""
+function get_transform_manager(::Type{T}, config::SHTnsConfig) where T
+    key = hash((Threads.threadid(), T, config.nlm, config.nlat, config.nlon))
+    
+    lock(MANAGER_LOCK) do
+        if !haskey(TRANSFORM_MANAGERS, key)
+            TRANSFORM_MANAGERS[key] = create_transform_manager(T, config)
+        end
+        return TRANSFORM_MANAGERS[key]
     end
-    
-    return TRANSFORM_MANAGERS[key]
 end
+
 
 
 # ======================================================
@@ -130,27 +136,48 @@ end
 function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
                                     phys::SHTnsPhysicalField{T},
                                     transpose_plan=nothing) where T
-    sht = spec.config.sht
-    manager = get_transform_manager(T, spec.config, spec.pencil)
+    config = spec.config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
     
-    # Get local data views once
+    # Track performance if enabled
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
+    
+    # Get local data views
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
     phys_data = parent(phys.data)
     
-    # Get local ranges once
-    r_range  = get_local_range(spec.pencil, 3)
-    lm_range = get_local_range(spec.pencil, 1)
+    # Get ranges from config's pencils
+    r_range = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
     
-    # Process radial levels with optimized memory access
-    process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
-                               r_range, lm_range, manager)
+    # Process radial levels with optimized communication
+    if manager.comm_pattern == :allreduce
+        process_radial_levels_allreduce!(sht, spec_real, spec_imag, phys_data,
+                                        r_range, lm_range, manager)
+    elseif manager.comm_pattern == :alltoall
+        process_radial_levels_alltoall!(sht, spec_real, spec_imag, phys_data,
+                                       r_range, lm_range, manager)
+    else
+        process_radial_levels_p2p!(sht, spec_real, spec_imag, phys_data,
+                                  r_range, lm_range, manager)
+    end
     
-    # Transpose if needed
-    if transpose_plan !== nothing
-        transpose!(phys.data, transpose_plan)
+    # Transpose if needed (using config's transpose plans)
+    if transpose_plan !== nothing && haskey(config.transpose_plans, transpose_plan)
+        transpose_with_timer!(phys.data, phys.data, 
+                            config.transpose_plans[transpose_plan],
+                            "s2p_transpose")
+    end
+    
+    # Update performance tracking
+    if ENABLE_TIMING[]
+        manager.total_time[] += MPI.Wtime() - t_start
+        manager.transform_count[] += 1
     end
 end
+
 
 @inline function process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
                                            r_range, lm_range, manager)
