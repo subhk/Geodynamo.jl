@@ -283,7 +283,6 @@ function print_transpose_statistics()
 end
 
 
-
 # ===============================
 # Load Balancing Analysis
 # ===============================
@@ -325,3 +324,38 @@ function analyze_load_balance(pencil::Pencil)
     end
 end
 
+# ===================================
+# Memory-Aware Pencil Creation
+# ===================================
+"""
+    estimate_memory_usage(pencils, field_count::Int, precision::Type)
+    
+Estimate memory usage for given pencil configuration.
+"""
+function estimate_memory_usage(pencils, field_count::Int, precision::Type)
+    bytes_per_element = sizeof(precision)
+    total_bytes = 0
+    
+    # Calculate memory for each pencil orientation
+    for (name, pencil) in pairs(pencils)
+        local_size = size_local(pencil)
+        local_bytes = prod(local_size) * bytes_per_element * field_count
+        total_bytes += local_bytes
+    end
+    
+    # Add overhead for transpose buffers (typically 2x largest pencil)
+    max_pencil_size = maximum([prod(size_local(p)) for p in pencils])
+    buffer_bytes = 2 * max_pencil_size * bytes_per_element
+    total_bytes += buffer_bytes
+    
+    # Convert to human-readable format
+    if total_bytes < 1024^2
+        memory_str = "$(round(total_bytes/1024, digits=1)) KB"
+    elseif total_bytes < 1024^3
+        memory_str = "$(round(total_bytes/1024^2, digits=1)) MB"
+    else
+        memory_str = "$(round(total_bytes/1024^3, digits=2)) GB"
+    end
+    
+    return total_bytes, memory_str
+end
