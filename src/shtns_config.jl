@@ -1,4 +1,7 @@
-#   
+# =======================================================
+# SHTns Configuration with Pencil Integration
+# =======================================================
+#
 # SHTns configuration structure
 struct SHTnsConfig
     sht::SHTnsSphere
@@ -6,12 +9,20 @@ struct SHTnsConfig
     nlon::Int
     lmax::Int
     mmax::Int
-    nlm::Int                        # Number of (l,m) modes
-    l_values::Vector{Int}           # l values for each mode
-    m_values::Vector{Int}           # m values for each mode
-    theta_grid::Vector{Float64}     # Colatitude grid points
-    phi_grid::Vector{Float64}       # Azimuth grid points
-    gauss_weights::Vector{Float64}  # Gaussian quadrature weights
+    nlm::Int                                # Number of (l,m) modes
+    
+    l_values::Vector{Int}                   # l values for each mode
+    m_values::Vector{Int}                   # m values for each mode
+
+    lm_index::Dict{Tuple{Int,Int}, Int}     # (l,m) -> index mapping
+    theta_grid::Vector{Float64}             # Colatitude grid points
+    phi_grid::Vector{Float64}               # Azimuth grid points
+    
+    gauss_weights::Vector{Float64}          # Gaussian quadrature weights
+    
+    pencils::NamedTuple                     # Pencil decomposition
+    transpose_plans::Dict{Symbol, Any}      # Transpose plans
+    memory_estimate::String                 # Estimated memory usage
 end
 
 function create_shtns_config()
