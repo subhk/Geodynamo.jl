@@ -677,6 +677,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
 end
 
+
 function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int, 
                              config::SHTnsConfig) where T
     """
@@ -713,6 +714,7 @@ function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int,
     # Global reduction
     return MPI.Allreduce(local_flux, MPI.SUM, get_comm())
 end
+
 
 # ============================================================================
 # Performance monitoring and statistics
