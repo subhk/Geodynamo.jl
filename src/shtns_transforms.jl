@@ -35,32 +35,66 @@ struct SHTnsTransformManager{T}
 end
 
 
-
-function create_transform_manager(::Type{T}, 
-                            config::SHTnsConfig, 
-                            pencil::Pencil{3}) where T
-
+"""
+    create_transform_manager(::Type{T}, config::SHTnsConfig) where T
+    
+Create optimized transform manager using config's pencil information.
+"""
+function create_transform_manager(::Type{T}, config::SHTnsConfig) where T
     nlm  = config.nlm
     nlat = config.nlat
     nlon = config.nlon
     
-    # Check if we need communication
-    lm_range = get_local_range(pencil, 1)
-    needs_allreduce = length(lm_range) < nlm
+    # Determine optimal communication pattern based on decomposition
+    lm_range = range_local(config.pencils.spec, 1)
+    comm_pattern = determine_comm_pattern(lm_range, nlm)
+    
+    # Allocate work arrays
+    coeffs_full = zeros(ComplexF64, nlm)
+    coeffs_work = zeros(ComplexF64, nlm)
+    phys_work = zeros(ComplexF64, nlat, nlon)
+    phys_real = zeros(T, nlat, nlon)
+    vt_work = zeros(ComplexF64, nlat, nlon)
+    vp_work = zeros(ComplexF64, nlat, nlon)
+    
+    # Communication buffers sized appropriately
+    buffer_size = compute_buffer_size(config)
+    send_buffer = zeros(ComplexF64, buffer_size)
+    recv_buffer = zeros(ComplexF64, buffer_size)
+    
+    # Pre-allocate MPI requests for non-blocking operations
+    max_requests = 2 * get_nprocs()
+    requests = Vector{MPI.Request}(undef, max_requests)
     
     return SHTnsTransformManager{T}(
-        zeros(ComplexF64, nlm),
-        zeros(ComplexF64, nlm),
-        zeros(ComplexF64, nlat, nlon),
-        zeros(T, nlat, nlon),
-        zeros(ComplexF64, nlat, nlon),  # vt_work
-        zeros(ComplexF64, nlat, nlon),  # vp_work
-        zeros(ComplexF64, nlm),
-        zeros(ComplexF64, nlm),
-        MPI.Request[],
-        nlm, nlat, nlon, needs_allreduce
+        coeffs_full, coeffs_work,
+        phys_work, phys_real,
+        vt_work, vp_work,
+        send_buffer, recv_buffer,
+        requests, comm_pattern,
+        nlm, nlat, nlon, config,
+        Ref(0), Ref(0.0)
     )
 end
+
+
+"""
+    determine_comm_pattern(lm_range, nlm)
+    
+Determine optimal communication pattern based on data distribution.
+"""
+function determine_comm_pattern(lm_range, nlm)
+    coverage = length(lm_range) / nlm
+    
+    if coverage >= 0.8
+        return :allreduce  # Most data is local
+    elseif coverage >= 0.3
+        return :alltoall   # Moderate distribution
+    else
+        return :point_to_point  # Highly distributed
+    end
+end
+
     
 
 # Global transform managers (one per thread for thread safety)
