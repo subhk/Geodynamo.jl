@@ -312,14 +312,14 @@ function compute_theta_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) 
     Compute ∂T/∂θ using recurrence relations in spectral space (local operation)
     Uses pre-computed coefficients for efficiency
     """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
+    spec_real   = parent(temp_field.spectral.data_real)
+    spec_imag   = parent(temp_field.spectral.data_imag)
     grad_θ_real = parent(temp_field.grad_theta_spec.data_real)
     grad_θ_imag = parent(temp_field.grad_theta_spec.data_imag)
     
-    config = temp_field.config
+    config    = temp_field.config
     lm_range = range_local(config.pencils.spec, 1)
-    r_range = range_local(config.pencils.spec, 3)
+    r_range  = range_local(config.pencils.spec, 3)
     
     # Zero output first
     fill!(grad_θ_real, zero(T))
@@ -394,13 +394,13 @@ function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T},
     """
     Compute ∂T/∂r using banded matrix in spectral space (local operation)
     """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
+    spec_real   = parent(temp_field.spectral.data_real)
+    spec_imag   = parent(temp_field.spectral.data_imag)
     grad_r_real = parent(temp_field.grad_r_spec.data_real)
     grad_r_imag = parent(temp_field.grad_r_spec.data_imag)
     
     lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
+    r_range  = range_local(temp_field.config.pencils.spec, 3)
     
     nr = domain.N
     bandwidth = temp_field.dr_matrix.bandwidth
@@ -570,7 +570,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     spec_imag = parent(temp_field.spectral.data_imag)
     
     lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
+    r_range  = range_local(temp_field.config.pencils.spec, 3)
     
     # Check which boundaries are local
     has_inner = 1 in r_range
@@ -582,7 +582,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
             
             # Inner boundary
             if has_inner
-                if temp_field.bc_type_inner[lm_idx] == 1  # Dirichlet
+                if temp_field.bc_type_inner[lm_idx] == 1    # Dirichlet
                     local_r = 1 - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
@@ -593,7 +593,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
             
             # Outer boundary
             if has_outer
-                if temp_field.bc_type_outer[lm_idx] == 1  # Dirichlet
+                if temp_field.bc_type_outer[lm_idx] == 1      # Dirichlet
                     local_r = domain.N - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
@@ -657,7 +657,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     local_energy = 0.0
     
     lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
+    r_range  = range_local(temp_field.config.pencils.spec, 3)
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_field.config.nlm
