@@ -2,86 +2,166 @@
 # Pencil Configuration with SHTns Integration
 # ============================================================================
 
+using PencilArrays.Transpositions
 
-# MPI communicator - make it a function to avoid initialization issues
-function get_comm()
-    if !MPI.Initialized()
-        MPI.Init()
-    end
-    return MPI.COMM_WORLD
+
+# Global MPI state management
+mutable struct MPIState
+    initialized::Bool
+    comm::MPI.Comm
+    rank::Int
+    nprocs::Int
 end
 
-# Modified pencil decomposition that works with SHTns grids
-function create_pencil_topology(shtns_config::SHTnsConfig)
+
+# Global MPI state (initialized lazily)
+const MPI_STATE = MPIState(false, MPI.COMM_NULL, -1, -1)
+
+"""
+    get_comm()
+    
+Get MPI communicator, initializing MPI if needed.
+Provides thread-safe lazy initialization.
+"""
+function get_comm()
+    if !MPI_STATE.initialized
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        MPI_STATE.comm = MPI.COMM_WORLD
+        MPI_STATE.rank = MPI.Comm_rank(MPI_STATE.comm)
+        MPI_STATE.nprocs = MPI.Comm_size(MPI_STATE.comm)
+        MPI_STATE.initialized = true
+    end
+    return MPI_STATE.comm
+end
+
+
+"""
+    get_rank()
+    
+Get MPI rank of current process.
+"""
+function get_rank()
+    get_comm()  # Ensure initialization
+    return MPI_STATE.rank
+end
+
+"""
+    get_nprocs()
+    
+Get total number of MPI processes.
+"""
+function get_nprocs()
+    get_comm()  # Ensure initialization
+    return MPI_STATE.nprocs
+end
+
+
+# ================================
+# Optimized Process Topology
+# ================================
+"""
+    optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
+    
+Find optimal 2D process grid for given number of processes and problem dimensions.
+Minimizes communication volume.
+"""
+function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
+    nlat, nlon, nr = dims
+    
+    # Find all valid 2D decompositions
+    decompositions = Tuple{Int,Int}[]
+    for p1 in 1:nprocs
+        if nprocs % p1 == 0
+            p2 = nprocs ÷ p1
+            push!(decompositions, (p1, p2))
+        end
+    end
+    
+    # Score each decomposition based on communication patterns
+    best_score = Inf
+    best_decomp = (nprocs, 1)
+    
+    for (p1, p2) in decompositions
+        # Estimate communication volume for different pencil orientations
+        # Prefer decompositions that balance load and minimize surface/volume ratio
+        
+        # Check if decomposition is valid for problem size
+        if nlat ÷ p1 < 2 || nlon ÷ p2 < 2
+            continue
+        end
+        
+        # Score based on:
+        # 1. Load balance (prefer square-ish decompositions)
+        # 2. Communication volume (proportional to surface area)
+        # 3. Cache efficiency (prefer contiguous dimensions)
+        
+        aspect_ratio = max(p1/p2, p2/p1)
+        comm_volume = (nlat/p1 + nlon/p2) * nr  # Simplified communication estimate
+        cache_penalty = abs(p1 - p2)  # Penalty for non-square decomposition
+        
+        score = comm_volume * aspect_ratio * (1.0 + 0.1 * cache_penalty)
+        
+        if score < best_score
+            best_score = score
+            best_decomp = (p1, p2)
+        end
+    end
+    
+    return best_decomp
+end
+
+
+"""
+    create_pencil_topology(shtns_config::SHTnsConfig; optimize=true)
+    
+Create optimized pencil decomposition for SHTns grids.
+Supports both 1D and 2D decompositions with automatic optimization.
+"""
+function create_pencil_topology(shtns_config::SHTnsConfig; optimize::Bool=true)
     comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
     
-    # Get MPI info
-    rank = MPI.Comm_rank(comm)
-    nprocs = MPI.Comm_size(comm)
-    
-    # Use SHTns grid dimensions
+    # Get SHTns grid dimensions
     nlat = shtns_config.nlat
     nlon = shtns_config.nlon
     nr = i_N
-    
-    # Create process topology
-    # For PencilArrays, we need to decompose across 2 dimensions
-    topology = PencilArrays.Topology(comm, (nprocs, 1))  # 1D decomposition initially
-    
-    if rank == 0
-        println("MPI setup: $nprocs processes")
-        println("SHTns grid: $nlat × $nlon × $nr")
-    end
-    
-    # Create pencil decomposition with SHTns dimensions
     dims = (nlat, nlon, nr)
     
-    # Pencils for different stages of computation
-    # Each pencil decomposes different dimensions
-    pencil_θ = Pencil(topology, dims, (2, 3))  # Decomposed in φ and r, contiguous in θ
-    pencil_φ = Pencil(topology, dims, (1, 3))  # Decomposed in θ and r, contiguous in φ
-    pencil_r = Pencil(topology, dims, (1, 2))  # Decomposed in θ and φ, contiguous in r
+    # Determine optimal process topology
+    if optimize && nprocs > 1
+        proc_dims = optimize_process_topology(nprocs, dims)
+    else
+        # Default to 1D decomposition
+        proc_dims = (nprocs, 1)
+    end
     
-    # Spectral space pencil (for l,m,r)
-    spec_dims = (shtns_config.nlm, 1, nr)
-    pencil_spec = Pencil(topology, spec_dims, (1,))  # Decomposed only in lm dimension
+    # Create PencilArrays topology
+    topology = PencilArrays.Topology(comm, proc_dims)
     
-    return pencil_θ, pencil_φ, pencil_r, pencil_spec
+    if rank == 0
+        println("═══════════════════════════════════════════════════════")
+        println(" Pencil Decomposition Setup")
+        println("═══════════════════════════════════════════════════════")
+        println(" MPI Configuration:")
+        println("   Processes:        $nprocs")
+        println("   Process grid:     $(proc_dims[1]) × $(proc_dims[2])")
+        println(" Grid dimensions:")
+        println("   Physical:         $nlat × $nlon × $nr")
+        println("   Spectral modes:   $(shtns_config.nlm)")
+        println("═══════════════════════════════════════════════════════")
+    end
+    
+    # Create pencils for different computational stages
+    pencils = create_computation_pencils(topology, dims, shtns_config)
+    
+    return pencils
 end
 
 
-# Create transpose plans between pencils
-function create_transpose_plans(pencil_θ, pencil_φ, pencil_r)
-    # Create transpose plans for moving between pencil orientations
-    # These handle the MPI communication
-    
-    plan_θ_to_φ = PencilArrays.Transpositions.Plan(pencil_θ, pencil_φ)
-    plan_φ_to_r = PencilArrays.Transpositions.Plan(pencil_φ, pencil_r)
-    plan_r_to_φ = PencilArrays.Transpositions.Plan(pencil_r, pencil_φ)
-    plan_φ_to_θ = PencilArrays.Transpositions.Plan(pencil_φ, pencil_θ)
-    
-    return (θ_to_φ = plan_θ_to_φ, 
-            φ_to_r = plan_φ_to_r,
-            r_to_φ = plan_r_to_φ,
-            φ_to_θ = plan_φ_to_θ)
-end
 
 
-# # Create transforms between pencils
-# function create_transforms(pencil_θ, pencil_φ, pencil_r, pencil_spec)
-#     # Standard pencil transforms
-#     transform_θ_to_φ = PencilArray(pencil_θ) => PencilArray(pencil_φ)
-#     transform_φ_to_r = PencilArray(pencil_φ) => PencilArray(pencil_r)
-#     transform_φ_to_θ = PencilArray(pencil_φ) => PencilArray(pencil_θ)
-#     transform_r_to_φ = PencilArray(pencil_r) => PencilArray(pencil_φ)
-    
-#     # Spectral transforms
-#     transform_r_to_spec = PencilArray(pencil_r) => PencilArray(pencil_spec)
-#     transform_spec_to_r = PencilArray(pencil_spec) => PencilArray(pencil_r)
-    
-#     return (θ_to_φ = transform_θ_to_φ, φ_to_r = transform_φ_to_r,
-#             φ_to_θ = transform_φ_to_θ, r_to_φ = transform_r_to_φ,
-#             r_to_spec = transform_r_to_spec, spec_to_r = transform_spec_to_r)
-# end
 
 

@@ -1,14 +1,6 @@
 # ============================================================================
 # Variable Types with SHTns Integration
 # ============================================================================
-
-# module VariableTypes
-    # using PencilArrays
-    # using StaticArrays
-    # using SHTnsSpheres
-    # using ..Parameters
-    # using ..SHTnsSetup
-    # using ..PencilSetup
     
 # Field types that work with PencilArrays
 struct SHTnsSpectralField{T<:Number}
