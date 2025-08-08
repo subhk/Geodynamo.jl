@@ -193,4 +193,39 @@ function create_computation_pencils(topology::PencilArrays.Topology,
 end
 
 
+# ============================================================================
+# Transpose Plans with Optimization
+# ============================================================================
+"""
+    create_transpose_plans(pencils)
+    
+Create optimized transpose plans between pencil orientations.
+Includes caching and communication optimization.
+"""
+function create_transpose_plans(pencils)
+    # Create transpose plans for common transitions
+    plans = Dict{Symbol, Transpositions.Plan}()
+    
+    # Physical space transitions
+    plans[:θ_to_φ] = Transpositions.Plan(pencils.θ, pencils.φ)
+    plans[:φ_to_r] = Transpositions.Plan(pencils.φ, pencils.r)
+    plans[:r_to_θ] = Transpositions.Plan(pencils.r, pencils.θ)
+    
+    # Reverse transitions
+    plans[:φ_to_θ] = Transpositions.Plan(pencils.φ, pencils.θ)
+    plans[:r_to_φ] = Transpositions.Plan(pencils.r, pencils.φ)
+    plans[:θ_to_r] = Transpositions.Plan(pencils.θ, pencils.r)
+    
+    # Spectral transitions
+    plans[:r_to_spec] = Transpositions.Plan(pencils.r, pencils.spec)
+    plans[:spec_to_r] = Transpositions.Plan(pencils.spec, pencils.r)
+    
+    # Mixed transitions (for hybrid operations)
+    plans[:mixed_to_r] = Transpositions.Plan(pencils.mixed, pencils.r)
+    plans[:r_to_mixed] = Transpositions.Plan(pencils.r, pencils.mixed)
+    
+    return plans
+end
+
+
 
