@@ -169,6 +169,49 @@ function next_fft_size(n::Int)
 end
 
 
+"""
+    create_pencil_topology_shtns(config, optimize=true)
+    
+Create pencil topology specifically for SHTns configuration.
+"""
+function create_pencil_topology_shtns(config, optimize::Bool=true)
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    # Grid dimensions
+    nlat = config.nlat
+    nlon = config.nlon
+    nr = i_N
+    dims = (nlat, nlon, nr)
+    
+    # Determine optimal process topology
+    if optimize && nprocs > 1
+        proc_dims = optimize_process_topology(nprocs, dims)
+    else
+        proc_dims = (nprocs, 1)
+    end
+    
+    # Create PencilArrays topology
+    topology = PencilArrays.Topology(comm, proc_dims)
+    
+    # Create specialized pencils for SHTns operations
+    pencils = create_shtns_pencils(topology, dims, config)
+    
+    # Analyze load balance
+    if rank == 0 && nprocs > 1
+        println("\nLoad Balance Analysis:")
+        for (name, pencil) in pairs(pencils)
+            if name != :plans  # Skip if plans are included
+                analyze_pencil_balance(pencil, name)
+            end
+        end
+    end
+    
+    return pencils
+end
+
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
