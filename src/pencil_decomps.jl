@@ -438,3 +438,78 @@ function print_pencil_info(pencils)
         println("═══════════════════════════════════════════════════════")
     end
 end
+
+
+# =================================
+# Communication Optimization
+# =================================
+
+"""
+    optimize_communication_order(plans::Dict)
+    
+Determine optimal order for transpose operations to minimize communication.
+"""
+function optimize_communication_order(plans::Dict)
+    # Analyze communication patterns and suggest optimal ordering
+    comm_costs = Dict{Symbol, Float64}()
+    
+    for (name, plan) in plans
+        # Estimate communication cost based on data volume and process mapping
+        # This is a simplified model - actual cost depends on network topology
+        src_pencil = plan.src
+        dest_pencil = plan.dest
+        
+        data_volume = prod(size_global(src_pencil))
+        comm_distance = estimate_communication_distance(src_pencil, dest_pencil)
+        
+        comm_costs[name] = data_volume * comm_distance
+    end
+    
+    # Return sorted list of operations by cost
+    return sort(collect(comm_costs), by=x->x[2])
+end
+
+function estimate_communication_distance(src::Pencil, dest::Pencil)
+    # Estimate "distance" between pencil orientations
+    # Higher distance = more communication required
+    
+    src_decomp = decomposition(src)
+    dest_decomp = decomposition(dest)
+    
+    # Count number of dimensions that need redistribution
+    distance = sum(src_decomp .!= dest_decomp)
+    
+    return Float64(distance)
+end
+
+
+# export get_comm, get_rank, get_nprocs
+# export create_pencil_topology, create_transpose_plans
+# export transpose_with_timer!, print_transpose_statistics
+# export analyze_load_balance, estimate_memory_usage
+# export create_pencil_array, synchronize_halos!
+# export print_pencil_info, optimize_communication_order
+# export ENABLE_TIMING
+
+
+# # Enable timing for performance analysis
+# ENABLE_TIMING[] = true
+
+# # Create optimized pencil topology
+# pencils = create_pencil_topology(shtns_config, optimize=true)
+
+# # Analyze load balance
+# analyze_load_balance(pencils.r)
+
+# # Estimate memory usage
+# bytes, mem_str = estimate_memory_usage(pencils, 10, Float64)
+# println("Estimated memory per process: $mem_str")
+
+# # Create transpose plans
+# plans = create_transpose_plans(pencils)
+
+# # Perform timed transpose
+# transpose_with_timer!(dest, src, plans[:θ_to_φ], "theta_to_phi")
+
+# # Print statistics at end of simulation
+# print_transpose_statistics()

@@ -116,6 +116,7 @@ function create_radial_domain(nr::Int=i_N)
     return RadialDomain(N, r, dr_matrices, radial_laplacian, integration_weights)
 end
 
+
 # Helper functions for working with local portions of PencilArrays
 function get_local_range(pencil::Pencil{3}, dim::Int)
     return range_local(pencil, dim)
