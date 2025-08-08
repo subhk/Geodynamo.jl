@@ -15,19 +15,25 @@ struct SHTnsTransformManager{T}
     vt_work::Matrix{ComplexF64}
     vp_work::Matrix{ComplexF64}
     
-    # Communication buffers
+    # Communication buffers (optimized)
     send_buffer::Vector{ComplexF64}
     recv_buffer::Vector{ComplexF64}
     
-    # MPI requests for async operations
+    # MPI communication optimization
     requests::Vector{MPI.Request}
+    comm_pattern::Symbol  # :allreduce, :alltoall, :point_to_point
     
     # Configuration
     nlm::Int
     nlat::Int
     nlon::Int
-    needs_allreduce::Bool
+    config::SHTnsConfig
+    
+    # Performance tracking
+    transform_count::Ref{Int}
+    total_time::Ref{Float64}
 end
+
 
 
 function create_transform_manager(::Type{T}, 
@@ -231,7 +237,7 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                                 vec_phys::SHTnsVectorField{T}) where T
     sht = tor_spec.config.sht
     manager = get_transform_manager(T, tor_spec.config, tor_spec.pencil)
-    
+
     # Get local data views
     tor_real = parent(tor_spec.data_real)
     tor_imag = parent(tor_spec.data_imag)
