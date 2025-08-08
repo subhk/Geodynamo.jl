@@ -434,12 +434,16 @@ end
 
 
 @inline function store_vector_components!(v_theta, v_phi, vt, vp, local_r)
-    @inbounds @simd for idx in eachindex(vt)
-        v_theta[idx, local_r] = real(vt[idx])
-          v_phi[idx, local_r] = real(vp[idx])
+    n = length(vt)
+    offset = (local_r - 1) * n
+    
+    @inbounds @simd for i in 1:n
+        if offset + i <= length(v_theta)
+            v_theta[offset + i] = real(vt[i])
+            v_phi[offset + i] = real(vp[i])
+        end
     end
 end
-
 
 # =================================
 # Vector analysis for PencilArrays
@@ -447,7 +451,11 @@ end
 function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                tor_spec::SHTnsSpectralField{T}, 
                                pol_spec::SHTnsSpectralField{T}) where T
-    sht = tor_spec.config.sht
+    config = tor_spec.config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
+    
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Get local data views
     v_theta  = parent(vec_phys.θ_component.data)
@@ -457,21 +465,19 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
     pol_real = parent(pol_spec.data_real)
     pol_imag = parent(pol_spec.data_imag)
     
-    # Get local ranges
-    r_range  = get_local_range(vec_phys.θ_component.pencil, 3)
-    lm_range = get_local_range(tor_spec.pencil, 1)
+    # Use config's pencil ranges
+    r_range  = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
     
-    # Pre-allocate work arrays for vector components
-    nlat = vec_phys.θ_component.config.nlat
-    nlon = vec_phys.θ_component.config.nlon
-    vt_work = zeros(ComplexF64, nlat, nlon)
-    vp_work = zeros(ComplexF64, nlat, nlon)
-    
-    # Process each radial level
+    # Process with optimized work arrays
     process_vector_analysis!(sht, v_theta, v_phi,
-                            tor_real, tor_imag, pol_real, pol_imag,
-                            r_range, lm_range, vt_work, vp_work, 
-                            tor_spec.config)
+                                      tor_real, tor_imag, pol_real, pol_imag,
+                                      r_range, lm_range, manager, config)
+    
+    if ENABLE_TIMING[]
+        manager.total_time[] += MPI.Wtime() - t_start
+        manager.transform_count[] += 1
+    end
 end
 
 
