@@ -236,31 +236,42 @@ end
 function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
                                     spec::SHTnsSpectralField{T},
                                     transpose_plan=nothing) where T
+    config = phys.config
+    
     # Transpose first if needed
-    if transpose_plan !== nothing
-        transpose!(phys.data, transpose_plan)
+    if transpose_plan !== nothing && haskey(config.transpose_plans, transpose_plan)
+        transpose_with_timer!(phys.data, phys.data,
+                            config.transpose_plans[transpose_plan],
+                            "p2s_transpose")
     end
     
-    sht = spec.config.sht
-    manager = get_transform_manager(T, spec.config, spec.pencil)
+    sht = config.sht
+    manager = get_transform_manager(T, config)
+    
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Get local data views
     phys_data = parent(phys.data)
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
     
-    # Get local ranges
-    r_range  = get_local_range(phys.pencil, 3)
-    lm_range = get_local_range(spec.pencil, 1)
+    # Get ranges from config
+    r_range = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
     
-    # Process radial levels
+    # Process with optimal communication pattern
     process_radial_levels_p2s!(sht, phys_data, spec_real, spec_imag,
-                               r_range, lm_range, manager, spec.config)
+                                        r_range, lm_range, manager, config)
+    
+    if ENABLE_TIMING[]
+        manager.total_time[] += MPI.Wtime() - t_start
+        manager.transform_count[] += 1
+    end
 end
 
 
 @inline function process_radial_levels_p2s!(sht, phys_data, spec_real, spec_imag,
-                                           r_range, lm_range, manager, config)
+                                                     r_range, lm_range, manager, config)
     phys_work = manager.phys_work
     coeffs    = manager.coeffs_full
     
@@ -268,25 +279,28 @@ end
         local_r = r_idx - first(r_range) + 1
         
         if local_r <= size(phys_data, 3)
-            # Copy to complex work array (vectorized)
-            @simd for idx in 1:length(phys_work)
-                phys_work[idx] = complex(phys_data[idx, local_r])
+            # Copy to complex work array
+            offset = (local_r - 1) * length(phys_work)
+            @simd for i in 1:length(phys_work)
+                if offset + i <= length(phys_data)
+                    phys_work[i] = complex(phys_data[offset + i])
+                end
             end
             
             # Analysis
             analysis!(coeffs, sht, phys_work)
             
-            # Store in local portion
+            # Store local portion with m=0 reality constraint
             store_spectral_coefficients!(spec_real, spec_imag, coeffs,
-                                        local_r, lm_range, config)
+                                                  local_r, lm_range, config)
         end
     end
 end
 
 
 @inline function store_spectral_coefficients!(spec_real, spec_imag, coeffs,
-                                             local_r, lm_range, config)
-    @inbounds @simd for lm_idx in lm_range
+                                                       local_r, lm_range, config)
+    @inbounds for lm_idx in lm_range
         if lm_idx <= length(coeffs)
             local_lm = lm_idx - first(lm_range) + 1
             if local_lm <= size(spec_real, 1)
@@ -303,15 +317,19 @@ end
     end
 end
 
+
 # ==================================
 # Vector synthesis for PencilArrays
 # ==================================
 function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
                                 pol_spec::SHTnsSpectralField{T},
                                 vec_phys::SHTnsVectorField{T}) where T
-    sht = tor_spec.config.sht
-    manager = get_transform_manager(T, tor_spec.config, tor_spec.pencil)
-
+    config = tor_spec.config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
+    
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
+    
     # Get local data views
     tor_real = parent(tor_spec.data_real)
     tor_imag = parent(tor_spec.data_imag)
@@ -321,23 +339,29 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
     v_theta = parent(vec_phys.θ_component.data)
     v_phi   = parent(vec_phys.φ_component.data)
     
-    # Get local ranges
-    r_range  = get_local_range(tor_spec.pencil, 3)
-    lm_range = get_local_range(tor_spec.pencil, 1)
+    # Use config's pencil ranges
+    r_range  = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
     
-    # Process with dual coefficient arrays
+    # Process with optimized communication
     process_vector_synthesis!(sht, tor_real, tor_imag, 
-                            pol_real, pol_imag,
-                            v_theta, v_phi, 
-                            r_range, lm_range, manager)
+                                       pol_real, pol_imag,
+                                       v_theta, v_phi, 
+                                       r_range, lm_range, manager)
+    
+    if ENABLE_TIMING[]
+        manager.total_time[] += MPI.Wtime() - t_start
+        manager.transform_count[] += 1
+    end
 end
 
 
-@inline function process_vector_synthesis!(sht, tor_real, tor_imag, pol_real, pol_imag,
-                                          v_theta, v_phi, r_range, lm_range, manager)
+@inline function process_vector_synthesis!(sht, tor_real, tor_imag, 
+                                                    pol_real, pol_imag,
+                                                    v_theta, v_phi, 
+                                                    r_range, lm_range, manager)
     tor_coeffs = manager.coeffs_full
     pol_coeffs = manager.coeffs_work
-
     vt_work = manager.vt_work
     vp_work = manager.vp_work
     
@@ -345,28 +369,26 @@ end
         local_r = r_idx - first(r_range) + 1
         
         if local_r <= size(tor_real, 3)
-            # Fill both coefficient arrays simultaneously
-            fill_vector_coefficients!(tor_coeffs, pol_coeffs,
-                                     tor_real, tor_imag, pol_real, pol_imag,
-                                     local_r, lm_range)
+            # Fill both coefficient arrays
+            fill_vector_coefficients_optimized!(tor_coeffs, pol_coeffs,
+                                               tor_real, tor_imag, 
+                                               pol_real, pol_imag,
+                                               local_r, lm_range)
             
-            # Single communication for both
-            if manager.needs_allreduce
-                perform_vector_allreduce!(tor_coeffs, pol_coeffs)
+            # Optimized communication based on pattern
+            if manager.comm_pattern == :allreduce
+                perform_vector_allreduce_optimized!(tor_coeffs, pol_coeffs)
+            else
+                # Use separate allreduces for now
+                MPI.Allreduce!(tor_coeffs, MPI.SUM, get_comm())
+                MPI.Allreduce!(pol_coeffs, MPI.SUM, get_comm())
             end
             
-            # Vector synthesis into work arrays
+            # Vector synthesis
             vt_work, vp_work = vector_synthesis(sht, tor_coeffs, pol_coeffs)
             
-            # Store results (vectorized)
-            for j in 1:size(v_theta, 2)
-                @simd for i in 1:size(v_theta, 1)
-                    if i <= size(vt_work, 1) && j <= size(vt_work, 2)
-                        v_theta[i, j, local_r] = real(vt_work[i, j])
-                          v_phi[i, j, local_r] = real(vp_work[i, j])
-                    end
-                end
-            end
+            # Store results with vectorization
+            store_vector_components_optimized!(v_theta, v_phi, vt_work, vp_work, local_r)
         end
     end
 end
