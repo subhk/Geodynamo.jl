@@ -257,3 +257,28 @@ end
 const ENABLE_TIMING = Ref(false)
 const TRANSPOSE_TIMES = Dict{String, Float64}()
 const TRANSPOSE_COUNTS = Dict{String, Int}()
+
+
+"""
+    print_transpose_statistics()
+    
+Print accumulated transpose timing statistics.
+"""
+function print_transpose_statistics()
+    if get_rank() == 0 && !isempty(TRANSPOSE_TIMES)
+        println("\n═══════════════════════════════════════════════════════")
+        println(" Transpose Operation Statistics")
+        println("═══════════════════════════════════════════════════════")
+        
+        for (label, total_time) in sort(collect(TRANSPOSE_TIMES), by=x->x[2], rev=true)
+            count = TRANSPOSE_COUNTS[label]
+            avg_time = total_time / count
+            println(" $label:")
+            println("   Total time:  $(round(total_time, digits=3)) s")
+            println("   Calls:       $count")
+            println("   Average:     $(round(avg_time*1000, digits=3)) ms")
+        end
+        println("═══════════════════════════════════════════════════════")
+    end
+end
+
