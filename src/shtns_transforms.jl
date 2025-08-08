@@ -420,14 +420,16 @@ end
 
 
 @inline function perform_vector_allreduce!(tor_coeffs, pol_coeffs)
-    # Combine into single communication
+    # Single MPI call for both arrays
+    n = length(tor_coeffs)
     combined = vcat(tor_coeffs, pol_coeffs)
     MPI.Allreduce!(combined, MPI.SUM, get_comm())
     
-    # Split back
-    n = length(tor_coeffs)
-    tor_coeffs .= combined[1:n]
-    pol_coeffs .= combined[n+1:end]
+    # Unpack
+    @simd for i in 1:n
+        tor_coeffs[i] = combined[i]
+        pol_coeffs[i] = combined[n+i]
+    end
 end
 
 
