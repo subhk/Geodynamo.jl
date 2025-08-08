@@ -359,3 +359,82 @@ function estimate_memory_usage(pencils, field_count::Int, precision::Type)
     
     return total_bytes, memory_str
 end
+
+
+# =============================
+# Pencil Array Utilities
+# =============================
+"""
+    create_pencil_array(::Type{T}, pencil::Pencil; init=:zero) where T
+    
+Create a PencilArray with specified initialization.
+"""
+function create_pencil_array(::Type{T}, pencil::Pencil; init=:zero) where T
+    arr = PencilArray{T}(undef, pencil)
+    
+    if init == :zero
+        fill!(parent(arr), zero(T))
+    elseif init == :random
+        parent(arr) .= randn(T, size(parent(arr)))
+    elseif init == :ones
+        fill!(parent(arr), one(T))
+    end
+    
+    return arr
+end
+
+
+"""
+    synchronize_halos!(arr::PencilArray)
+    
+Synchronize ghost/halo regions for parallel computations.
+"""
+function synchronize_halos!(arr::PencilArray)
+    # This would implement halo exchange if using ghost cells
+    # For now, just ensure all processes are synchronized
+    MPI.Barrier(get_comm())
+end
+
+# ===========================
+# Diagnostic Functions
+# ===========================
+"""
+    print_pencil_info(pencils)
+    
+Print detailed information about pencil decomposition.
+"""
+function print_pencil_info(pencils)
+    rank = get_rank()
+    
+    if rank == 0
+        println("\n═══════════════════════════════════════════════════════")
+        println(" Pencil Decomposition Information")
+        println("═══════════════════════════════════════════════════════")
+    end
+    
+    for (name, pencil) in pairs(pencils)
+        global_size = size_global(pencil)
+        local_size = size_local(pencil)
+        local_range = range_local(pencil)
+        
+        # Gather info from all ranks
+        all_local_sizes = MPI.Gather(prod(local_size), get_comm(); root=0)
+        
+        if rank == 0
+            println("\n Pencil: $name")
+            println("   Global size:  $(global_size)")
+            println("   Decomposed:   $(decomposition(pencil))")
+            
+            if get_nprocs() > 1
+                min_local = minimum(all_local_sizes)
+                max_local = maximum(all_local_sizes)
+                balance = max_local / min_local
+                println("   Load balance: $(round(balance, digits=2))x")
+            end
+        end
+    end
+    
+    if rank == 0
+        println("═══════════════════════════════════════════════════════")
+    end
+end
