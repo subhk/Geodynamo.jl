@@ -295,6 +295,31 @@ end
 
 
 
+"""
+    print_shtns_config_summary(args...)
+    
+Print configuration summary.
+"""
+function print_shtns_config_summary(nlat, nlon, lmax, mmax, nlm, 
+                                   nprocs, mem_str, optimized)
+    println("\n╔═══════════════════════════════════════════════════════╗")
+    println("║         SHTns Configuration Summary                    ║")
+    println("╠═══════════════════════════════════════════════════════╣")
+    println("║ Grid Configuration:                                    ║")
+    println("║   Physical grid:    $(lpad(nlat,4)) × $(lpad(nlon,4)) × $(lpad(i_N,4))          ║")
+    println("║   Spectral modes:   lmax=$(lpad(lmax,3)), mmax=$(lpad(mmax,3))               ║")
+    println("║   Total modes:      $(lpad(nlm,5))                              ║")
+    println("║                                                        ║")
+    println("║ Parallel Configuration:                                ║")
+    println("║   MPI Processes:    $(lpad(nprocs,4))                               ║")
+    println("║   Decomposition:    $(optimized ? "Optimized" : "Default  ")                          ║")
+    println("║   Memory/process:   $(lpad(mem_str,10))                     ║")
+    println("╚═══════════════════════════════════════════════════════╝")
+end
+
+
+
+
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
     comm = PencilSetup.get_comm()
