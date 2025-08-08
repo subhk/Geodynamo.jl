@@ -482,30 +482,33 @@ end
 
 
 function process_vector_analysis!(sht, v_theta, v_phi,
-                                tor_real, tor_imag, 
-                                pol_real, pol_imag,
-                                r_range, lm_range, vt_work, vp_work, config)
-
+                                           tor_real, tor_imag, 
+                                           pol_real, pol_imag,
+                                           r_range, lm_range, 
+                                           manager, config)
+    vt_work = manager.vt_work
+    vp_work = manager.vp_work
+    
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
-        if local_r <= size(v_theta, 3) && local_r <= size(v_phi, 3)
-            # Copy velocity components to complex work arrays
-            for j in 1:size(vt_work, 2)
-                @simd for i in 1:size(vt_work, 1)
-                    if i <= size(v_theta, 1) && j <= size(v_theta, 2)
-                        vt_work[i, j] = complex(v_theta[i, j, local_r])
-                        vp_work[i, j] = complex(v_phi[i, j, local_r])
-                    end
+        if local_r <= size(v_theta, 3)
+            # Copy to complex arrays
+            offset = (local_r - 1) * length(vt_work)
+            @simd for i in 1:length(vt_work)
+                if offset + i <= length(v_theta)
+                    vt_work[i] = complex(v_theta[offset + i])
+                    vp_work[i] = complex(v_phi[offset + i])
                 end
             end
             
-            # Perform vector analysis
+            # Vector analysis
             tor_coeffs, pol_coeffs = vector_analysis(sht, vt_work, vp_work)
             
-            # Store spectral coefficients
-            store_vector_spectral!(tor_real, tor_imag, pol_real, pol_imag,
-                                  tor_coeffs, pol_coeffs, local_r, lm_range, config)
+            # Store with reality constraints
+            store_vector_spectral_optimized!(tor_real, tor_imag, pol_real, pol_imag,
+                                            tor_coeffs, pol_coeffs, 
+                                            local_r, lm_range, config)
         end
     end
 end
