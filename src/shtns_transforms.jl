@@ -178,55 +178,105 @@ function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T},
     end
 end
 
-
-@inline function process_radial_levels_s2p!(sht, spec_real, spec_imag, phys_data,
-                                           r_range, lm_range, manager)
-    nlm       = manager.nlm
-    coeffs    = manager.coeffs_full
+# ====================================
+# Optimized communication patterns
+# ====================================
+@inline function process_radial_levels_allreduce!(sht, spec_real, spec_imag, phys_data,
+                                                 r_range, lm_range, manager)
+    coeffs = manager.coeffs_full
     phys_work = manager.phys_work
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
         if local_r <= size(spec_real, 3)
-            # Fill coefficients efficiently
-            fill_coefficients_from_local!(coeffs, spec_real, spec_imag, 
-                                         local_r, lm_range)
+            # Fill coefficients
+            fill_coefficients!(coeffs, spec_real, spec_imag, 
+                            local_r, lm_range)
             
-            # Communication if needed (optimized)
-            if manager.needs_allreduce
-                MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
-            end
+            # Single allreduce for complete coefficients
+            MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
             
-            # Synthesis with pre-allocated output
+            # Synthesis
             synthesis!(phys_work, sht, coeffs)
             
-            # Copy to output with vectorization
+            # Copy to output
+            copy_physical_data_vectorized!(phys_data, phys_work, local_r)
+        end
+    end
+end
+
+
+@inline function process_radial_levels_alltoall!(sht, spec_real, spec_imag, phys_data,
+                                                r_range, lm_range, manager)
+    # Use MPI_Alltoall for better scaling with moderate distribution
+    coeffs = manager.coeffs_full
+    phys_work = manager.phys_work
+    
+    nprocs = get_nprocs()
+    chunk_size = manager.nlm ÷ nprocs
+    
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        
+        if local_r <= size(spec_real, 3)
+            # Prepare send buffer
+            prepare_alltoall_buffer!(manager.send_buffer, spec_real, spec_imag,
+                                    local_r, lm_range, chunk_size)
+            
+            # All-to-all communication
+            MPI.Alltoall!(manager.send_buffer, manager.recv_buffer, 
+                         chunk_size, get_comm())
+            
+            # Unpack receive buffer
+            unpack_alltoall_buffer!(coeffs, manager.recv_buffer, chunk_size)
+            
+            # Synthesis and copy
+            synthesis!(phys_work, sht, coeffs)
             copy_physical_data!(phys_data, phys_work, local_r)
         end
     end
 end
 
-@inline function fill_coefficients_from_local!(coeffs, spec_real, spec_imag, 
-                                              local_r, lm_range)
-    # Zero coefficients first (vectorized)
+
+@inline function process_radial_levels_p2p!(sht, spec_real, spec_imag, phys_data,
+                                          r_range, lm_range, manager)
+    # Point-to-point communication for highly distributed data
+    # Implementation would use MPI.Isend/Irecv for overlap
+    # For now, fall back to allreduce
+    process_radial_levels_allreduce!(sht, spec_real, spec_imag, phys_data,
+                                    r_range, lm_range, manager)
+end
+
+
+# ==============================
+# Optimized helper functions
+# ==============================
+@inline function fill_coefficients!(coeffs, spec_real, spec_imag, 
+                                             local_r, lm_range)
+    # Vectorized zero and fill
     @simd for i in eachindex(coeffs)
         coeffs[i] = zero(ComplexF64)
     end
     
-    # Fill from local data
-    @inbounds @simd for lm_idx in lm_range
+    @inbounds for lm_idx in lm_range
         if lm_idx <= length(coeffs)
             local_lm = lm_idx - first(lm_range) + 1
-            coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
-                                    spec_imag[local_lm, 1, local_r])
+            @fastmath coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                              spec_imag[local_lm, 1, local_r])
         end
     end
 end
 
 @inline function copy_physical_data!(phys_data, phys_work, local_r)
-    @inbounds @simd for idx in eachindex(phys_work)
-        phys_data[idx, local_r] = real(phys_work[idx])
+    # Vectorized copy with bounds checking
+    n = length(phys_work)
+    offset = (local_r - 1) * n
+    
+    @inbounds @simd for i in 1:n
+        if offset + i <= length(phys_data)
+            phys_data[offset + i] = real(phys_work[i])
+        end
     end
 end
 
@@ -544,40 +594,50 @@ end
 # =============================
 function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
                                     physs::Vector{SHTnsPhysicalField{T}}) where T
-    # Process multiple fields efficiently
     @assert length(specs) == length(physs)
     
     if isempty(specs)
         return
     end
     
-    sht = specs[1].config.sht
-    manager = get_transform_manager(T, specs[1].config, specs[1].pencil)
+    config = specs[1].config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
     
-    # Process all fields at each radial level
-    r_range  = get_local_range(specs[1].pencil, 3)
-    lm_range = get_local_range(specs[1].pencil, 1)
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
+    # Use config's ranges
+    r_range  = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
+    
+    # Process all fields at each radial level for cache efficiency
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
         for (spec, phys) in zip(specs, physs)
-            process_single_level_s2p!(sht, spec, phys, local_r, lm_range, manager)
+            process_single_level!(sht, spec, phys, local_r, lm_range, manager)
         end
+    end
+    
+    if ENABLE_TIMING[]
+        elapsed = MPI.Wtime() - t_start
+        manager.total_time[] += elapsed
+        manager.transform_count[] += length(specs)
     end
 end
 
 
-@inline function process_single_level_s2p!(sht, spec, phys, local_r, lm_range, manager)
+@inline function process_single_level!(sht, spec, phys, local_r, lm_range, manager)
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
     phys_data = parent(phys.data)
     
     if local_r <= size(spec_real, 3)
-        fill_coefficients_from_local!(manager.coeffs_full, spec_real, spec_imag, 
-                                     local_r, lm_range)
+        fill_coefficients!(manager.coeffs_full, spec_real, spec_imag, 
+                                    local_r, lm_range)
         
-        if manager.needs_allreduce
+        # Use cached communication pattern
+        if manager.comm_pattern == :allreduce
             MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
         end
         
@@ -594,45 +654,91 @@ end
 function shtns_compute_gradient!(input::SHTnsSpectralField{T},
                                 grad_theta::SHTnsPhysicalField{T},
                                 grad_phi::SHTnsPhysicalField{T}) where T
-    sht = input.config.sht
-    manager = get_transform_manager(T, input.config, input.pencil)
+    config = input.config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
+    
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Get local data
     spec_real = parent(input.data_real)
     spec_imag = parent(input.data_imag)
-
     grad_theta_data = parent(grad_theta.data)
     grad_phi_data   = parent(grad_phi.data)
     
-    # Process radial levels
-    r_range  = get_local_range(input.pencil, 3)
-    lm_range = get_local_range(input.pencil, 1)
+    # Use config's ranges
+    r_range  = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
-            fill_coefficients_from_local!(manager.coeffs_full, spec_real, spec_imag,
-                                         local_r, lm_range)
+            fill_coefficients_optimized!(manager.coeffs_full, spec_real, spec_imag,
+                                        local_r, lm_range)
             
-            if manager.needs_allreduce
+            # Communication
+            if manager.comm_pattern == :allreduce
                 MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
             end
             
-            # Compute both derivatives
+            # Compute derivatives
             dtheta = synthesis_dtheta(sht, manager.coeffs_full)
             dphi   = synthesis_dphi(sht, manager.coeffs_full)
             
             # Store results
-            @simd for idx in eachindex(dtheta)
-                grad_theta_data[idx, local_r] = real(dtheta[idx])
-                grad_phi_data[idx, local_r] = real(dphi[idx])
+            n = length(dtheta)
+            offset = (local_r - 1) * n
+            @simd for i in 1:n
+                if offset + i <= length(grad_theta_data)
+                    grad_theta_data[offset + i] = real(dtheta[i])
+                    grad_phi_data[offset + i] = real(dphi[i])
+                end
             end
         end
     end
+    
+    if ENABLE_TIMING[]
+        manager.total_time[] += MPI.Wtime() - t_start
+        manager.transform_count[] += 1
+    end
 end
 
+# ============================
+# Performance monitoring
+# ============================
+function get_transform_statistics(manager::SHTnsTransformManager)
+    count = manager.transform_count[]
+    total_time = manager.total_time[]
+    avg_time = count > 0 ? total_time / count : 0.0
+    
+    return (count = count,
+            total_time = total_time,
+            avg_time = avg_time,
+            comm_pattern = manager.comm_pattern)
+end
+
+function print_transform_statistics()
+    if get_rank() == 0
+        println("\n╔═══════════════════════════════════════════════════════╗")
+        println("║         Transform Performance Statistics               ║")
+        println("╠═══════════════════════════════════════════════════════╣")
+        
+        for (key, manager) in TRANSFORM_MANAGERS
+            stats = get_transform_statistics(manager)
+            if stats.count > 0
+                println("║ Manager $(key % 1000):                                    ║")
+                println("║   Transforms:    $(lpad(stats.count, 8))                      ║")
+                println("║   Total time:    $(lpad(round(stats.total_time, digits=3), 8)) s                   ║")
+                println("║   Avg time:      $(lpad(round(stats.avg_time * 1000, digits=3), 8)) ms                 ║")
+                println("║   Comm pattern:  $(lpad(string(stats.comm_pattern), 12))             ║")
+            end
+        end
+        
+        println("╚═══════════════════════════════════════════════════════╝")
+    end
+end
 
 # ================================================
 # In-place SHTns wrappers for better performance
