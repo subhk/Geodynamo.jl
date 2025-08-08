@@ -131,10 +131,9 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     )
 end
 
-# ============================================================================
+# =======================================================
 # Pre-computation of spectral derivative operators
-# ============================================================================
-
+# =======================================================
 function build_theta_derivative_matrix(::Type{T}, config::SHTnsConfig) where T
     """
     Build sparse matrix for θ-derivatives in spectral space.
