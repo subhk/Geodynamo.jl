@@ -362,23 +362,50 @@ function get_local_modes(config::SHTnsConfig)
 end
 
 
-# Parallel decomposition with SHTns
-function create_parallel_shtns_config()
-    comm = PencilSetup.get_comm()
-    rank = MPI.Comm_rank(comm)
-    nprocs = MPI.Comm_size(comm)
+
+"""
+    validate_config(config::SHTnsConfig)
     
-    config = create_shtns_config()
+Validate SHTns configuration for consistency.
+"""
+function validate_config(config::SHTnsConfig)
+    errors = String[]
     
-    if rank == 0
-        println("SHTns Configuration:")
-        println("  Grid: $(config.nlat) × $(config.nlon)")
-        println("  lmax: $(config.lmax), mmax: $(config.mmax)")
-        println("  Number of modes: $(config.nlm)")
-        println("  Processes: $nprocs")
+    # Check grid sizes
+    if config.nlat < config.lmax + 1
+        push!(errors, "nlat ($(config.nlat)) should be ≥ lmax+1 ($(config.lmax+1))")
     end
     
-    return config
+    if config.nlon < 2 * config.mmax + 1
+        push!(errors, "nlon ($(config.nlon)) should be ≥ 2*mmax+1 ($(2*config.mmax+1))")
+    end
+    
+    # Check mode counts
+    expected_nlm = sum(l -> min(l, config.mmax) + 1, 0:config.lmax)
+    if config.nlm != expected_nlm
+        push!(errors, "nlm mismatch: got $(config.nlm), expected $expected_nlm")
+    end
+    
+    # Check pencil compatibility
+    for (name, pencil) in pairs(config.pencils)
+        if name != :plans && name != :hybrid
+            global_size = size_global(pencil)
+            if name == :spec
+                if global_size[1] != config.nlm
+                    push!(errors, "Spectral pencil size mismatch")
+                end
+            else
+                if global_size[1] != config.nlat || global_size[2] != config.nlon
+                    push!(errors, "$name pencil size mismatch")
+                end
+            end
+        end
+    end
+    
+    if !isempty(errors)
+        error("Configuration validation failed:\n" * join(errors, "\n"))
+    end
+    
+    return true
 end
 
-#export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
