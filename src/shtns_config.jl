@@ -25,29 +25,26 @@ struct SHTnsConfig
     memory_estimate::String                 # Estimated memory usage
 end
 
-function create_shtns_config()
-    # Initialize SHTns with optimized settings
-    # SHTns requires specific grid sizes for optimal performance
+
+"""
+    create_shtns_config(; optimize_decomp=true, enable_timing=false)
     
-    # Adjust grid sizes to be compatible with SHTns
-    # For Gaussian grid: nlat should be roughly (lmax+1)
-    # For longitude: nlon should be at least 2*mmax
-    nlat = max(i_Th, i_L + 1)
-    nlon = max(i_Ph, 2 * i_M)
+Create SHTns configuration with optimized parallel decomposition.
+"""
+function create_shtns_config(; optimize_decomp::Bool=true, 
+                            enable_timing::Bool=false)
+    # Initialize MPI if needed
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
     
-    # Ensure even number for FFT efficiency
-    if nlat % 2 != 0
-        nlat += 1
-    end
-    if nlon % 2 != 0
-        nlon += 1
-    end
-    
+    # Adjust grid sizes for SHTns compatibility
+    nlat = compute_optimal_nlat(i_Th, i_L)
+    nlon = compute_optimal_nlon(i_Ph, i_M)
     lmax = i_L
-    mmax = min(i_M, lmax)  # mmax cannot exceed lmax
+    mmax = min(i_M, lmax)
     
     # Initialize SHTns sphere
-    # Use Gaussian grid for optimal accuracy
     sht = SHTnsSphere(lmax, mmax, 
                     grid_type = SHTnsSpheres.gaussian,
                     nlat = nlat,
@@ -58,10 +55,11 @@ function create_shtns_config()
     phi_grid      = get_phi_array(sht) 
     gauss_weights = get_weights(sht)
     
-    # Compute (l,m) mode information
-    nlm      = get_nlm(sht)
+    # Compute (l,m) mode information with index mapping
+    nlm = get_nlm(sht)
     l_values = zeros(Int, nlm)
     m_values = zeros(Int, nlm)
+    lm_index = Dict{Tuple{Int,Int}, Int}()
     
     idx = 1
     for l in 0:lmax
@@ -69,16 +67,108 @@ function create_shtns_config()
             if idx <= nlm
                 l_values[idx] = l
                 m_values[idx] = m
+                lm_index[(l, m)] = idx
                 idx += 1
             end
         end
     end
     
+    # Create optimized pencil decomposition
+    if enable_timing
+        ENABLE_TIMING[] = true
+    end
+    
+    # Create temporary config for pencil creation
+    temp_config = (nlat=nlat, nlon=nlon, nlm=nlm)
+    pencils = create_pencil_topology_shtns(temp_config, optimize=optimize_decomp)
+    
+    # Create transpose plans
+    transpose_plans = create_transpose_plans(pencils)
+    
+    # Estimate memory usage
+    field_count = estimate_field_count()
+    bytes, mem_str = estimate_memory_usage(pencils, field_count, Float64)
+    
+    # Print configuration summary
+    if rank == 0
+        print_shtns_config_summary(nlat, nlon, lmax, mmax, nlm, 
+                                  nprocs, mem_str, optimize_decomp)
+    end
+    
     return SHTnsConfig(sht, nlat, nlon, lmax, mmax, nlm,
-                        l_values, m_values, theta_grid, 
-                        phi_grid, gauss_weights)
-
+                      l_values, m_values, lm_index,
+                      theta_grid, phi_grid, gauss_weights,
+                      pencils, transpose_plans, mem_str)
 end
+
+
+"""
+    compute_optimal_nlat(target_nlat::Int, lmax::Int)
+    
+Compute optimal latitude grid size for SHTns.
+"""
+function compute_optimal_nlat(target_nlat::Int, lmax::Int)
+    # For Gaussian grid: nlat should be roughly (lmax+1)
+    # Also ensure even number for FFT efficiency
+    nlat = max(target_nlat, lmax + 1)
+    
+    # Ensure divisibility for good parallel decomposition
+    nprocs = get_nprocs()
+    if nprocs > 1
+        # Round up to nearest number divisible by small factors
+        while nlat % 2 != 0 || (nprocs <= 8 && nlat % min(nprocs, 4) != 0)
+            nlat += 1
+        end
+    else
+        # Just ensure even for FFT
+        if nlat % 2 != 0
+            nlat += 1
+        end
+    end
+    
+    return nlat
+end
+
+
+"""
+    compute_optimal_nlon(target_nlon::Int, mmax::Int)
+    
+Compute optimal longitude grid size for SHTns.
+"""
+function compute_optimal_nlon(target_nlon::Int, mmax::Int)
+    # For longitude: nlon should be at least 2*mmax + 1
+    nlon = max(target_nlon, 2 * mmax + 1)
+    
+    # Round up to power of 2 or highly composite number for FFT efficiency
+    nlon = next_fft_size(nlon)
+    
+    return nlon
+end
+
+
+
+"""
+    next_fft_size(n::Int)
+    
+Find next size optimal for FFT (powers of 2, 3, 5, 7).
+"""
+function next_fft_size(n::Int)
+    # Find next number that is a product of small primes
+    while true
+        m = n
+        for p in [2, 3, 5, 7]
+            while m % p == 0
+                m ÷= p
+            end
+        end
+        if m == 1
+            return n
+        end
+        n += 1
+    end
+end
+
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
