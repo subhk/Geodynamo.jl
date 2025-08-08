@@ -409,3 +409,8 @@ function validate_config(config::SHTnsConfig)
     return true
 end
 
+
+# Export functions
+# export SHTnsConfig, create_shtns_config
+# export get_mode_index, is_mode_local, get_local_modes
+# export validate_config
