@@ -161,7 +161,36 @@ function create_pencil_topology(shtns_config::SHTnsConfig; optimize::Bool=true)
 end
 
 
-
+"""
+    create_computation_pencils(topology, dims, config)
+    
+Create specialized pencils for different stages of computation.
+"""
+function create_computation_pencils(topology::PencilArrays.Topology, 
+                                   dims::Tuple{Int,Int,Int}, 
+                                   config::SHTnsConfig)
+    nlat, nlon, nr = dims
+    
+    # Physical space pencils (for different operations)
+    pencil_θ = Pencil(topology, dims, (2, 3))  # Contiguous in θ (latitude)
+    pencil_φ = Pencil(topology, dims, (1, 3))  # Contiguous in φ (longitude)
+    pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
+    
+    # Spectral space pencil (for l,m modes)
+    spec_dims = (config.nlm, 1, nr)
+    pencil_spec = Pencil(topology, spec_dims, (2,))  # Decomposed only in dummy dimension
+    
+    # Create optimized pencil for mixed operations
+    # This is useful for operations that need both spectral and physical access
+    mixed_dims = (config.nlm, config.nlat, nr)
+    pencil_mixed = Pencil(topology, mixed_dims, (2,))
+    
+    return (θ = pencil_θ, 
+            φ = pencil_φ, 
+            r = pencil_r,
+            spec = pencil_spec,
+            mixed = pencil_mixed)
+end
 
 
 
