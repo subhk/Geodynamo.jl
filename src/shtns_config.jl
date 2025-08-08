@@ -267,6 +267,33 @@ function analyze_pencil_balance(pencil::Pencil, name::Symbol)
 end
 
 
+"""
+    estimate_field_count()
+    
+Estimate number of fields for memory calculation.
+"""
+function estimate_field_count()
+    # Count fields based on problem configuration
+    field_count = 0
+    
+    # Velocity: 3 vector components + toroidal/poloidal
+    field_count += 5
+    
+    # Magnetic field (if enabled)
+    if i_B == 1
+        field_count += 5
+    end
+    
+    # Temperature
+    field_count += 2
+    
+    # Work arrays (estimate)
+    field_count += 10
+    
+    return field_count
+end
+
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
