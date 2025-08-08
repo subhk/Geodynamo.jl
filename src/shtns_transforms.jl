@@ -123,6 +123,7 @@ function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}
     return TRANSFORM_MANAGERS[key]
 end
 
+
 # ======================================================
 # Transform from Spectral to Physical space using SHTns
 # ======================================================
