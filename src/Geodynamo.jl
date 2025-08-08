@@ -10,10 +10,19 @@ module Geodynamo
     using SHTnsSpheres
 
     # exports shtns_config.jl
-    export SHTnsConfig, create_shtns_config, create_parallel_shtns_config
+    export SHTnsConfig, create_shtns_config
+    export get_mode_index, is_mode_local, get_local_modes
+    export validate_config
 
     # exports pencil_decomps.jl
-    export get_comm, create_pencil_topology, create_transpose_plans
+    export get_comm, get_rank, get_nprocs
+    export create_pencil_topology, create_transpose_plans
+    export transpose_with_timer!, print_transpose_statistics
+    export analyze_load_balance, estimate_memory_usage
+    export create_pencil_array, synchronize_halos!
+    export print_pencil_info, optimize_communication_order
+    export ENABLE_TIMING
+    
 
     # exports field.jl
     export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField
