@@ -69,6 +69,7 @@ struct SHTnsTemperatureField{T}
     spectral_time::Ref{Float64}
 end
 
+
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
                                         domain::RadialDomain) where T
     # Use config's pencils directly
@@ -307,6 +308,7 @@ function compute_phi_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) wh
     end
 end
 
+
 function compute_theta_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) where T
     """
     Compute ∂T/∂θ using recurrence relations in spectral space (local operation)
@@ -389,6 +391,7 @@ function compute_theta_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) 
     end
 end
 
+
 function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T}, 
                                           domain::RadialDomain) where T
     """
@@ -438,6 +441,7 @@ function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T},
     end
 end
 
+
 function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T}, 
                                           domain::RadialDomain) where T
     """
@@ -449,7 +453,7 @@ function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T},
     grad_φ_real = parent(temp_field.grad_phi_spec.data_real)
     grad_φ_imag = parent(temp_field.grad_phi_spec.data_imag)
     
-    r_range = range_local(temp_field.config.pencils.spec, 3)
+    r_range  = range_local(temp_field.config.pencils.spec, 3)
     lm_range = range_local(temp_field.config.pencils.spec, 1)
     
     @inbounds for r_idx in r_range
@@ -623,7 +627,7 @@ function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T},
     spec_imag = parent(temp_field.spectral.data_imag)
     
     lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
+    r_range  = range_local(temp_field.config.pencils.spec, 3)
     
     # Process each (l,m) mode independently
     @inbounds for lm_idx in lm_range
