@@ -96,6 +96,18 @@ function determine_comm_pattern(lm_range, nlm)
 end
 
     
+"""
+    compute_buffer_size(config)
+    
+Compute optimal buffer size for communication.
+"""
+function compute_buffer_size(config::SHTnsConfig)
+    # Buffer size based on maximum data transfer in one operation
+    max_transfer = max(config.nlm, config.nlat * config.nlon)
+    return max_transfer
+end
+
+
 
 # Global transform managers (one per thread for thread safety)
 const TRANSFORM_MANAGERS = Dict{UInt64, SHTnsTransformManager}()
