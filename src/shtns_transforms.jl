@@ -744,29 +744,24 @@ end
 # In-place SHTns wrappers for better performance
 # ================================================
 function synthesis!(output::Matrix{ComplexF64}, 
-                    sht::SHTnsSphere, coeffs::Vector{ComplexF64})
-
-    # In-place synthesis
-    result  = synthesis(sht, coeffs)
+                   sht::SHTnsSphere, coeffs::Vector{ComplexF64})
+    result = synthesis(sht, coeffs)
     output .= result
-    return nothing #output
+    return nothing
 end
 
 function analysis!(output::Vector{ComplexF64}, 
-                sht::SHTnsSphere, input::Matrix{ComplexF64})
-
-    # In-place analysis
-    result  = analysis(sht, input)
+                  sht::SHTnsSphere, input::Matrix{ComplexF64})
+    result = analysis(sht, input)
     output .= result
-    return nothing #output
+    return nothing
 end
 
-
 # # Export functions
-# export shtns_spectral_to_physical!, shtns_physical_to_spectral!
-# export shtns_vector_synthesis!, shtns_vector_analysis!
-# export batch_spectral_to_physical!
-# export shtns_spectral_to_physical_async!, wait_transform
-# export shtns_compute_gradient!
-# export clear_transform_cache!, get_transform_statistics
-# export SHTnsTransformManager, get_transform_manager
+export shtns_spectral_to_physical!, shtns_physical_to_spectral!
+export shtns_vector_synthesis!, shtns_vector_analysis!
+export batch_spectral_to_physical!
+export shtns_compute_gradient!
+export get_transform_statistics, print_transform_statistics
+export clear_transform_cache!
+export SHTnsTransformManager, get_transform_manager
