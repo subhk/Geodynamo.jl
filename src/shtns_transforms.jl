@@ -740,6 +740,13 @@ function print_transform_statistics()
     end
 end
 
+function clear_transform_cache!()
+    lock(MANAGER_LOCK) do
+        empty!(TRANSFORM_MANAGERS)
+    end
+end
+
+
 # ================================================
 # In-place SHTns wrappers for better performance
 # ================================================

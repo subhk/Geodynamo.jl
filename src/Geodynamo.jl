@@ -22,7 +22,7 @@ module Geodynamo
     export create_pencil_array, synchronize_halos!
     export print_pencil_info, optimize_communication_order
     export ENABLE_TIMING
-    
+
 
     # exports field.jl
     export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField
@@ -33,7 +33,10 @@ module Geodynamo
     # export shtns_transforms.jl
     export shtns_spectral_to_physical!, shtns_physical_to_spectral!
     export shtns_vector_synthesis!, shtns_vector_analysis!
+    export batch_spectral_to_physical!
     export shtns_compute_gradient!
+    export get_transform_statistics, print_transform_statistics
+    export clear_transform_cache!
     export SHTnsTransformManager, get_transform_manager
 
     # exports linear_algebra.jl
