@@ -108,9 +108,9 @@ function compute_buffer_size(config::SHTnsConfig)
 end
 
 
-
-# Global transform managers (one per thread for thread safety)
+# Global transform manager cache with thread safety
 const TRANSFORM_MANAGERS = Dict{UInt64, SHTnsTransformManager}()
+const MANAGER_LOCK = ReentrantLock()
 
 function get_transform_manager(::Type{T}, config::SHTnsConfig, pencil::Pencil{3}) where T
     thread_id = Threads.threadid()
