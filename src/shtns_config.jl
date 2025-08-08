@@ -212,6 +212,38 @@ function create_pencil_topology_shtns(config, optimize::Bool=true)
 end
 
 
+"""
+    create_shtns_pencils(topology, dims, config)
+    
+Create pencils optimized for SHTns operations.
+"""
+function create_shtns_pencils(topology::PencilArrays.Topology, 
+                            dims::Tuple{Int,Int,Int}, 
+                            config)
+    nlat, nlon, nr = dims
+    
+    # Physical space pencils
+    pencil_θ = Pencil(topology, dims, (2, 3))  # Contiguous in θ
+    pencil_φ = Pencil(topology, dims, (1, 3))  # Contiguous in φ  
+    pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r
+    
+    # Spectral space pencil
+    spec_dims = (config.nlm, 1, nr)
+    pencil_spec = Pencil(topology, spec_dims, (2,))
+    
+    # Hybrid pencil for SHTns transforms
+    # This is optimized for the synthesis/analysis operations
+    hybrid_dims = (max(nlat, config.nlm), nlon, nr)
+    pencil_hybrid = Pencil(topology, hybrid_dims, (2, 3))
+    
+    return (θ = pencil_θ, 
+            φ = pencil_φ, 
+            r = pencil_r,
+            spec = pencil_spec,
+            hybrid = pencil_hybrid)
+end
+
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
