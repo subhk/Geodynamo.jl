@@ -646,6 +646,7 @@ function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
     return Nu
 end
 
+
 function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     """
     Compute total thermal energy in spectral space
