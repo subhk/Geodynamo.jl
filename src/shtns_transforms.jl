@@ -370,14 +370,14 @@ end
         
         if local_r <= size(tor_real, 3)
             # Fill both coefficient arrays
-            fill_vector_coefficients_optimized!(tor_coeffs, pol_coeffs,
+            fill_vector_coefficients!(tor_coeffs, pol_coeffs,
                                                tor_real, tor_imag, 
                                                pol_real, pol_imag,
                                                local_r, lm_range)
             
             # Optimized communication based on pattern
             if manager.comm_pattern == :allreduce
-                perform_vector_allreduce_optimized!(tor_coeffs, pol_coeffs)
+                perform_vector_allreduce!(tor_coeffs, pol_coeffs)
             else
                 # Use separate allreduces for now
                 MPI.Allreduce!(tor_coeffs, MPI.SUM, get_comm())
@@ -388,29 +388,32 @@ end
             vt_work, vp_work = vector_synthesis(sht, tor_coeffs, pol_coeffs)
             
             # Store results with vectorization
-            store_vector_components_optimized!(v_theta, v_phi, vt_work, vp_work, local_r)
+            store_vector_components!(v_theta, v_phi, vt_work, vp_work, local_r)
         end
     end
 end
 
 
 @inline function fill_vector_coefficients!(tor_coeffs, pol_coeffs,
-                                         tor_real, tor_imag, pol_real, pol_imag,
-                                         local_r, lm_range)
-    # Zero both arrays
+                                                    tor_real, tor_imag, 
+                                                    pol_real, pol_imag,
+                                                    local_r, lm_range)
+    # Vectorized zero
     @simd for i in eachindex(tor_coeffs)
         tor_coeffs[i] = zero(ComplexF64)
         pol_coeffs[i] = zero(ComplexF64)
     end
     
     # Fill from local data
-    @inbounds @simd for lm_idx in lm_range
+    @inbounds for lm_idx in lm_range
         if lm_idx <= length(tor_coeffs)
             local_lm = lm_idx - first(lm_range) + 1
-            tor_coeffs[lm_idx] = complex(tor_real[local_lm, 1, local_r],
-                                        tor_imag[local_lm, 1, local_r])
-            pol_coeffs[lm_idx] = complex(pol_real[local_lm, 1, local_r],
-                                        pol_imag[local_lm, 1, local_r])
+            @fastmath begin
+                tor_coeffs[lm_idx] = complex(tor_real[local_lm, 1, local_r],
+                                            tor_imag[local_lm, 1, local_r])
+                pol_coeffs[lm_idx] = complex(pol_real[local_lm, 1, local_r],
+                                            pol_imag[local_lm, 1, local_r])
+            end
         end
     end
 end
