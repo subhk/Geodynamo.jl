@@ -228,4 +228,32 @@ function create_transpose_plans(pencils)
 end
 
 
+# ============================================================================
+# Optimized Transpose Operations
+# ============================================================================
 
+"""
+    transpose_with_timer!(dest, src, plan, label="")
+    
+Perform transpose with optional timing and statistics.
+"""
+function transpose_with_timer!(dest::PencilArray, src::PencilArray, 
+                               plan::Transpositions.Plan, label::String="")
+    if ENABLE_TIMING[]
+        t_start = MPI.Wtime()
+        transpose!(dest, src, plan)
+        t_end = MPI.Wtime()
+        
+        # Accumulate timing statistics
+        TRANSPOSE_TIMES[label] = get(TRANSPOSE_TIMES, label, 0.0) + (t_end - t_start)
+        TRANSPOSE_COUNTS[label] = get(TRANSPOSE_COUNTS, label, 0) + 1
+    else
+        transpose!(dest, src, plan)
+    end
+end
+
+
+# Global timing controls
+const ENABLE_TIMING = Ref(false)
+const TRANSPOSE_TIMES = Dict{String, Float64}()
+const TRANSPOSE_COUNTS = Dict{String, Int}()
