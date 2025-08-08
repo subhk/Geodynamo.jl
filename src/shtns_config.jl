@@ -343,6 +343,24 @@ function is_mode_local(config::SHTnsConfig, l::Int, m::Int)
 end
 
 
+"""
+    get_local_modes(config::SHTnsConfig)
+    
+Get list of (l,m) modes on local process.
+"""
+function get_local_modes(config::SHTnsConfig)
+    lm_range = range_local(config.pencils.spec, 1)
+    local_modes = Tuple{Int,Int}[]
+    
+    for idx in lm_range
+        if idx <= config.nlm
+            push!(local_modes, (config.l_values[idx], config.m_values[idx]))
+        end
+    end
+    
+    return local_modes
+end
+
 
 # Parallel decomposition with SHTns
 function create_parallel_shtns_config()
