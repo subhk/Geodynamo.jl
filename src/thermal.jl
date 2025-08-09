@@ -392,7 +392,7 @@ end
 
 
 function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T}, 
-                                          domain::RadialDomain) where T
+                                          oc_domain::RadialDomain) where T
     """
     Compute ∂T/∂r using banded matrix in spectral space (local operation)
     """
@@ -442,7 +442,7 @@ end
 
 
 function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T}, 
-                                          domain::RadialDomain) where T
+                                          oc_domain::RadialDomain) where T
     """
     Apply geometric factors (1/r, 1/(r sin θ)) in spectral space
     For gradients in spherical coordinates
