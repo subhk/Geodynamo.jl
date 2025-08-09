@@ -106,6 +106,7 @@ module Geodynamo
     include("magnetic.jl")
     include("thermal.jl")
     include("outputs_writer.jl")
+    include("../extras/spectral_to_physical.jl")
 
     # Initialize parameters when module is loaded
     function __init__()
