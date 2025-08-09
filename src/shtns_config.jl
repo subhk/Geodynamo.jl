@@ -280,7 +280,7 @@ function estimate_field_count()
     field_count += 5
     
     # Magnetic field (if enabled)
-    if i_B() == 1
+    if i_B == 1
         field_count += 5
     end
     

@@ -51,18 +51,18 @@ function create_shtns_timestepping_matrices(config::SHTnsConfig,
         implicit_data = copy(laplacian.data)
         
         # Time derivative term
-        implicit_data[i_KL() + 1, :] .+= 1.0 / dt
+        implicit_data[i_KL + 1, :] .+= 1.0 / dt
         
         # Diffusion term  
-        implicit_data .*= -diffusivity * d_implicit()
+        implicit_data .*= -diffusivity * d_implicit
         
         # Spherical harmonic term
         for n in 1:domain.N
             r_inv_sq = domain.r[n, 2]  # 1/r²
-            implicit_data[i_KL() + 1, n] += diffusivity * d_implicit() * l_factor * r_inv_sq
+            implicit_data[i_KL + 1, n] += diffusivity * d_implicit * l_factor * r_inv_sq
         end
         
-        matrix = BandedMatrix(implicit_data, i_KL(), domain.N)
+        matrix = BandedMatrix(implicit_data, i_KL, domain.N)
         push!(matrices, matrix)
         
         # Create LU factorization

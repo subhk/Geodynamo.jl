@@ -56,16 +56,16 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
     temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
     
     # Initialize timestepping
-    timestep_state = TimestepState(d_time(), d_timestep(), 0, 0, Inf, false)
+    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
     
     # Create implicit matrices for each equation
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
     implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, d_E(), d_timestep())
+        shtns_config, oc_domain, d_E, d_timestep)
     implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, 1.0/d_Pm(), d_timestep())
+        shtns_config, oc_domain, 1.0/d_Pm, d_timestep)
     implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, 1.0/d_Pr(), d_timestep())
+        shtns_config, oc_domain, 1.0/d_Pr, d_timestep)
     
     return SHTnsSimulationState{T}(velocity, magnetic, temperature, shtns_config,
                                     oc_domain, ic_domain,
@@ -79,7 +79,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
     
     if rank == 0
         println("Starting geodynamo simulation with SHTnsSpheres...")
-        println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N())")
+        println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm)")
         println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")
     end
@@ -88,7 +88,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
     initialize_fields!(state)
     
     # Main timestepping loop
-    while state.timestep_state.step < i_maxtstep() && 
+    while state.timestep_state.step < i_maxtstep && 
             state.timestep_state.time < 1.0
         
         # Predictor-corrector iterations
@@ -102,7 +102,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
         prev_temperature = deepcopy(state.temperature.spectral)
         
         while state.timestep_state.iteration <= 10 && 
-                state.timestep_state.error > d_dterr()
+                state.timestep_state.error > d_dterr
             
             # Compute nonlinear terms
             compute_all_nonlinear_terms!(state)
@@ -121,7 +121,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
             
             state.timestep_state.error = max(error_vel, error_mag, error_temp)
             
-            if state.timestep_state.error < d_dterr()
+            if state.timestep_state.error < d_dterr
                 state.timestep_state.converged = true
                 break
             end
@@ -142,12 +142,12 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
         compute_cfl_timestep!(state)
         
         # Update implicit matrices if timestep changed
-        if abs(state.timestep_state.dt - d_timestep()) > 1e-10
+        if abs(state.timestep_state.dt - d_timestep) > 1e-10
             update_implicit_matrices!(state)
         end
         
         # Output
-        if state.timestep_state.step % i_save_rate2() == 0
+        if state.timestep_state.step % i_save_rate2 == 0
             # output_shtns_fields!(state)  # Commented out - implement as needed
             
             if rank == 0
@@ -241,7 +241,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     rhs_tor = similar(state.velocity.toroidal)
     apply_explicit_operator!(rhs_tor, state.velocity.toroidal, 
                             state.velocity.nl_toroidal, state.oc_domain,
-                            d_E(), state.timestep_state.dt)
+                            d_E, state.timestep_state.dt)
     solve_implicit_step!(state.velocity.toroidal, rhs_tor, 
                         state.implicit_matrices[:velocity])
     
@@ -249,7 +249,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     rhs_pol = similar(state.velocity.poloidal)
     apply_explicit_operator!(rhs_pol, state.velocity.poloidal, 
                             state.velocity.nl_poloidal, state.oc_domain,
-                            d_E(), state.timestep_state.dt)
+                            d_E, state.timestep_state.dt)
     solve_implicit_step!(state.velocity.poloidal, rhs_pol, 
                         state.implicit_matrices[:velocity])
     
@@ -257,7 +257,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     rhs_mag_tor = similar(state.magnetic.toroidal)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal, 
                             state.magnetic.nl_toroidal, state.oc_domain,
-                            1.0/d_Pm(), state.timestep_state.dt)
+                            1.0/d_Pm, state.timestep_state.dt)
     solve_implicit_step!(state.magnetic.toroidal, rhs_mag_tor, 
                         state.implicit_matrices[:magnetic])
     
@@ -265,7 +265,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     rhs_mag_pol = similar(state.magnetic.poloidal)
     apply_explicit_operator!(rhs_mag_pol, state.magnetic.poloidal, 
                             state.magnetic.nl_poloidal, state.oc_domain,
-                            1.0/d_Pm(), state.timestep_state.dt)
+                            1.0/d_Pm, state.timestep_state.dt)
     solve_implicit_step!(state.magnetic.poloidal, rhs_mag_pol, 
                         state.implicit_matrices[:magnetic])
     
@@ -273,7 +273,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     rhs_temp = similar(state.temperature.spectral)
     apply_explicit_operator!(rhs_temp, state.temperature.spectral, 
                             state.temperature.nonlinear, state.oc_domain,
-                            1.0/d_Pr(), state.timestep_state.dt)
+                            1.0/d_Pr, state.timestep_state.dt)
     solve_implicit_step!(state.temperature.spectral, rhs_temp, 
                         state.implicit_matrices[:temperature])
 end
@@ -323,8 +323,8 @@ function compute_cfl_timestep!(state::SHTnsSimulationState{T}) where T
     
     # CFL condition
     if global_max_vel > 1e-10
-        dt_cfl = d_courant() * dx_min / global_max_vel
-        state.timestep_state.dt = min(state.timestep_state.dt, dt_cfl, d_timestep())
+        dt_cfl = d_courant * dx_min / global_max_vel
+        state.timestep_state.dt = min(state.timestep_state.dt, dt_cfl, d_timestep)
     end
 end
 
@@ -333,11 +333,11 @@ function update_implicit_matrices!(state::SHTnsSimulationState{T}) where T
     dt = state.timestep_state.dt
     
     state.implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.oc_domain, d_E(), dt)
+        state.shtns_config, state.oc_domain, d_E, dt)
     state.implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.oc_domain, 1.0/d_Pm(), dt)
+        state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
     state.implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.oc_domain, 1.0/d_Pr(), dt)
+        state.shtns_config, state.oc_domain, 1.0/d_Pr, dt)
 end
 
 # function output_shtns_fields!(state::SHTnsSimulationState{T}) where T

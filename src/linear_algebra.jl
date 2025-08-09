@@ -15,7 +15,7 @@ end
 function create_derivative_matrix(order::Int, domain::RadialDomain)
     # Create finite difference matrix for given derivative order
     N = domain.N
-    bandwidth = i_KL()
+    bandwidth = i_KL
     
     # Initialize banded matrix storage
     data = zeros(2*bandwidth + 1, N)
@@ -66,13 +66,13 @@ function create_radial_laplacian(domain::RadialDomain)
     # Add (2/r) * d/dr term
     for n in 1:domain.N
         r_inv = domain.r[n, 3]  # 1/r
-        for j in max(1, n - i_KL()):min(domain.N, n + i_KL())
-            band_row = i_KL() + 1 + n - j
+        for j in max(1, n - i_KL):min(domain.N, n + i_KL)
+            band_row = i_KL + 1 + n - j
             laplacian_data[band_row, j] += 2.0 * r_inv * d1_matrix.data[band_row, j]
         end
     end
     
-    return BandedMatrix(laplacian_data, i_KL(), domain.N)
+    return BandedMatrix(laplacian_data, i_KL, domain.N)
 end
 
 # Apply banded matrix to PencilArray data

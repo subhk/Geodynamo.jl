@@ -90,7 +90,7 @@ module Geodynamo
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
     export get_parameters, set_parameters!, initialize_parameters
-    export @param
+    export @param  # Deprecated - use direct variable access instead
 
     # Include Parameters system first
     include("parameters.jl")

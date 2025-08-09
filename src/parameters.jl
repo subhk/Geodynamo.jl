@@ -289,6 +289,7 @@ Set the global parameters.
 function set_parameters!(params::GeodynamoParameters)
     update_derived_parameters!(params)
     GEODYNAMO_PARAMS[] = params
+    update_global_parameters!()  # Update global variables
     return params
 end
 
@@ -303,16 +304,31 @@ function initialize_parameters(config_file::String = "")
     return params
 end
 
-# Convenience macros for backward compatibility
+# Convenience macros for backward compatibility (deprecated - use direct variable access)
 macro param(name)
     quote
-        get_parameters().$(esc(name))
+        $(esc(name))  # Just return the variable directly
     end
 end
 
-# Define convenient accessor functions for backward compatibility
+# Define global parameter variables for direct access
 for param_name in fieldnames(GeodynamoParameters)
     @eval begin
-        $(param_name)() = get_parameters().$(param_name)
+        global $(param_name)
+        $(param_name) = nothing  # Will be initialized later
+    end
+end
+
+"""
+    update_global_parameters!()
+
+Update all global parameter variables with values from the current parameter struct.
+"""
+function update_global_parameters!()
+    params = get_parameters()
+    for param_name in fieldnames(GeodynamoParameters)
+        @eval begin
+            global $(param_name) = $params.$(param_name)
+        end
     end
 end
