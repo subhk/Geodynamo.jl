@@ -80,6 +80,13 @@ module Geodynamo
     export create_shtns_aware_output_config, validate_output_compatibility
     export get_time_series, find_files_in_time_range, cleanup_old_files
 
+    # exports spectral_to_physical.jl (from extras)
+    export SpectralToPhysicalConverter
+    export create_spectral_converter, load_spectral_data!, convert_to_physical!
+    export compute_global_diagnostics, save_physical_fields
+    export convert_spectral_file, batch_convert_directory
+    export main_convert_file, main_batch_convert
+
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
     export get_parameters, set_parameters!, initialize_parameters
