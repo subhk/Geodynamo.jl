@@ -150,8 +150,9 @@ struct FieldInfo
     local_ranges::Dict{Symbol, UnitRange{Int}}
 end
 
-function extract_field_info(fields::Dict{String,Any})
-    # Extract dimensions from available fields
+function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsConfig,Nothing}=nothing, 
+                           pencils::Union{NamedTuple,Nothing}=nothing)
+    # Extract dimensions from available fields with enhanced config integration
     nlat = 0
     nlon = 0
     nr = 0
@@ -199,7 +200,32 @@ function extract_field_info(fields::Dict{String,Any})
         end
     end
     
-    return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values)
+    # Extract local range information if pencils are provided
+    local_ranges = Dict{Symbol, UnitRange{Int}}()
+    if pencils !== nothing
+        try
+            local_ranges[:spec] = range_local(pencils.spec, 1)
+            local_ranges[:r] = range_local(pencils.r, 3)
+            local_ranges[:θ] = range_local(pencils.θ, 1)
+            local_ranges[:φ] = range_local(pencils.φ, 2)
+        catch
+            # Fallback if pencil ranges not available
+        end
+    end
+    
+    # Use config information if available
+    if config !== nothing
+        nlat = config.nlat
+        nlon = config.nlon
+        nlm = config.nlm
+        l_values = config.l_values[1:min(length(config.l_values), nlm)]
+        m_values = config.m_values[1:min(length(config.m_values), nlm)]
+        theta = config.theta_grid
+        phi = config.phi_grid
+    end
+    
+    return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values, 
+                     pencils, config, local_ranges)
 end
 
 # ============================================================================
@@ -476,9 +502,18 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
         diagnostics["temp_std"] = std(T)
         diagnostics["temp_min"] = minimum(T)
         diagnostics["temp_max"] = maximum(T)
+        
+        # Add radial profile statistics if field_info has ranges
+        if haskey(field_info.local_ranges, :r) && !isempty(field_info.local_ranges[:r])
+            r_range = field_info.local_ranges[:r]
+            if length(r_range) > 1
+                radial_mean = mean(T, dims=(1,2))[:, :, :]
+                diagnostics["temp_radial_variation"] = std(radial_mean)
+            end
+        end
     end
     
-    # Spectral field statistics
+    # Enhanced spectral field statistics with config-aware processing
     for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
         if haskey(fields, component)
             field_data = fields[component]
@@ -491,6 +526,12 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
                 diagnostics["$(component)_energy"] = 0.5 * sum(magnitude.^2)
                 diagnostics["$(component)_rms"] = sqrt(mean(magnitude.^2))
                 diagnostics["$(component)_max"] = maximum(magnitude)
+                
+                # Add spectral energy distribution if l_values are available
+                if field_info.config !== nothing && !isempty(field_info.l_values)
+                    compute_spectral_energy_diagnostics!(diagnostics, component, 
+                                                        real_part, imag_part, field_info)
+                end
             end
         end
     end
@@ -498,12 +539,60 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
     return diagnostics
 end
 
+
+"""
+    compute_spectral_energy_diagnostics!(diagnostics, component, real_part, imag_part, field_info)
+    
+Compute spectral energy distribution diagnostics using SHTns configuration
+"""
+function compute_spectral_energy_diagnostics!(diagnostics::Dict{String,Float64}, 
+                                            component::String,
+                                            real_part::AbstractArray, 
+                                            imag_part::AbstractArray,
+                                            field_info::FieldInfo)
+    if field_info.config === nothing
+        return
+    end
+    
+    config = field_info.config
+    l_values = config.l_values
+    
+    # Compute energy per l mode
+    l_max = maximum(l_values)
+    l_energies = zeros(Float64, l_max + 1)
+    
+    for (idx, l) in enumerate(l_values)
+        if idx <= size(real_part, 1)
+            l_energy = sum(real_part[idx, :, :].^2 .+ imag_part[idx, :, :].^2)
+            l_energies[l + 1] += l_energy
+        end
+    end
+    
+    # Store key spectral diagnostics
+    total_energy = sum(l_energies)
+    if total_energy > 0
+        # Peak spectral degree
+        peak_l = argmax(l_energies) - 1
+        diagnostics["$(component)_peak_l"] = Float64(peak_l)
+        
+        # Spectral centroid (weighted average l)
+        spectral_centroid = sum((0:l_max) .* l_energies) / total_energy
+        diagnostics["$(component)_spectral_centroid"] = spectral_centroid
+        
+        # Energy in low modes (l <= 10)
+        low_mode_energy = sum(l_energies[1:min(11, length(l_energies))])
+        diagnostics["$(component)_low_mode_fraction"] = low_mode_energy / total_energy
+    end
+end
+
 # ============================================================================
 # Main Output Function
 # ============================================================================
 
 function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker, 
-                        metadata::Dict{String,Any}, config::OutputConfig = default_config())
+                        metadata::Dict{String,Any}, config::OutputConfig = default_config(),
+                        shtns_config::Union{SHTnsConfig,Nothing} = nothing,
+                        pencils::Union{NamedTuple,Nothing} = nothing)
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
@@ -529,8 +618,8 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
             println("Time $(current_time): Writing mixed field output")
         end
         
-        # Extract field information
-        field_info = extract_field_info(fields)
+        # Extract field information with enhanced config integration
+        field_info = extract_field_info(fields, shtns_config, pencils)
         
         # Generate filename
         filename = generate_filename(config, current_time, current_step, rank, "output")
