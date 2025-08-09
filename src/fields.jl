@@ -46,7 +46,7 @@ end
 
 # Constructor functions compatible with PencilArrays
 function create_shtns_spectral_field(::Type{T}, config::SHTnsConfig, 
-                                    radial_domain::RadialDomain,
+                                    oc_domain::RadialDomain,
                                     pencil_spec::Pencil{3}) where T
     nlm = config.nlm
     
@@ -64,7 +64,7 @@ end
 
 
 function create_shtns_physical_field(::Type{T}, config::SHTnsConfig,
-                                    radial_domain::RadialDomain,
+                                    oc_domain::RadialDomain,
                                     pencil::Pencil{3}) where T
     nlat = config.nlat
     nlon = config.nlon
@@ -78,14 +78,14 @@ end
 
 
 function create_shtns_vector_field(::Type{T}, config::SHTnsConfig,
-                                    radial_domain::RadialDomain,
+                                    oc_domain::RadialDomain,
                                     pencils) where T
     pencil_θ, pencil_φ, pencil_r = pencils
     
     # Create each component with the r-pencil (contiguous in r)
-    r_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
-    θ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
-    φ_comp = create_shtns_physical_field(T, config, radial_domain, pencil_r)
+    r_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
+    θ_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
+    φ_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
     
     return SHTnsVectorField{T}(r_comp, θ_comp, φ_comp)
 end
