@@ -596,7 +596,7 @@ end
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
-function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, domain::RadialDomain) where T
+function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::RadialDomain) where T
     # Compute kinetic energy with configuration-aware integration
     
     tor_real = parent(fields.toroidal.data_real)
