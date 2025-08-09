@@ -831,7 +831,7 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
     end
 end
 
-function compute_influence_functions_flux(domain::RadialDomain)
+function compute_influence_functions_flux(oc_domain::RadialDomain)
     """
     Compute influence functions for flux BCs.
     These are solutions to the homogeneous equation with specific BCs.
