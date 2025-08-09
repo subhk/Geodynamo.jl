@@ -49,12 +49,15 @@ module Geodynamo
 
     # exports velocity.jl
     export SHTnsVelocityFields, create_shtns_velocity_fields
-    export compute_velocity_nonlinear!, compute_velocity_nonlinear_batched!
-    export compute_kinetic_energy, compute_enstrophy
+    export compute_velocity_nonlinear!
+    export compute_kinetic_energy, compute_reynolds_stress
     export zero_velocity_work_arrays!
+    export apply_velocity_boundary_conditions!, add_thermal_buoyancy_force!
+    export add_lorentz_force!
 
     # exports magnetic.jl
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
+    export compute_current_density_spectral!
 
     # exports thermal.jl
     export SHTnsTemperatureField, create_shtns_temperature_field
@@ -63,6 +66,7 @@ module Geodynamo
     export compute_surface_flux, get_temperature_statistics
     export zero_temperature_work_arrays!
     export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
+    export batch_transform_to_physical!, apply_temperature_boundary_conditions_spectral!
 
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
