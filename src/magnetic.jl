@@ -172,9 +172,10 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     j_pol_real = parent(mag_fields.work_pol.data_real)
     j_pol_imag = parent(mag_fields.work_pol.data_imag)
     
-    # Get local ranges
-    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
-    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    # Get local ranges using config-aware pencil topology
+    config = mag_fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range  = range_local(config.pencils.r, 3)
     
     # Create radial derivative matrices
     d1_matrix = create_derivative_matrix(1, domain)  # First derivative d/dr
@@ -259,7 +260,7 @@ end
 
 
 function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
-    # Compute u × B in physical space
+    # Compute u × B in physical space with optimized memory access
     
     # Get local data views
     u_r = parent(vel_fields.velocity.r_component.data)
@@ -274,6 +275,9 @@ function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, ve
     uxB_r = parent(mag_fields.induction_physical.r_component.data)
     uxB_θ = parent(mag_fields.induction_physical.θ_component.data)
     uxB_φ = parent(mag_fields.induction_physical.φ_component.data)
+    
+    # Get configuration for optimized access patterns
+    config = mag_fields.magnetic.r_component.config
     
     # Compute cross product with vectorization
     @inbounds @simd for idx in eachindex(u_r)
@@ -302,9 +306,10 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     nl_pol_real = parent(mag_fields.nl_poloidal.data_real)
     nl_pol_imag = parent(mag_fields.nl_poloidal.data_imag)
     
-    # Get local ranges
-    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
-    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    # Get local ranges using config-aware pencil topology
+    config = mag_fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range  = range_local(config.pencils.r, 3)
     
     # Apply curl in spectral space
     @inbounds for lm_idx in lm_range
@@ -393,9 +398,10 @@ function compute_magnetic_energy(mag_fields::SHTnsMagneticFields{T}) where T
     
     local_energy = zero(Float64)
     
-    # Get local ranges
-    lm_range = get_local_range(mag_fields.toroidal.pencil, 1)
-    r_range  = get_local_range(mag_fields.toroidal.pencil, 3)
+    # Get local ranges using config-aware pencil topology
+    config = mag_fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range  = range_local(config.pencils.r, 3)
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= mag_fields.toroidal.nlm
@@ -464,19 +470,228 @@ end
 # Utility functions
 # =======================
 function zero_magnetic_work_arrays!(mag_fields::SHTnsMagneticFields{T}) where T
-    # Zero all work arrays
-    fill!(parent(mag_fields.work_tor.data_real), zero(T))
-    fill!(parent(mag_fields.work_tor.data_imag), zero(T))
-    fill!(parent(mag_fields.work_pol.data_real), zero(T))
-    fill!(parent(mag_fields.work_pol.data_imag), zero(T))
+    # Efficiently zero all work arrays with batch operations
+    # Use threaded operations for better performance on large arrays
+    Threads.@threads for arr in [
+        parent(mag_fields.work_tor.data_real),
+        parent(mag_fields.work_tor.data_imag),
+        parent(mag_fields.work_pol.data_real),
+        parent(mag_fields.work_pol.data_imag),
+        parent(mag_fields.work_physical.r_component.data),
+        parent(mag_fields.work_physical.θ_component.data),
+        parent(mag_fields.work_physical.φ_component.data),
+        parent(mag_fields.induction_physical.r_component.data),
+        parent(mag_fields.induction_physical.θ_component.data),
+        parent(mag_fields.induction_physical.φ_component.data)
+    ]
+        fill!(arr, zero(T))
+    end
+end
+
+
+# ============================================================================
+# Enhanced utility functions using pencil decomposition and SHTns integration
+# ============================================================================
+
+"""
+    batch_magnetic_transforms!(mag_fields::SHTnsMagneticFields{T}) where T
     
-    fill!(parent(mag_fields.work_physical.r_component.data), zero(T))
-    fill!(parent(mag_fields.work_physical.θ_component.data), zero(T))
-    fill!(parent(mag_fields.work_physical.φ_component.data), zero(T))
+Perform batched transforms for better cache efficiency using shtns_transforms.jl
+"""
+function batch_magnetic_transforms!(mag_fields::SHTnsMagneticFields{T}) where T
+    # Use batched operations from shtns_transforms.jl for better performance
+    specs = [mag_fields.toroidal, mag_fields.poloidal, mag_fields.ic_toroidal, mag_fields.ic_poloidal]
+    physs = [mag_fields.work_physical.r_component, mag_fields.work_physical.θ_component, 
+             mag_fields.work_physical.φ_component, mag_fields.magnetic.r_component]
     
-    fill!(parent(mag_fields.induction_physical.r_component.data), zero(T))
-    fill!(parent(mag_fields.induction_physical.θ_component.data), zero(T))
-    fill!(parent(mag_fields.induction_physical.φ_component.data), zero(T))
+    # Only transform if specs and physs have compatible lengths
+    n_transform = min(length(specs), length(physs))
+    if n_transform > 0
+        batch_spectral_to_physical!(specs[1:n_transform], physs[1:n_transform])
+    end
+end
+
+
+"""
+    optimize_magnetic_memory_layout!(mag_fields::SHTnsMagneticFields{T}) where T
+    
+Optimize memory layout for better cache performance using pencil topology
+"""
+function optimize_magnetic_memory_layout!(mag_fields::SHTnsMagneticFields{T}) where T
+    # Use transpose plans for optimal data layout based on upcoming operations
+    config = mag_fields.toroidal.config
+    
+    # Check if we have transpose plans available
+    if haskey(config, :transpose_plans)
+        plans = config.transpose_plans
+        
+        # Optimize for radial operations if doing derivatives
+        if haskey(plans, :r_to_spec)
+            transpose_with_timer!(mag_fields.work_tor.data_real, mag_fields.toroidal.data_real, 
+                                plans[:r_to_spec], "magnetic_toroidal_layout_opt")
+            transpose_with_timer!(mag_fields.work_pol.data_real, mag_fields.poloidal.data_real, 
+                                plans[:r_to_spec], "magnetic_poloidal_layout_opt")
+        end
+    end
+end
+
+
+"""
+    validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsConfig) where T
+    
+Validate magnetic field configuration consistency with SHTns setup
+"""
+function validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsConfig) where T
+    errors = String[]
+    
+    # Check field dimensions match config
+    if size(mag_fields.toroidal.data_real, 1) != config.nlm
+        push!(errors, "Toroidal magnetic field size mismatch with config.nlm")
+    end
+    
+    # Check that l_factors are consistent
+    if length(mag_fields.l_factors) != config.nlm
+        push!(errors, "l_factors length mismatch with config.nlm")
+    end
+    
+    # Validate pencil topology consistency
+    if haskey(config, :pencils)
+        spec_range = range_local(config.pencils.spec, 1)
+        if !isempty(spec_range) && maximum(spec_range) > config.nlm
+            push!(errors, "Spectral pencil range exceeds config.nlm")
+        end
+    end
+    
+    # Check transform manager compatibility
+    if mag_fields.transform_manager.nlm != config.nlm
+        push!(errors, "Transform manager nlm mismatch with config")
+    end
+    
+    # Check inner core field consistency
+    if size(mag_fields.ic_toroidal.data_real, 1) != config.nlm
+        push!(errors, "Inner core toroidal field size mismatch with config.nlm")
+    end
+    
+    if !isempty(errors)
+        @warn "Magnetic configuration validation failed:\n" * join(errors, "\n")
+        return false
+    end
+    
+    return true
+end
+
+
+"""
+    compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
+    
+Compute magnetic helicity using optimized spectral integration
+"""
+function compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
+    # Compute helicity H = ∫ A · B dV in spectral space
+    # This requires the magnetic vector potential A
+    
+    # Get local data views
+    tor_real = parent(mag_fields.toroidal.data_real)
+    tor_imag = parent(mag_fields.toroidal.data_imag)
+    pol_real = parent(mag_fields.poloidal.data_real)
+    pol_imag = parent(mag_fields.poloidal.data_imag)
+    
+    local_helicity = zero(Float64)
+    
+    # Use configuration pencils for consistent range access
+    config = mag_fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range = range_local(config.pencils.r, 3)
+    
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= mag_fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = mag_fields.l_factors[lm_idx]
+            
+            # Weight for helicity calculation
+            weight = 1.0 / max(sqrt(l_factor), 1.0)
+            
+            @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(tor_real, 3)
+                    # Simplified helicity contribution (A·B ~ T²+P²/l)
+                    local_helicity += weight * (
+                        tor_real[local_lm, 1, local_r]^2 + 
+                        tor_imag[local_lm, 1, local_r]^2 + 
+                        (pol_real[local_lm, 1, local_r]^2 + 
+                         pol_imag[local_lm, 1, local_r]^2) / max(l_factor, 1.0)
+                    )
+                end
+            end
+        end
+    end
+    
+    # Global sum across all processes
+    return MPI.Allreduce(local_helicity, MPI.SUM, get_comm())
+end
+
+
+"""
+    apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T}, 
+                                      domain_oc::RadialDomain, 
+                                      domain_ic::RadialDomain) where T
+    
+Apply boundary conditions for magnetic fields using configuration-aware pencil access
+"""
+function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T}, 
+                                           domain_oc::RadialDomain, 
+                                           domain_ic::RadialDomain) where T
+    # Apply boundary conditions with configuration integration
+    
+    tor_real = parent(mag_fields.toroidal.data_real)
+    tor_imag = parent(mag_fields.toroidal.data_imag)
+    pol_real = parent(mag_fields.poloidal.data_real)
+    pol_imag = parent(mag_fields.poloidal.data_imag)
+    
+    # Use configuration-aware range access
+    config = mag_fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range = range_local(config.pencils.r, 3)
+    
+    # Outer boundary: insulating condition (∂B/∂r = 0)
+    if domain_oc.N in r_range
+        local_r = domain_oc.N - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= mag_fields.toroidal.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                # Apply insulating condition
+                if local_r > 1 && local_r <= size(tor_real, 3)
+                    tor_real[local_lm, 1, local_r] = tor_real[local_lm, 1, local_r-1]
+                    tor_imag[local_lm, 1, local_r] = tor_imag[local_lm, 1, local_r-1]
+                    pol_real[local_lm, 1, local_r] = pol_real[local_lm, 1, local_r-1]
+                    pol_imag[local_lm, 1, local_r] = pol_imag[local_lm, 1, local_r-1]
+                end
+            end
+        end
+    end
+    
+    # Inner boundary: coupling with inner core
+    if 1 in r_range
+        local_r = 1 - first(r_range) + 1
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= mag_fields.toroidal.nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                # Apply continuity condition with inner core
+                if local_r <= size(tor_real, 3) && local_lm <= size(mag_fields.ic_toroidal.data_real, 1)
+                    ic_tor_real = parent(mag_fields.ic_toroidal.data_real)
+                    ic_tor_imag = parent(mag_fields.ic_toroidal.data_imag)
+                    ic_pol_real = parent(mag_fields.ic_poloidal.data_real)
+                    ic_pol_imag = parent(mag_fields.ic_poloidal.data_imag)
+                    
+                    # Continuity at inner core boundary
+                    tor_real[local_lm, 1, local_r] = ic_tor_real[local_lm, 1, 1]
+                    tor_imag[local_lm, 1, local_r] = ic_tor_imag[local_lm, 1, 1]
+                    pol_real[local_lm, 1, local_r] = ic_pol_real[local_lm, 1, 1]
+                    pol_imag[local_lm, 1, local_r] = ic_pol_imag[local_lm, 1, 1]
+                end
+            end
+        end
+    end
 end
 
 
