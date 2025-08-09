@@ -71,25 +71,25 @@ end
 
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
-                                        domain::RadialDomain) where T
+                                        oc_domain::RadialDomain) where T
     # Use config's pencils directly
     pencils = config.pencils
     
     # Temperature field in r-pencil for efficient radial operations
-    temperature = create_shtns_physical_field(T, config, domain, pencils.r)
+    temperature = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, domain, 
+    gradient = create_shtns_vector_field(T, config, oc_domain, 
                                         (pencils.θ, pencils.φ, pencils.r))
     
     # Spectral representation using spectral pencil
-    spectral  = create_shtns_spectral_field(T, config, domain, pencils.spec)
-    nonlinear = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    spectral  = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, domain, pencils.spec)
-    work_physical      = create_shtns_physical_field(T, config, domain, pencils.r)
-    advection_physical = create_shtns_physical_field(T, config, domain, pencils.r)
+    work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    work_physical      = create_shtns_physical_field(T, config, oc_domain, pencils.r)
+    advection_physical = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     
     # Gradient spectral components
     grad_theta_spec = create_shtns_spectral_field(T, config, domain, pencils.spec)
