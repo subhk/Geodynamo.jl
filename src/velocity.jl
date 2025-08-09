@@ -704,9 +704,96 @@ function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
 end
 
 function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{T}) where T
-    # Add source to destination
+    # Add source to destination with vectorized operations
     parent(dest.r_component.data) .+= parent(source.r_component.data)
     parent(dest.θ_component.data) .+= parent(source.θ_component.data)
     parent(dest.φ_component.data) .+= parent(source.φ_component.data)
+end
+
+
+# ============================================================================
+# Enhanced utility functions using pencil decomposition and SHTns integration
+# ============================================================================
+
+"""
+    batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
+    
+Perform batched transforms for better cache efficiency using shtns_transforms.jl
+"""
+function batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
+    # Use batched operations from shtns_transforms.jl for better performance
+    specs = [fields.toroidal, fields.poloidal, fields.vort_toroidal, fields.vort_poloidal]
+    physs = [fields.work_physical.r_component, fields.work_physical.θ_component, 
+             fields.work_physical.φ_component, fields.velocity.r_component]
+    
+    # Only transform if specs and physs have compatible lengths
+    n_transform = min(length(specs), length(physs))
+    if n_transform > 0
+        batch_spectral_to_physical!(specs[1:n_transform], physs[1:n_transform])
+    end
+end
+
+
+"""
+    optimize_velocity_memory_layout!(fields::SHTnsVelocityFields{T}) where T
+    
+Optimize memory layout for better cache performance using pencil topology
+"""
+function optimize_velocity_memory_layout!(fields::SHTnsVelocityFields{T}) where T
+    # Use transpose plans for optimal data layout based on upcoming operations
+    config = fields.toroidal.config
+    
+    # Check if we have transpose plans available
+    if haskey(config, :transpose_plans)
+        plans = config.transpose_plans
+        
+        # Optimize for radial operations if doing derivatives
+        if haskey(plans, :r_to_spec)
+            transpose_with_timer!(fields.work_tor.data_real, fields.toroidal.data_real, 
+                                plans[:r_to_spec], "toroidal_layout_opt")
+            transpose_with_timer!(fields.work_pol.data_real, fields.poloidal.data_real, 
+                                plans[:r_to_spec], "poloidal_layout_opt")
+        end
+    end
+end
+
+
+"""
+    validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsConfig) where T
+    
+Validate velocity field configuration consistency with SHTns setup
+"""
+function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsConfig) where T
+    errors = String[]
+    
+    # Check field dimensions match config
+    if size(fields.toroidal.data_real, 1) != config.nlm
+        push!(errors, "Toroidal field size mismatch with config.nlm")
+    end
+    
+    # Check that l_factors are consistent
+    if length(fields.l_factors) != config.nlm
+        push!(errors, "l_factors length mismatch with config.nlm")
+    end
+    
+    # Validate pencil topology consistency
+    if haskey(config, :pencils)
+        spec_range = range_local(config.pencils.spec, 1)
+        if !isempty(spec_range) && maximum(spec_range) > config.nlm
+            push!(errors, "Spectral pencil range exceeds config.nlm")
+        end
+    end
+    
+    # Check transform manager compatibility
+    if fields.transform_manager.nlm != config.nlm
+        push!(errors, "Transform manager nlm mismatch with config")
+    end
+    
+    if !isempty(errors)
+        @warn "Velocity configuration validation failed:\n" * join(errors, "\n")
+        return false
+    end
+    
+    return true
 end
 
