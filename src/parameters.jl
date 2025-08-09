@@ -309,6 +309,5 @@ end
 for param_name in fieldnames(GeodynamoParameters)
     @eval begin
         $(param_name)() = get_parameters().$(param_name)
-        export $(param_name)
     end
 end
