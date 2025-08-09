@@ -141,6 +141,13 @@ struct FieldInfo
     r::Vector{Float64}
     l_values::Vector{Int}
     m_values::Vector{Int}
+    
+    # Pencil decomposition information
+    pencils::Union{NamedTuple, Nothing}
+    config::Union{SHTnsConfig, Nothing}
+    
+    # Local range information
+    local_ranges::Dict{Symbol, UnitRange{Int}}
 end
 
 function extract_field_info(fields::Dict{String,Any})
