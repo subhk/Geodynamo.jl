@@ -92,9 +92,9 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     advection_physical = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, domain, pencils.spec)
-    grad_phi_spec   = create_shtns_spectral_field(T, config, domain, pencils.spec)
-    grad_r_spec     = create_shtns_spectral_field(T, config, domain, pencils.spec)
+    grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    grad_r_spec     = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     
     # Sources and boundary conditions
     internal_sources = zeros(T, oc_domain.N)
@@ -111,8 +111,8 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     transform_manager = get_transform_manager(T, config)
     
     # Create radial derivative matrices
-    dr_matrix  = create_derivative_matrix(1, domain)
-    d2r_matrix = create_derivative_matrix(2, domain)
+    dr_matrix  = create_derivative_matrix(1, oc_domain)
+    d2r_matrix = create_derivative_matrix(2, oc_domain)
     
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
@@ -233,7 +233,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     end
     
     # Step 4: Add internal heat sources (local operation)
-    add_internal_sources_local!(temp_field, domain)
+    add_internal_sources_local!(temp_field, oc_domain)
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
@@ -241,7 +241,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
-    apply_temperature_boundary_conditions_spectral!(temp_field, domain)
+    apply_temperature_boundary_conditions_spectral!(temp_field, oc_domain)
     
     if ENABLE_TIMING[]
         temp_field.computation_time[] += MPI.Wtime() - t_start
@@ -635,7 +635,7 @@ function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T},
             
             # Check BC types for this mode
             apply_inner = (temp_field.bc_type_inner[lm_idx] == 2) && (1 in r_range)
-            apply_outer = (temp_field.bc_type_outer[lm_idx] == 2) && (oc_domain.N in r_range)
+            apply_outer = (temp_field.bc_type_outer[lm_idx] == 2) && (domain.N in r_range)
             
             if apply_inner || apply_outer
                 # Apply flux BC using one of three methods
@@ -661,7 +661,7 @@ function apply_flux_bc_mode_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                 apply_inner, apply_outer,
                                 temp_field, domain, r_range) where T
     
-    nr = oc_domain.N
+    nr = domain.N
     
     # Extract radial profile for this mode
     profile_real = zeros(T, nr)
@@ -728,17 +728,17 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
     Compute tau polynomial coefficients for both boundaries.
     Uses highest two Chebyshev modes as tau functions.
     """
-    nr = oc_domain.N
+    nr = domain.N
     
     # Tau polynomials: T_{N-1}(r) and T_N(r)
     tau1 = compute_chebyshev_polynomial(nr-1, domain)
     tau2 = compute_chebyshev_polynomial(nr, domain)
     
     # Derivatives of tau polynomials at boundaries
-    dtau1_inner = evaluate_chebyshev_derivative(nr-1, oc_domain.r[1, 4], oc_domain)
-    dtau1_outer = evaluate_chebyshev_derivative(nr-1, oc_domain.r[nr, 4], oc_domain)
-    dtau2_inner = evaluate_chebyshev_derivative(nr, oc_domain.r[1, 4], oc_domain)
-    dtau2_outer = evaluate_chebyshev_derivative(nr, oc_domain.r[nr, 4], oc_domain)
+    dtau1_inner = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
+    dtau1_outer = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
+    dtau2_inner = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
+    dtau2_outer = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
     
     # Solve 2x2 system for tau coefficients
     # [dtau1_inner  dtau2_inner] [c1]   [flux_error_inner]

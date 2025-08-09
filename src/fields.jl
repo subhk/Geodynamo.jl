@@ -4,7 +4,7 @@
     
 # Field types that work with PencilArrays
 struct SHTnsSpectralField{T<:Number}
-    config::SHTnsSetup.SHTnsConfig
+    config::SHTnsConfig
     nlm::Int
     data_real::PencilArray{T,3}
     data_imag::PencilArray{T,3}
@@ -13,7 +13,7 @@ end
 
 # Physical field on SHTns grid
 struct SHTnsPhysicalField{T<:Number}
-    config::SHTnsSetup.SHTnsConfig
+    config::SHTnsConfig
     nlat::Int
     nlon::Int
     data::PencilArray{T,3}  # Single array, transpose as needed

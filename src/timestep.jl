@@ -8,7 +8,6 @@
 # using ..Parameters
 # using ..VariableTypes
 # using ..LinearOps
-# using ..SHTnsSetup
     
 # Timestepping state
 mutable struct TimestepState

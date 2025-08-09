@@ -52,6 +52,11 @@ Base.@kwdef mutable struct GeodynamoParameters
     
     # Boolean flags
     b_mag_impose::Bool = false    # Imposed magnetic field
+    
+    # Additional parameters for compatibility
+    i_B::Int = 0                  # Magnetic field flag
+    d_Ra_C::Float64 = 1e6         # Compositional Rayleigh number
+    d_Sc::Float64 = 1.0           # Schmidt number
 end
 
 """
