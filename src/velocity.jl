@@ -56,22 +56,22 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     end
     
     # Create vector fields
-    velocity  = create_shtns_vector_field(T, config, domain, pencils)
-    vorticity = create_shtns_vector_field(T, config, domain, pencils)
+    velocity  = create_shtns_vector_field(T, config, oc_domain, pencils)
+    vorticity = create_shtns_vector_field(T, config, oc_domain, pencils)
     
     # Spectral fields
-    toroidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    poloidal    = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    vort_toroidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    vort_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    nl_toroidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    nl_poloidal = create_shtns_spectral_field(T, config, domain, pencil_spec)
+    toroidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    poloidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    vort_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    vort_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     
     # Work arrays
-    work_tor = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    work_pol = create_shtns_spectral_field(T, config, domain, pencil_spec)
-    work_physical = create_shtns_vector_field(T, config, domain, pencils)
-    advection_physical = create_shtns_vector_field(T, config, domain, pencils)
+    work_tor = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    work_physical = create_shtns_vector_field(T, config, oc_domain, pencils)
+    advection_physical = create_shtns_vector_field(T, config, oc_domain, pencils)
     
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
