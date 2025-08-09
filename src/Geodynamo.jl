@@ -100,4 +100,15 @@ module Geodynamo
     include("thermal.jl")
     include("outputs_writer.jl")
 
+    # Initialize parameters when module is loaded
+    function __init__()
+        try
+            initialize_parameters()
+            @info "Geodynamo.jl parameters loaded successfully"
+        catch e
+            @warn "Could not load parameters: $e. Using defaults."
+            set_parameters!(GeodynamoParameters())
+        end
+    end
+
 end
