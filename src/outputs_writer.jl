@@ -1162,6 +1162,202 @@ function get_file_info(filename::String)
     end
 end
 
+
+# ============================================================================
+# Enhanced Configuration and Integration Functions
+# ============================================================================
+
+"""
+    create_shtns_aware_output_config(shtns_config::SHTnsConfig, pencils::NamedTuple; 
+                                    base_config::OutputConfig = default_config())
+    
+Create output configuration that integrates with SHTns configuration and pencil decomposition
+"""
+function create_shtns_aware_output_config(shtns_config::SHTnsConfig, pencils::NamedTuple; 
+                                         base_config::OutputConfig = default_config())
+    # Create enhanced config that uses SHTns-specific optimizations
+    enhanced_config = OutputConfig(
+        base_config.output_space,
+        base_config.naming_scheme,
+        base_config.output_dir,
+        base_config.filename_prefix,
+        base_config.compression_level,
+        base_config.include_metadata,
+        base_config.include_grid,
+        base_config.include_diagnostics,
+        base_config.output_precision,
+        shtns_config.lmax,  # Use actual lmax from config
+        base_config.overwrite_files,
+        base_config.output_interval,
+        base_config.restart_interval,
+        base_config.max_output_time,
+        base_config.time_tolerance
+    )
+    
+    return enhanced_config
+end
+
+
+"""
+    validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsConfig)
+    
+Validate that output field information is compatible with SHTns configuration
+"""
+function validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsConfig)
+    errors = String[]
+    
+    # Check spectral dimensions match
+    if field_info.nlm != shtns_config.nlm
+        push!(errors, "Field nlm ($(field_info.nlm)) != SHTns nlm ($(shtns_config.nlm))")
+    end
+    
+    # Check grid dimensions
+    if field_info.nlat != shtns_config.nlat
+        push!(errors, "Field nlat ($(field_info.nlat)) != SHTns nlat ($(shtns_config.nlat))")
+    end
+    
+    if field_info.nlon != shtns_config.nlon
+        push!(errors, "Field nlon ($(field_info.nlon)) != SHTns nlon ($(shtns_config.nlon))")
+    end
+    
+    # Check l,m values consistency
+    if !isempty(field_info.l_values) && !isempty(shtns_config.l_values)
+        if length(field_info.l_values) != length(shtns_config.l_values)
+            push!(errors, "l_values length mismatch")
+        elseif field_info.l_values != shtns_config.l_values
+            push!(errors, "l_values content mismatch")
+        end
+    end
+    
+    if !isempty(errors)
+        @warn "Output compatibility validation failed:\\n" * join(errors, "\\n")
+        return false
+    end
+    
+    return true
+end
+
+
+"""
+    setup_shtns_metadata!(nc_file, shtns_config::SHTnsConfig, pencils::NamedTuple)
+    
+Add SHTns-specific metadata to NetCDF file
+"""
+function setup_shtns_metadata!(nc_file, shtns_config::SHTnsConfig, pencils::NamedTuple)
+    # Add SHTns configuration metadata
+    NetCDF.putatt(nc_file, "shtns_lmax", shtns_config.lmax)
+    NetCDF.putatt(nc_file, "shtns_mmax", shtns_config.mmax)
+    NetCDF.putatt(nc_file, "shtns_nlm", shtns_config.nlm)
+    NetCDF.putatt(nc_file, "shtns_nlat", shtns_config.nlat)
+    NetCDF.putatt(nc_file, "shtns_nlon", shtns_config.nlon)
+    
+    # Add pencil decomposition info
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    NetCDF.putatt(nc_file, "pencil_decomposition", "true")
+    NetCDF.putatt(nc_file, "pencil_rank", rank)
+    NetCDF.putatt(nc_file, "pencil_nprocs", nprocs)
+    
+    # Add local range information
+    try
+        spec_range = range_local(pencils.spec, 1)
+        r_range = range_local(pencils.r, 3)
+        
+        NetCDF.putatt(nc_file, "local_spec_range_start", first(spec_range))
+        NetCDF.putatt(nc_file, "local_spec_range_end", last(spec_range))
+        NetCDF.putatt(nc_file, "local_r_range_start", first(r_range))
+        NetCDF.putatt(nc_file, "local_r_range_end", last(r_range))
+    catch
+        # Skip range info if pencils not properly initialized
+    end
+end
+
+
+"""
+    create_enhanced_field_variables!(nc_file, field_info::FieldInfo, config::OutputConfig, 
+                                    available_fields::Vector{String})
+                                     
+Enhanced field variable setup that leverages SHTns configuration
+"""
+function create_enhanced_field_variables!(nc_file, field_info::FieldInfo, config::OutputConfig, 
+                                        available_fields::Vector{String})
+    # Call original function first
+    setup_field_variables!(nc_file, field_info, config, available_fields)
+    
+    # Add enhanced attributes if SHTns config is available
+    if field_info.config !== nothing
+        config_ref = field_info.config
+        
+        # Add spectral field attributes with mode information
+        for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+            if component in available_fields
+                real_name = "$(component)_real"
+                imag_name = "$(component)_imag"
+                
+                if NetCDF.varid(nc_file, real_name) != -1
+                    NetCDF.putatt(nc_file, real_name, "lmax", config_ref.lmax)
+                    NetCDF.putatt(nc_file, real_name, "mmax", config_ref.mmax)
+                    NetCDF.putatt(nc_file, real_name, "spectral_truncation", "triangular")
+                    NetCDF.putatt(nc_file, real_name, "normalization", "schmidt_semi_normalized")
+                end
+                
+                if NetCDF.varid(nc_file, imag_name) != -1
+                    NetCDF.putatt(nc_file, imag_name, "lmax", config_ref.lmax)
+                    NetCDF.putatt(nc_file, imag_name, "mmax", config_ref.mmax)
+                    NetCDF.putatt(nc_file, imag_name, "spectral_truncation", "triangular")
+                    NetCDF.putatt(nc_file, imag_name, "normalization", "schmidt_semi_normalized")
+                end
+            end
+        end
+        
+        # Add grid attributes
+        if NetCDF.varid(nc_file, "theta") != -1
+            NetCDF.putatt(nc_file, "theta", "grid_type", "gaussian")
+            NetCDF.putatt(nc_file, "theta", "quadrature_weights_available", "yes")
+        end
+        
+        if NetCDF.varid(nc_file, "phi") != -1
+            NetCDF.putatt(nc_file, "phi", "grid_type", "equispaced")
+        end
+    end
+end
+
+
+"""
+    write_enhanced_coordinates!(nc_file, field_info::FieldInfo)
+    
+Write coordinates with enhanced precision and metadata from SHTns config
+"""
+function write_enhanced_coordinates!(nc_file, field_info::FieldInfo)
+    # Write basic coordinates
+    write_coordinates!(nc_file, field_info)
+    
+    # Add enhanced coordinate data if config is available
+    if field_info.config !== nothing
+        config = field_info.config
+        
+        # Write Gaussian quadrature weights if available
+        if NetCDF.varid(nc_file, "theta") != -1 && !isempty(config.gauss_weights)
+            try
+                # Try to create weights variable
+                time_dim = NetCDF.dimid(nc_file, "time")
+                theta_dim = NetCDF.dimid(nc_file, "theta")
+                
+                weights_var = NetCDF.defVar(nc_file, "gauss_weights", Float64, (theta_dim,))
+                NetCDF.putatt(nc_file, weights_var, "long_name", "gaussian_quadrature_weights")
+                NetCDF.putatt(nc_file, weights_var, "purpose", "spectral_integration")
+                
+                NetCDF.endDef(nc_file)
+                NetCDF.putvar(nc_file, "gauss_weights", config.gauss_weights)
+            catch
+                # Weights variable creation failed - skip
+            end
+        end
+    end
+end
+
 # # ============================================================================
 # # Export Functions
 # # ============================================================================
