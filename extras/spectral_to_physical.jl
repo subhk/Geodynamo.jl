@@ -375,8 +375,7 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Create temperature field structure
             converter.temperature_field = create_shtns_temperature_field(
-                T, converter.shtns_config, converter.oc_domain,
-                converter.pencils, converter.pencil_spec
+                T, converter.shtns_config, converter.oc_domain
             )
             
             # Load physical space temperature data
@@ -667,10 +666,17 @@ function save_physical_fields(converter::SpectralToPhysicalConverter{T}, output_
     # Create time tracker (for interface compatibility)
     time_tracker = create_time_tracker(output_config, converter.time)
     
+    # Create metadata dictionary with all the required information
+    metadata = Dict{String,Any}(
+        "current_time" => converter.time,
+        "current_step" => converter.step
+    )
+    # Add diagnostics to metadata
+    merge!(metadata, diagnostics)
+    
     try
-        # Use the existing parallel I/O infrastructure
-        write_fields!(fields, time_tracker, output_config, field_info, 
-                     converter.time, converter.step, diagnostics)
+        # Use the existing parallel I/O infrastructure with correct signature
+        write_fields!(fields, time_tracker, metadata, output_config)
         
         if rank == 0
             @info "Physical fields saved successfully"

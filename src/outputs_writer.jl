@@ -1,16 +1,14 @@
 # ============================================================================
 # NetCDF Output Writer - Complete Module for Geodynamo Simulation
-# Spectral for velocity/magnetic, physical for temperature
+# Spectral for velocity/magnetic, physical for temperature/composition
 # ============================================================================
 
-# module NetCDFOutputWriter
-
-# using MPI
-# using NetCDF
-# using LinearAlgebra
-# using Statistics
-# using Dates
-# using Printf
+using MPI
+using NetCDF  
+using LinearAlgebra
+using Statistics
+using Dates
+using Printf
 
 const comm = MPI.COMM_WORLD
 
@@ -19,7 +17,7 @@ const comm = MPI.COMM_WORLD
 # ============================================================================
 
 @enum OutputSpace begin
-    MIXED_FIELDS        # Spectral for velocity/magnetic, physical for temperature
+    MIXED_FIELDS        # Spectral for velocity/magnetic, physical for temperature/composition
     PHYSICAL_ONLY       # Output only physical space data
     SPECTRAL_ONLY       # Output only spectral coefficients
 end
@@ -127,7 +125,7 @@ end
 # ============================================================================
 
 struct FieldInfo
-    # Physical dimensions (for temperature)
+    # Physical dimensions (for temperature/composition)
     nlat::Int
     nlon::Int
     nr::Int
@@ -150,6 +148,12 @@ struct FieldInfo
     local_ranges::Dict{Symbol, UnitRange{Int}}
 end
 
+# Default constructor for FieldInfo
+function FieldInfo()
+    return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[], 
+                     Int[], Int[], nothing, nothing, Dict{Symbol, UnitRange{Int}}())
+end
+
 function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsConfig,Nothing}=nothing, 
                            pencils::Union{NamedTuple,Nothing}=nothing)
     # Extract dimensions from available fields with enhanced config integration
@@ -164,7 +168,13 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsConfig,
         nlat, nlon, nr = temp_dims[1], temp_dims[2], temp_dims[3]
     end
     
-    # Get spectral dimensions from velocity or magnetic
+    # Get physical dimensions from composition if temperature not available
+    if nlat == 0 && haskey(fields, "composition")
+        comp_dims = size(fields["composition"])
+        nlat, nlon, nr = comp_dims[1], comp_dims[2], comp_dims[3]
+    end
+    
+    # Get spectral dimensions from velocity, magnetic, temperature, or composition
     if haskey(fields, "velocity_toroidal") && haskey(fields["velocity_toroidal"], "real")
         spec_dims = size(fields["velocity_toroidal"]["real"])
         nlm = spec_dims[1]
@@ -173,6 +183,18 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsConfig,
         end
     elseif haskey(fields, "magnetic_toroidal") && haskey(fields["magnetic_toroidal"], "real")
         spec_dims = size(fields["magnetic_toroidal"]["real"])
+        nlm = spec_dims[1]
+        if nr == 0
+            nr = spec_dims[end]
+        end
+    elseif haskey(fields, "temperature_spectral") && haskey(fields["temperature_spectral"], "real")
+        spec_dims = size(fields["temperature_spectral"]["real"])
+        nlm = spec_dims[1]
+        if nr == 0
+            nr = spec_dims[end]
+        end
+    elseif haskey(fields, "composition_spectral") && haskey(fields["composition_spectral"], "real")
+        spec_dims = size(fields["composition_spectral"]["real"])
         nlm = spec_dims[1]
         if nr == 0
             nr = spec_dims[end]
@@ -306,7 +328,7 @@ function setup_coordinates!(nc_file, field_info::FieldInfo, config::OutputConfig
         NetCDF.putatt(nc_file, r_var, "valid_range", [0.35, 1.0])
     end
     
-    # Physical coordinates (for temperature)
+    # Physical coordinates (for temperature/composition)
     if config.output_space == MIXED_FIELDS || config.output_space == PHYSICAL_ONLY
         if field_info.nlat > 0
             theta_dim = NetCDF.defDim(nc_file, "theta", field_info.nlat)
@@ -357,30 +379,27 @@ function setup_field_variables!(nc_file, field_info::FieldInfo, config::OutputCo
             end
         end
         
-        # Velocity and Magnetic: Spectral space
+        # Composition: Physical space
+        if "composition" in available_fields && field_info.nlat > 0 && field_info.nlon > 0
+            dims = ["theta", "phi", "r"]
+            var_dims = tuple([NetCDF.dimid(nc_file, d) for d in dims]...)
+            
+            comp_var = NetCDF.defVar(nc_file, "composition", config.output_precision, var_dims)
+            NetCDF.putatt(nc_file, comp_var, "long_name", "composition")
+            NetCDF.putatt(nc_file, comp_var, "units", "dimensionless")
+            NetCDF.putatt(nc_file, comp_var, "representation", "physical_space")
+            
+            if config.compression_level > 0
+                NetCDF.defVarDeflate(nc_file, comp_var, true, true, config.compression_level)
+            end
+        end
+        
+        # Velocity, Magnetic, Temperature, Composition: Spectral space
         if field_info.nlm > 0
             spec_dims = tuple([NetCDF.dimid(nc_file, "spectral_mode"), NetCDF.dimid(nc_file, "r")]...)
             
-            # Velocity toroidal/poloidal
-            for component in ["velocity_toroidal", "velocity_poloidal"]
-                if component in available_fields
-                    real_var = NetCDF.defVar(nc_file, "$(component)_real", config.output_precision, spec_dims)
-                    imag_var = NetCDF.defVar(nc_file, "$(component)_imag", config.output_precision, spec_dims)
-                    
-                    NetCDF.putatt(nc_file, real_var, "long_name", "$(component)_real_coefficients")
-                    NetCDF.putatt(nc_file, real_var, "representation", "spectral_space")
-                    NetCDF.putatt(nc_file, imag_var, "long_name", "$(component)_imaginary_coefficients")
-                    NetCDF.putatt(nc_file, imag_var, "representation", "spectral_space")
-                    
-                    if config.compression_level > 0
-                        NetCDF.defVarDeflate(nc_file, real_var, true, true, config.compression_level)
-                        NetCDF.defVarDeflate(nc_file, imag_var, true, true, config.compression_level)
-                    end
-                end
-            end
-            
-            # Magnetic toroidal/poloidal
-            for component in ["magnetic_toroidal", "magnetic_poloidal"]
+            # All spectral components (velocity, magnetic, temperature, composition)
+            for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal", "temperature_spectral", "composition_spectral"]
                 if component in available_fields
                     real_var = NetCDF.defVar(nc_file, "$(component)_real", config.output_precision, spec_dims)
                     imag_var = NetCDF.defVar(nc_file, "$(component)_imag", config.output_precision, spec_dims)
@@ -435,7 +454,7 @@ function write_coordinates!(nc_file, field_info::FieldInfo)
 end
 
 function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConfig, 
-                          field_info::FieldInfo=FieldInfo(0,0,0,0,Float64[],Float64[],Float64[],Int[],Int[],nothing,nothing,Dict{Symbol,UnitRange{Int}}()))
+                          field_info::FieldInfo=FieldInfo())
     # Write temperature (physical space) with optimized memory access
     if haskey(fields, "temperature") && NetCDF.varid(nc_file, "temperature") != -1
         T_data = fields["temperature"]
@@ -451,8 +470,23 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
         NetCDF.putvar(nc_file, "temperature", data_out)
     end
     
-    # Write velocity and magnetic (spectral space) with memory optimization
-    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+    # Write composition (physical space) with optimized memory access
+    if haskey(fields, "composition") && NetCDF.varid(nc_file, "composition") != -1
+        C_data = fields["composition"]
+        
+        # Use optimized data copying for large arrays
+        if length(C_data) > 10000
+            data_out = similar(C_data, config.output_precision)
+            copyto!(data_out, C_data)
+        else
+            data_out = config.output_precision.(C_data)
+        end
+        
+        NetCDF.putvar(nc_file, "composition", data_out)
+    end
+    
+    # Write all spectral fields (velocity, magnetic, temperature, composition) with memory optimization
+    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal", "temperature_spectral", "composition_spectral"]
         if haskey(fields, component)
             field_data = fields[component]
             if haskey(field_data, "real") && haskey(field_data, "imag")
@@ -572,7 +606,7 @@ function batch_write_spectral_fields!(nc_file, fields::Dict{String,Any},
                                      config::OutputConfig, field_info::FieldInfo)
     # Collect all spectral components for batch processing
     spectral_components = String[]
-    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal", "temperature_spectral", "composition_spectral"]
         if haskey(fields, component)
             push!(spectral_components, component)
         end
@@ -679,8 +713,26 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
         end
     end
     
+    # Composition statistics
+    if haskey(fields, "composition")
+        C = fields["composition"]
+        diagnostics["comp_mean"] = mean(C)
+        diagnostics["comp_std"] = std(C)
+        diagnostics["comp_min"] = minimum(C)
+        diagnostics["comp_max"] = maximum(C)
+        
+        # Add radial profile statistics if field_info has ranges
+        if haskey(field_info.local_ranges, :r) && !isempty(field_info.local_ranges[:r])
+            r_range = field_info.local_ranges[:r]
+            if length(r_range) > 1
+                radial_mean = mean(C, dims=(1,2))[:, :, :]
+                diagnostics["comp_radial_variation"] = std(radial_mean)
+            end
+        end
+    end
+    
     # Enhanced spectral field statistics with config-aware processing
-    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal", "temperature_spectral", "composition_spectral"]
         if haskey(fields, component)
             field_data = fields[component]
             if haskey(field_data, "real") && haskey(field_data, "imag")
@@ -940,8 +992,13 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
             restart_data["temperature"] = NetCDF.readvar(nc_file, "temperature")
         end
         
+        # Composition (physical)
+        if "composition" in var_names
+            restart_data["composition"] = NetCDF.readvar(nc_file, "composition")
+        end
+        
         # Spectral fields
-        for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+        for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal", "temperature_spectral", "composition_spectral"]
             real_name = "$(component)_real"
             imag_name = "$(component)_imag"
             
@@ -1339,46 +1396,18 @@ function write_enhanced_coordinates!(nc_file, field_info::FieldInfo)
         config = field_info.config
         
         # Write Gaussian quadrature weights if available
-        if NetCDF.varid(nc_file, "theta") != -1 && !isempty(config.gauss_weights)
+        # Note: This function is called after endDef, so we can only write data if the variable exists
+        if NetCDF.varid(nc_file, "gauss_weights") != -1 && !isempty(config.gauss_weights)
             try
-                # Try to create weights variable
-                time_dim = NetCDF.dimid(nc_file, "time")
-                theta_dim = NetCDF.dimid(nc_file, "theta")
-                
-                weights_var = NetCDF.defVar(nc_file, "gauss_weights", Float64, (theta_dim,))
-                NetCDF.putatt(nc_file, weights_var, "long_name", "gaussian_quadrature_weights")
-                NetCDF.putatt(nc_file, weights_var, "purpose", "spectral_integration")
-                
-                NetCDF.endDef(nc_file)
                 NetCDF.putvar(nc_file, "gauss_weights", config.gauss_weights)
             catch
-                # Weights variable creation failed - skip
+                # Weights variable write failed - skip
             end
         end
     end
 end
 
-# # ============================================================================
-# # Export Functions
-# # ============================================================================
-
-# export OutputConfig, OutputSpace, FileNaming
-# export MIXED_FIELDS, PHYSICAL_ONLY, SPECTRAL_ONLY
-# export RANK_TIME, TIME_RANK
-# export default_config
-
-# export TimeTracker, create_time_tracker
-# export should_output_now, should_restart_now, update_tracker!
-# export time_to_next_output
-
-# export FieldInfo, extract_field_info
-
-# export write_fields!, write_restart!, read_restart!
-
-# export validate_output, cleanup_old_files, get_time_series
-# export find_files_in_time_range, get_file_info
-
-# end  # module NetCDFOutputWriter
+# Exports are handled by main module
 
 # ============================================================================
 # Complete Usage Example
@@ -1425,8 +1454,19 @@ while simulation_time < 2.0
     
     # Prepare mixed field data
     fields = Dict(
-        # Temperature: Physical space (theta, phi, r)
+        # Option 1: Temperature/Composition in Physical space
         "temperature" => rand(Float64, 32, 64, 20),
+        "composition" => rand(Float64, 32, 64, 20),
+        
+        # Option 2: Temperature/Composition in Spectral space (more efficient!)
+        # "temperature_spectral" => Dict(
+        #     "real" => rand(Float64, 100, 1, 20),
+        #     "imag" => rand(Float64, 100, 1, 20)
+        # ),
+        # "composition_spectral" => Dict(
+        #     "real" => rand(Float64, 100, 1, 20),
+        #     "imag" => rand(Float64, 100, 1, 20)
+        # ),
         
         # Velocity: Spectral space (toroidal/poloidal)
         "velocity_toroidal" => Dict(
@@ -1466,6 +1506,7 @@ while simulation_time < 2.0
         if rank == 0
             println("Mixed output at time: $simulation_time")
             println("  Temperature: Physical (32×64×20)")
+            println("  Composition: Physical (32×64×20)")
             println("  Velocity: Spectral toroidal/poloidal (100×20)")
             println("  Magnetic: Spectral toroidal/poloidal (100×20)")
         end
@@ -1503,7 +1544,10 @@ File structure example:
 geodynamo_mixed_output_rank_0000_time_1p500000.nc
 ├── Dimensions: theta(32), phi(64), r(20), spectral_mode(100), time(1)
 ├── Coordinates: theta, phi, r, l_values, m_values, time, step
-├── Temperature: temperature[theta,phi,r] (physical)
+├── Temperature: temperature[theta,phi,r] (physical) OR
+│               temperature_spectral_real/imag[spectral_mode,r] (spectral)
+├── Composition: composition[theta,phi,r] (physical) OR  
+│               composition_spectral_real/imag[spectral_mode,r] (spectral)
 ├── Velocity: velocity_toroidal_real/imag[spectral_mode,r] (spectral)
 │             velocity_poloidal_real/imag[spectral_mode,r] (spectral)
 └── Magnetic: magnetic_toroidal_real/imag[spectral_mode,r] (spectral)
