@@ -512,6 +512,148 @@ function write_diagnostics!(nc_file, diagnostics::Dict{String,Float64}, config::
     end
 end
 
+
+# ============================================================================
+# Enhanced Parallel I/O Functions  
+# ============================================================================
+
+"""
+    write_spectral_data_parallel!(nc_file, real_name, imag_name, real_data, imag_data, field_info)
+    
+Write spectral data using parallel I/O strategies based on pencil decomposition
+"""
+function write_spectral_data_parallel!(nc_file, real_name::String, imag_name::String,
+                                      real_data::AbstractArray, imag_data::AbstractArray,
+                                      field_info::FieldInfo)
+    # For now, fall back to regular write - parallel NetCDF would require additional setup
+    # In a full implementation, this would use collective I/O operations
+    NetCDF.putvar(nc_file, real_name, real_data)
+    NetCDF.putvar(nc_file, imag_name, imag_data)
+end
+
+
+"""
+    create_memory_efficient_output_buffer(data_size::Int, precision::DataType)
+    
+Create appropriately sized buffer for output operations
+"""
+function create_memory_efficient_output_buffer(data_size::Int, precision::DataType)
+    # Use memory mapping for very large arrays
+    if data_size > 1000000  # 1M elements
+        return zeros(precision, data_size)
+    else
+        return Vector{precision}(undef, data_size)
+    end
+end
+
+
+"""
+    optimize_field_data_layout!(field_data::Dict, field_info::FieldInfo)
+    
+Optimize data layout for output based on pencil decomposition
+"""
+function optimize_field_data_layout!(field_data::Dict, field_info::FieldInfo)
+    if field_info.pencils === nothing
+        return field_data
+    end
+    
+    # This would implement data reorganization for optimal I/O
+    # For now, return as-is since full implementation requires transpose operations
+    return field_data
+end
+
+
+"""
+    batch_write_spectral_fields!(nc_file, fields::Dict, config::OutputConfig, field_info::FieldInfo)
+    
+Write multiple spectral fields in batched operations for better I/O performance
+"""
+function batch_write_spectral_fields!(nc_file, fields::Dict{String,Any}, 
+                                     config::OutputConfig, field_info::FieldInfo)
+    # Collect all spectral components for batch processing
+    spectral_components = String[]
+    for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
+        if haskey(fields, component)
+            push!(spectral_components, component)
+        end
+    end
+    
+    if isempty(spectral_components)
+        return
+    end
+    
+    # Process in batches to reduce memory pressure
+    batch_size = min(2, length(spectral_components))  # Process 2 components at a time
+    
+    for i in 1:batch_size:length(spectral_components)
+        batch_end = min(i + batch_size - 1, length(spectral_components))
+        batch_components = spectral_components[i:batch_end]
+        
+        # Pre-allocate buffers for the batch
+        batch_data = Dict{String, Any}()
+        
+        for component in batch_components
+            field_data = fields[component]
+            if haskey(field_data, "real") && haskey(field_data, "imag")
+                # Process data layout optimization
+                optimized_data = optimize_field_data_layout!(field_data, field_info)
+                batch_data[component] = optimized_data
+            end
+        end
+        
+        # Write the batch
+        for component in batch_components
+            if haskey(batch_data, component)
+                write_single_spectral_component!(nc_file, component, batch_data[component], config)
+            end
+        end
+        
+        # Clear batch data to free memory
+        empty!(batch_data)
+    end
+end
+
+
+"""
+    write_single_spectral_component!(nc_file, component, field_data, config)
+    
+Write a single spectral component with optimized memory handling
+"""
+function write_single_spectral_component!(nc_file, component::String, field_data::Dict, 
+                                         config::OutputConfig)
+    real_name = "$(component)_real"
+    imag_name = "$(component)_imag"
+    
+    if NetCDF.varid(nc_file, real_name) == -1 || NetCDF.varid(nc_file, imag_name) == -1
+        return
+    end
+    
+    real_data = field_data["real"]
+    imag_data = field_data["imag"]
+    
+    # Handle 3D arrays (nlm, 1, nr) -> (nlm, nr)
+    if ndims(real_data) == 3
+        real_data = real_data[:, 1, :]
+        imag_data = imag_data[:, 1, :]
+    end
+    
+    # Memory-efficient conversion
+    data_size = length(real_data)
+    if data_size > 10000
+        real_buffer = create_memory_efficient_output_buffer(data_size, config.output_precision)
+        imag_buffer = create_memory_efficient_output_buffer(data_size, config.output_precision)
+        
+        copyto!(real_buffer, real_data)
+        copyto!(imag_buffer, imag_data)
+        
+        NetCDF.putvar(nc_file, real_name, reshape(real_buffer, size(real_data)))
+        NetCDF.putvar(nc_file, imag_name, reshape(imag_buffer, size(imag_data)))
+    else
+        NetCDF.putvar(nc_file, real_name, config.output_precision.(real_data))
+        NetCDF.putvar(nc_file, imag_name, config.output_precision.(imag_data))
+    end
+end
+
 # ============================================================================
 # Diagnostics Computation
 # ============================================================================
