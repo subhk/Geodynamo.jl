@@ -57,14 +57,14 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
     # Create implicit matrices for each equation
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
     implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        shtns_config, radial_domain, d_E, d_timestep)
+        shtns_config, oc_domain, d_E, d_timestep)
     implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        shtns_config, radial_domain, 1.0/d_Pm, d_timestep)
+        shtns_config, oc_domain, 1.0/d_Pm, d_timestep)
     implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        shtns_config, radial_domain, 1.0/d_Pr, d_timestep)
+        shtns_config, oc_domain, 1.0/d_Pr, d_timestep)
     
     return SHTnsSimulationState{T}(velocity, magnetic, temperature, shtns_config,
-                                    radial_domain, inner_core_domain,
+                                    oc_domain, ic_domain,
                                     pencils, pencil_spec, transforms, timestep_state,
                                     implicit_matrices, 0)
 end
