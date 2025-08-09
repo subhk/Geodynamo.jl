@@ -42,7 +42,7 @@ end
 
 
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
-                                      domain::RadialDomain, 
+                                      oc_domain::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
     # Use optimized pencil topology from config if not provided
     if pencils === nothing
