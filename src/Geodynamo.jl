@@ -80,9 +80,13 @@ module Geodynamo
     export create_shtns_aware_output_config, validate_output_compatibility
     export get_time_series, find_files_in_time_range, cleanup_old_files
 
-    # Include Parameters first
-    include("params.jl")
-    #using .Parameters
+    # exports parameters.jl
+    export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
+    export get_parameters, set_parameters!, initialize_parameters
+    export @param
+
+    # Include Parameters system first
+    include("parameters.jl")
 
     # Include base modules in dependency order
     include("pencil_decomps.jl")
