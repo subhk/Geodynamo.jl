@@ -171,7 +171,7 @@ function initialize_fields!(state::SHTnsSimulationState{T}) where T
             if r_idx <= size(state.temperature.spectral.data_real, 3)
                 if l == 0 && m == 0
                     # Conductive profile
-                    r = state.radial_domain.r[r_idx, 4]
+                    r = state.oc_domain.r[r_idx, 4]
                     state.temperature.spectral.data_real[lm_idx, 1, r_idx] = 1.0 - r
                 elseif l <= 4 && l >= 1
                     # Small perturbation
@@ -199,7 +199,7 @@ function initialize_fields!(state::SHTnsSimulationState{T}) where T
             if r_idx <= size(state.magnetic.toroidal.data_real, 3)
                 if l == 1 && m == 0
                     # Dipole field
-                    r = state.radial_domain.r[r_idx, 4]
+                    r = state.oc_domain.r[r_idx, 4]
                     state.magnetic.poloidal.data_real[lm_idx, 1, r_idx] = r^2 * (1.0 - r)
                 elseif l <= 3 && l >= 1
                     # Small perturbation
@@ -231,7 +231,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     # Velocity (toroidal component)
     rhs_tor = similar(state.velocity.toroidal)
     apply_explicit_operator!(rhs_tor, state.velocity.toroidal, 
-                            state.velocity.nl_toroidal, state.radial_domain,
+                            state.velocity.nl_toroidal, state.oc_domain,
                             d_E, state.timestep_state.dt)
     solve_implicit_step!(state.velocity.toroidal, rhs_tor, 
                         state.implicit_matrices[:velocity])
@@ -239,7 +239,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     # Velocity (poloidal component)
     rhs_pol = similar(state.velocity.poloidal)
     apply_explicit_operator!(rhs_pol, state.velocity.poloidal, 
-                            state.velocity.nl_poloidal, state.radial_domain,
+                            state.velocity.nl_poloidal, state.oc_domain,
                             d_E, state.timestep_state.dt)
     solve_implicit_step!(state.velocity.poloidal, rhs_pol, 
                         state.implicit_matrices[:velocity])
@@ -247,7 +247,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     # Magnetic field (toroidal)
     rhs_mag_tor = similar(state.magnetic.toroidal)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal, 
-                            state.magnetic.nl_toroidal, state.radial_domain,
+                            state.magnetic.nl_toroidal, state.oc_domain,
                             1.0/d_Pm, state.timestep_state.dt)
     solve_implicit_step!(state.magnetic.toroidal, rhs_mag_tor, 
                         state.implicit_matrices[:magnetic])
@@ -255,7 +255,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     # Magnetic field (poloidal)
     rhs_mag_pol = similar(state.magnetic.poloidal)
     apply_explicit_operator!(rhs_mag_pol, state.magnetic.poloidal, 
-                            state.magnetic.nl_poloidal, state.radial_domain,
+                            state.magnetic.nl_poloidal, state.oc_domain,
                             1.0/d_Pm, state.timestep_state.dt)
     solve_implicit_step!(state.magnetic.poloidal, rhs_mag_pol, 
                         state.implicit_matrices[:magnetic])
@@ -263,7 +263,7 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
     # Temperature
     rhs_temp = similar(state.temperature.spectral)
     apply_explicit_operator!(rhs_temp, state.temperature.spectral, 
-                            state.temperature.nonlinear, state.radial_domain,
+                            state.temperature.nonlinear, state.oc_domain,
                             1.0/d_Pr, state.timestep_state.dt)
     solve_implicit_step!(state.temperature.spectral, rhs_temp, 
                         state.implicit_matrices[:temperature])
@@ -307,7 +307,7 @@ function compute_cfl_timestep!(state::SHTnsSimulationState{T}) where T
     global_max_vel = MPI.Allreduce(max_velocity, MPI.MAX, comm)
     
     # Compute grid spacing (approximate)
-    dr_min = minimum(diff(state.radial_domain.r[:, 4]))
+    dr_min = minimum(diff(state.oc_domain.r[:, 4]))
     dtheta_min = π / state.shtns_config.nlat
     dphi_min = 2π / state.shtns_config.nlon
     dx_min = min(dr_min, dtheta_min, dphi_min)
