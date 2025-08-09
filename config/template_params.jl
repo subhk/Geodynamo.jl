@@ -1,3 +1,17 @@
+# ============================================================================
+# Geodynamo.jl Parameter Template
+# ============================================================================
+# 
+# Copy this file to your desired location and modify the parameters below
+# for your specific simulation needs.
+#
+# Usage:
+#   using Geodynamo
+#   params = load_parameters("path/to/your_params.jl")
+#   set_parameters!(params)
+#
+# ============================================================================
+
 # Grid parameters
 const i_N   = 64        # Number of radial points
 const i_Nic = 16        # Number of inner core radial points
