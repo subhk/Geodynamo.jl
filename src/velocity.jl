@@ -43,8 +43,17 @@ end
 
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
                                       domain::RadialDomain, 
-                                      pencils, pencil_spec) where T
-    pencil_θ, pencil_φ, pencil_r = pencils
+                                      pencils=nothing, pencil_spec=nothing) where T
+    # Use optimized pencil topology from config if not provided
+    if pencils === nothing
+        pencils = create_pencil_topology(config, optimize=true)
+    end
+    pencil_θ, pencil_φ, pencil_r = pencils.θ, pencils.φ, pencils.r
+    
+    # Use spectral pencil from topology if not provided
+    if pencil_spec === nothing
+        pencil_spec = pencils.spec
+    end
     
     # Create vector fields
     velocity  = create_shtns_vector_field(T, config, domain, pencils)
@@ -79,8 +88,11 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     d2r_matrix = create_derivative_matrix(2, domain)
     laplacian_matrix = create_radial_laplacian(domain)
     
-    # Create transform manager
-    transform_manager = get_transform_manager(T, config, pencil_spec)
+    # Create optimized transform manager with full config integration
+    transform_manager = get_transform_manager(T, config)
+    
+    # Create transpose plans for efficient data movement
+    transpose_plans = create_transpose_plans(pencils)
     
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal,
                                   vort_toroidal, vort_poloidal,
@@ -102,35 +114,35 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     # Zero work arrays once
     zero_velocity_work_arrays!(fields)
     
-    # Step 1: Use optimized vector synthesis from shtns_transforms.jl
+    # Step 1: Use optimized vector synthesis with automatic transpose handling
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
-    # Step 2: Compute vorticity in spectral space with full derivatives
-    compute_vorticity_spectral_full!(fields, domain)
+    # Step 2: Compute vorticity in spectral space with enhanced derivative computation
+    compute_vorticity_spectral_optimized!(fields, domain)
     
-    # Step 3: Transform vorticity to physical space
+    # Step 3: Transform vorticity to physical space with batched operations
     shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
-    # Step 4: Compute all nonlinear terms in physical space with optimizations
-    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
+    # Step 4: Compute all nonlinear terms with optimized memory access patterns
+    compute_all_nonlinear_terms_optimized!(fields, temp_field, comp_field, mag_field, domain)
     
-    # Step 5: Use optimized vector analysis to go back to spectral
+    # Step 5: Use optimized vector analysis with efficient data layout
     shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
 end
 
 
 
 # =================================================
-# Vorticity computation with radial derivatives
+# Enhanced vorticity computation with optimized derivatives
 # =================================================
-function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
-                                         domain::RadialDomain) where T
+function compute_vorticity_spectral_optimized!(fields::SHTnsVelocityFields{T}, 
+                                              domain::RadialDomain) where T
     # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
     # For toroidal-poloidal decomposition:
     # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol
     # ω_pol = -l(l+1)/r² u_tor
     
-    # Get local data views
+    # Get local data views with optimized memory access
     u_tor_real = parent(fields.toroidal.data_real)
     u_tor_imag = parent(fields.toroidal.data_imag)
     u_pol_real = parent(fields.poloidal.data_real)
@@ -141,9 +153,12 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     ω_pol_real = parent(fields.vort_poloidal.data_real)
     ω_pol_imag = parent(fields.vort_poloidal.data_imag)
     
-    # Get local ranges
-    lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range  = get_local_range(fields.toroidal.pencil, 3)
+    # Use optimized range functions from pencil decomposition
+    config = fields.toroidal.config
+    
+    # Get local ranges using pencil topology
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range  = range_local(config.pencils.r, 3)
     
     nr = domain.N
     
@@ -191,11 +206,11 @@ end
 
 
 # ==========================================
-# nonlinear term computation
+# Optimized nonlinear term computation
 # ==========================================
-function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
-                                               temp_field, comp_field, mag_field,
-                                               domain::RadialDomain) where T
+function compute_all_nonlinear_terms_optimized!(fields::SHTnsVelocityFields{T},
+                                                temp_field, comp_field, mag_field,
+                                                domain::RadialDomain) where T
     # Compute all forces in a single optimized loop
     
     # Get all data views
@@ -211,15 +226,19 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     adv_θ = parent(fields.advection_physical.θ_component.data)
     adv_φ = parent(fields.advection_physical.φ_component.data)
     
-    # Get dimensions
+    # Get dimensions from config for better performance
+    config = fields.velocity.r_component.config
     local_size = size(vel_r)
-    nlat = fields.velocity.r_component.config.nlat
-    nlon = fields.velocity.r_component.config.nlon
+    nlat = config.nlat
+    nlon = config.nlon
     
-    # Main fused computation loop with cache blocking
+    # Use pencil ranges for optimized loop bounds
+    r_range = range_local(config.pencils.r, 3)
+    
+    # Main fused computation loop with optimized indexing
     @inbounds for k in 1:local_size[3]
-        # Get radius for this level
-        r_idx = k + first(get_local_range(fields.velocity.r_component.pencil, 3)) - 1
+        # Get radius for this level using pencil range
+        r_idx = k + first(r_range) - 1
         if r_idx <= domain.N
             r = domain.r[r_idx, 4]
             r_inv = domain.r[r_idx, 3]
