@@ -150,7 +150,7 @@ end
 # Current density computation in spectral space
 # ========================================================
 function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}, 
-                                          domain::RadialDomain) where T
+                                          oc_domain::RadialDomain) where T
     # Compute j = ∇ × B using spectral relationships with full radial derivatives
     # For toroidal-poloidal decomposition:
     # B = B_T + B_P where:
