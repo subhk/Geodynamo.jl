@@ -601,7 +601,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
                 elseif temp_field.bc_type_outer[lm_idx] == 2  # Neumann
-                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, oc_domain.N, domain)
+                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, oc_domain.N, oc_domain)
                 end
             end
         end
