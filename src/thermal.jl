@@ -1041,7 +1041,7 @@ function validate_flux_bc(temp_field, domain)
             if temp_field.bc_type_outer[lm_idx] == 2
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
-                                                 oc_domain.N, temp_field, domain)
+                                                 oc_domain.N, temp_field, oc_domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
