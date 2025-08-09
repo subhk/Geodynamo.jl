@@ -184,8 +184,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(ω_tor_real, 3)
-                    r_inv = domain.r[r_idx, 3]   # 1/r
-                    r_inv2 = domain.r[r_idx, 2]  # 1/r²
+                    r_inv = oc_domain.r[r_idx, 3]   # 1/r
+                    r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
                     
                     # Toroidal vorticity from poloidal velocity (with full derivatives)
                     ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
@@ -240,8 +240,8 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
         if r_idx <= oc_domain.N
-            r = domain.r[r_idx, 4]
-            r_inv = domain.r[r_idx, 3]
+            r = oc_domain.r[r_idx, 4]
+            r_inv = oc_domain.r[r_idx, 3]
         else
             r = 1.0
             r_inv = 1.0
@@ -328,7 +328,7 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
             
             if r_idx <= oc_domain.N
                 # Include radial dependence for spherical geometry
-                r = domain.r[r_idx, 4]
+                r = oc_domain.r[r_idx, 4]
                 gravity_factor = r^2  # Gravity scales as r² in spherical geometry
                 force_r[idx] += factor * gravity_factor * scalar_data[idx]
             else
@@ -493,13 +493,13 @@ function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain)
     N = oc_domain.N
     
     # Inner boundary: d(rT)/dr = 0 at r=ri
-    r1 = domain.r[1, 4]
-    r2 = domain.r[2, 4]
+    r1 = oc_domain.r[1, 4]
+    r2 = oc_domain.r[2, 4]
     profile[1] = profile[2] * r2 / r1  # Linear extrapolation
     
     # Outer boundary: d(rT)/dr = 0 at r=ro
-    rN = domain.r[N, 4]
-    rN1 = domain.r[N-1, 4]
+    rN = oc_domain.r[N, 4]
+    rN1 = oc_domain.r[N-1, 4]
     profile[N] = profile[N-1] * rN1 / rN  # Linear extrapolation
 end
 
@@ -571,7 +571,7 @@ end
 #                 operator[i, j] = laplacian.data[band_row, j]
 #                 if i == j
 #                     # Add -l(l+1)/r² term to diagonal
-#                     r_inv2 = domain.r[i, 2]
+#                     r_inv2 = oc_domain.r[i, 2]
 #                     operator[i, j] -= l_factor * r_inv2
 #                 end
 #             end
@@ -623,8 +623,8 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::Radia
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(tor_real, 3)
                     # Include radial weight for spherical integration
-                    r = domain.r[r_idx, 4]
-                    r_weight = r^2 * domain.integration_weights[r_idx]
+                    r = oc_domain.r[r_idx, 4]
+                    r_weight = r^2 * oc_domain.integration_weights[r_idx]
                     
                     local_energy += weight * r_weight * (
                         tor_real[local_lm, 1, local_r]^2 + 
