@@ -434,14 +434,24 @@ function write_coordinates!(nc_file, field_info::FieldInfo)
     end
 end
 
-function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConfig)
-    # Write temperature (physical space)
+function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConfig, 
+                          field_info::FieldInfo=FieldInfo(0,0,0,0,Float64[],Float64[],Float64[],Int[],Int[],nothing,nothing,Dict{Symbol,UnitRange{Int}}()))
+    # Write temperature (physical space) with optimized memory access
     if haskey(fields, "temperature") && NetCDF.varid(nc_file, "temperature") != -1
-        data_out = config.output_precision.(fields["temperature"])
+        T_data = fields["temperature"]
+        
+        # Use optimized data copying for large arrays
+        if length(T_data) > 10000
+            data_out = similar(T_data, config.output_precision)
+            copyto!(data_out, T_data)
+        else
+            data_out = config.output_precision.(T_data)
+        end
+        
         NetCDF.putvar(nc_file, "temperature", data_out)
     end
     
-    # Write velocity and magnetic (spectral space)
+    # Write velocity and magnetic (spectral space) with memory optimization
     for component in ["velocity_toroidal", "velocity_poloidal", "magnetic_toroidal", "magnetic_poloidal"]
         if haskey(fields, component)
             field_data = fields[component]
@@ -450,7 +460,7 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
                 imag_name = "$(component)_imag"
                 
                 if NetCDF.varid(nc_file, real_name) != -1 && NetCDF.varid(nc_file, imag_name) != -1
-                    # Handle 3D arrays (nlm, 1, nr) -> (nlm, nr)
+                    # Handle 3D arrays (nlm, 1, nr) -> (nlm, nr) with optimized processing
                     real_data = field_data["real"]
                     imag_data = field_data["imag"]
                     
@@ -459,11 +469,25 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
                         imag_data = imag_data[:, 1, :]
                     end
                     
-                    real_out = config.output_precision.(real_data)
-                    imag_out = config.output_precision.(imag_data)
+                    # Use optimized conversion for large spectral arrays
+                    if length(real_data) > 5000
+                        real_out = similar(real_data, config.output_precision)
+                        imag_out = similar(imag_data, config.output_precision)
+                        copyto!(real_out, real_data)
+                        copyto!(imag_out, imag_data)
+                    else
+                        real_out = config.output_precision.(real_data)
+                        imag_out = config.output_precision.(imag_data)
+                    end
                     
-                    NetCDF.putvar(nc_file, real_name, real_out)
-                    NetCDF.putvar(nc_file, imag_name, imag_out)
+                    # Use parallel I/O if available and data is large enough
+                    if length(real_out) > 100000 && field_info.pencils !== nothing
+                        write_spectral_data_parallel!(nc_file, real_name, imag_name, 
+                                                     real_out, imag_out, field_info)
+                    else
+                        NetCDF.putvar(nc_file, real_name, real_out)
+                        NetCDF.putvar(nc_file, imag_name, imag_out)
+                    end
                 end
             end
         end
