@@ -110,7 +110,7 @@ end
 # =============================
 function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
                                     temp_field, comp_field, mag_field,
-                                    domain::RadialDomain) where T
+                                    oc_domain::RadialDomain) where T
     # Zero work arrays once
     zero_velocity_work_arrays!(fields)
     
