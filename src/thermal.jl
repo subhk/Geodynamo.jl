@@ -457,7 +457,7 @@ function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T},
     
     @inbounds for r_idx in r_range
         if r_idx <= oc_domain.N
-            r_inv = domain.r[r_idx, 3]  # 1/r
+            r_inv = oc_domain.r[r_idx, 3]  # 1/r
             local_r = r_idx - first(r_range) + 1
             
             @simd for lm_idx in lm_range
@@ -735,10 +735,10 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
     tau2 = compute_chebyshev_polynomial(nr, domain)
     
     # Derivatives of tau polynomials at boundaries
-    dtau1_inner = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
-    dtau1_outer = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
-    dtau2_inner = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
-    dtau2_outer = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
+    dtau1_inner = evaluate_chebyshev_derivative(nr-1, oc_domain.r[1, 4], domain)
+    dtau1_outer = evaluate_chebyshev_derivative(nr-1, oc_domain.r[nr, 4], domain)
+    dtau2_inner = evaluate_chebyshev_derivative(nr, oc_domain.r[1, 4], domain)
+    dtau2_outer = evaluate_chebyshev_derivative(nr, oc_domain.r[nr, 4], domain)
     
     # Solve 2x2 system for tau coefficients
     # [dtau1_inner  dtau2_inner] [c1]   [flux_error_inner]
@@ -837,14 +837,14 @@ function compute_influence_functions_flux(domain::RadialDomain)
     These are solutions to the homogeneous equation with specific BCs.
     """
     nr = oc_domain.N
-    ri = domain.r[1, 4]
-    ro = domain.r[nr, 4]
+    ri = oc_domain.r[1, 4]
+    ro = oc_domain.r[nr, 4]
     
     G_inner = zeros(nr)
     G_outer = zeros(nr)
     
     for i in 1:nr
-        r = domain.r[i, 4]
+        r = oc_domain.r[i, 4]
         ξ = (r - ri) / (ro - ri)
         
         # Inner influence: strong at inner, weak at outer
@@ -899,7 +899,7 @@ function modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
         local_1 = 1 - first(r_range) + 1
         local_2 = 2 - first(r_range) + 1
         
-        dr = domain.r[2, 4] - domain.r[1, 4]
+        dr = oc_domain.r[2, 4] - oc_domain.r[1, 4]
         
         # T(r1) ≈ T(r2) - prescribed_flux * dr
         spec_real[local_lm, 1, local_1] = spec_real[local_lm, 1, local_2] - prescribed_flux * dr
@@ -928,11 +928,11 @@ function compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
     nr = oc_domain.N
     poly = zeros(nr)
     
-    ri = domain.r[1, 4]
-    ro = domain.r[nr, 4]
+    ri = oc_domain.r[1, 4]
+    ro = oc_domain.r[nr, 4]
     
     for i in 1:nr
-        r = domain.r[i, 4]
+        r = oc_domain.r[i, 4]
         # Map to [-1, 1]
         x = 2.0 * (r - ri) / (ro - ri) - 1.0
         # T_n(x) = cos(n * acos(x))
@@ -947,8 +947,8 @@ function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where
     """
     Evaluate derivative of Chebyshev polynomial at a point.
     """
-    ri = domain.r[1, 4]
-    ro = domain.r[oc_domain.N, 4]
+    ri = oc_domain.r[1, 4]
+    ro = oc_domain.r[oc_domain.N, 4]
     
     # Map to [-1, 1]
     x = 2.0 * (r - ri) / (ro - ri) - 1.0
@@ -1078,7 +1078,7 @@ function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
     flux_outer = compute_surface_flux(grad_r, oc_domain.N, temp_field.config)
     
     # Nusselt number
-    conductive_flux = 4π * domain.r[1, 4]^2
+    conductive_flux = 4π * oc_domain.r[1, 4]^2
     Nu = abs(flux_outer) / conductive_flux
     
     return Nu
@@ -1233,7 +1233,7 @@ function set_temperature_ic!(temp_field::SHTnsTemperatureField{T},
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
-                    r = domain.r[r_idx, 4]
+                    r = oc_domain.r[r_idx, 4]
                     
                     if l == 0 && m == 0
                         # Conductive profile for l=0, m=0
@@ -1296,18 +1296,18 @@ function set_internal_heating!(temp_field::SHTnsTemperatureField{T},
         fill!(temp_field.internal_sources, amplitude)
     elseif heating_type == :gaussian
         # Gaussian heating profile centered at mid-radius
-        r_mid = 0.5 * (domain.r[1, 4] + domain.r[end, 4])
-        sigma = 0.1 * (domain.r[end, 4] - domain.r[1, 4])
+        r_mid = 0.5 * (oc_domain.r[1, 4] + oc_domain.r[end, 4])
+        sigma = 0.1 * (oc_domain.r[end, 4] - oc_domain.r[1, 4])
         
         for i in 1:oc_domain.N
-            r = domain.r[i, 4]
+            r = oc_domain.r[i, 4]
             temp_field.internal_sources[i] = amplitude * exp(-((r - r_mid)/sigma)^2)
         end
     elseif heating_type == :bottom
         # Heating concentrated near bottom
         for i in 1:oc_domain.N
-            r = domain.r[i, 4]
-            r_norm = (r - domain.r[1, 4]) / (domain.r[end, 4] - domain.r[1, 4])
+            r = oc_domain.r[i, 4]
+            r_norm = (r - oc_domain.r[1, 4]) / (oc_domain.r[end, 4] - oc_domain.r[1, 4])
             temp_field.internal_sources[i] = amplitude * exp(-5.0 * r_norm)
         end
     else
