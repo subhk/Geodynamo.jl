@@ -267,9 +267,9 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                     ω_φ = vort_φ[linear_idx]
                     
                     # Advection: u × ω (scaled by Rossby number)
-                    adv_r_val = d_Ro * (u_θ * ω_φ - u_φ * ω_θ)
-                    adv_θ_val = d_Ro * (u_φ * ω_r - u_r * ω_φ)
-                    adv_φ_val = d_Ro * (u_r * ω_θ - u_θ * ω_r)
+                    adv_r_val = d_Ro() * (u_θ * ω_φ - u_φ * ω_θ)
+                    adv_θ_val = d_Ro() * (u_φ * ω_r - u_r * ω_φ)
+                    adv_φ_val = d_Ro() * (u_r * ω_θ - u_θ * ω_r)
                     
                     # Coriolis: -2Ω × u
                     cor_r = -2.0 * (-sin_theta * u_φ)
@@ -287,11 +287,11 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add buoyancy forces with proper scaling
     if temp_field !== nothing
-        add_thermal_buoyancy_force!(adv_r, temp_field, d_Ra * d_Pr, domain)
+        add_thermal_buoyancy_force!(adv_r, temp_field, d_Ra() * d_Pr(), oc_domain)
     end
     
     if comp_field !== nothing
-        add_buoyancy_force!(adv_r, comp_field, d_Ra_C * d_Sc, domain)
+        add_buoyancy_force!(adv_r, comp_field, d_Ra_C() * d_Sc(), oc_domain)
     end
     
     # Add Lorentz force if magnetic field present

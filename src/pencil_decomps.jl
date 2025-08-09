@@ -127,7 +127,7 @@ function create_pencil_topology(shtns_config::SHTnsConfig; optimize::Bool=true)
     # Get SHTns grid dimensions
     nlat = shtns_config.nlat
     nlon = shtns_config.nlon
-    nr = i_N
+    nr = i_N()
     dims = (nlat, nlon, nr)
     
     # Determine optimal process topology

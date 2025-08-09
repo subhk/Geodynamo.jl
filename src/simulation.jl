@@ -31,11 +31,15 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
     # Initialize MPI first
     MPI.Init()
     
-    # Create SHTns configuration
-    shtns_config = create_parallel_shtns_config(comm)
+    # Create SHTns configuration  
+    shtns_config = create_shtns_config()
     
     # Initialize pencil decomposition with SHTns grid
-    pencil_θ, pencil_φ, pencil_r, pencil_spec = create_pencil_topology(shtns_config)
+    pencils = create_pencil_topology(shtns_config)
+    pencil_θ = pencils.θ
+    pencil_φ = pencils.φ  
+    pencil_r = pencils.r
+    pencil_spec = pencils.spec
     
     # Create transform operations
     transforms = create_transforms(pencil_θ, pencil_φ, pencil_r, pencil_spec)

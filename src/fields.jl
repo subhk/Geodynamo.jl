@@ -109,8 +109,8 @@ function create_radial_domain(nr::Int=i_N)
         end
     end
     
-    dr_matrices         = [zeros(2*i_KL+1, N) for _ in 1:3]
-    radial_laplacian    = zeros(2*i_KL+1, N)
+    dr_matrices         = [zeros(2*i_KL()+1, N) for _ in 1:3]
+    radial_laplacian    = zeros(2*i_KL()+1, N)
     integration_weights = zeros(N)
     
     return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)

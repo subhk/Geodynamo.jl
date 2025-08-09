@@ -178,8 +178,8 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     r_range  = range_local(config.pencils.r, 3)
     
     # Create radial derivative matrices
-    d1_matrix = create_derivative_matrix(1, domain)  # First derivative d/dr
-    d2_matrix = create_derivative_matrix(2, domain)  # Second derivative d²/dr²
+    d1_matrix = create_derivative_matrix(1, oc_domain)  # First derivative d/dr
+    d2_matrix = create_derivative_matrix(2, oc_domain)  # Second derivative d²/dr²
     
     # Pre-allocate work arrays for radial profiles
     nr = oc_domain.N
