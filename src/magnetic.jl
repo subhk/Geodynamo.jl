@@ -53,9 +53,18 @@ end
 function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig, 
                                       domain_oc::RadialDomain, 
                                       domain_ic::RadialDomain, 
-                                      pencils, pencil_spec) where T
+                                      pencils=nothing, pencil_spec=nothing) where T
 
-    pencil_θ, pencil_φ, pencil_r = pencils
+    # Use optimized pencil topology from config if not provided
+    if pencils === nothing
+        pencils = create_pencil_topology(config, optimize=true)
+    end
+    pencil_θ, pencil_φ, pencil_r = pencils.θ, pencils.φ, pencils.r
+    
+    # Use spectral pencil from topology if not provided
+    if pencil_spec === nothing
+        pencil_spec = pencils.spec
+    end
     
     # Physical space fields
     magnetic = create_shtns_vector_field(T, config, domain_oc, pencils)
@@ -82,8 +91,11 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
-    # Create transform manager
-    transform_manager = get_transform_manager(T, config, pencil_spec)
+    # Create optimized transform manager with full config integration
+    transform_manager = get_transform_manager(T, config)
+    
+    # Create transpose plans for efficient data movement
+    transpose_plans = create_transpose_plans(pencils)
     
     imposed_field = nothing
     
