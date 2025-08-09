@@ -50,11 +50,11 @@ module Geodynamo
 
     # exports velocity.jl
     export SHTnsVelocityFields, create_shtns_velocity_fields
-    export compute_velocity_nonlinear!
+    export compute_velocity_nonlinear!, compute_vorticity_spectral_full!
     export compute_kinetic_energy, compute_reynolds_stress
     export zero_velocity_work_arrays!
     export apply_velocity_boundary_conditions!, add_thermal_buoyancy_force!
-    export add_lorentz_force!
+    export add_lorentz_force!, validate_velocity_configuration
 
     # exports magnetic.jl
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
