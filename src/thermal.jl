@@ -97,7 +97,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     grad_r_spec     = create_shtns_spectral_field(T, config, domain, pencils.spec)
     
     # Sources and boundary conditions
-    internal_sources = zeros(T, domain.N)
+    internal_sources = zeros(T, oc_domain.N)
     boundary_values  = zeros(T, 2, config.nlm)
     
     # Default BC types (1 = Dirichlet, 2 = Neumann)
@@ -404,7 +404,7 @@ function compute_radial_gradient_spectral!(temp_field::SHTnsTemperatureField{T},
     lm_range = range_local(temp_field.config.pencils.spec, 1)
     r_range  = range_local(temp_field.config.pencils.spec, 3)
     
-    nr = domain.N
+    nr = oc_domain.N
     bandwidth = temp_field.dr_matrix.bandwidth
     
     @inbounds for lm_idx in lm_range
@@ -456,7 +456,7 @@ function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T},
     lm_range = range_local(temp_field.config.pencils.spec, 1)
     
     @inbounds for r_idx in r_range
-        if r_idx <= domain.N
+        if r_idx <= oc_domain.N
             r_inv = domain.r[r_idx, 3]  # 1/r
             local_r = r_idx - first(r_range) + 1
             
@@ -577,7 +577,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     
     # Check which boundaries are local
     has_inner = 1 in r_range
-    has_outer = domain.N in r_range
+    has_outer = oc_domain.N in r_range
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_field.config.nlm
@@ -597,11 +597,11 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
             # Outer boundary
             if has_outer
                 if temp_field.bc_type_outer[lm_idx] == 1      # Dirichlet
-                    local_r = domain.N - first(r_range) + 1
+                    local_r = oc_domain.N - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
                 elseif temp_field.bc_type_outer[lm_idx] == 2  # Neumann
-                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, domain.N, domain)
+                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, oc_domain.N, domain)
                 end
             end
         end
@@ -635,7 +635,7 @@ function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T},
             
             # Check BC types for this mode
             apply_inner = (temp_field.bc_type_inner[lm_idx] == 2) && (1 in r_range)
-            apply_outer = (temp_field.bc_type_outer[lm_idx] == 2) && (domain.N in r_range)
+            apply_outer = (temp_field.bc_type_outer[lm_idx] == 2) && (oc_domain.N in r_range)
             
             if apply_inner || apply_outer
                 # Apply flux BC using one of three methods
@@ -661,7 +661,7 @@ function apply_flux_bc_mode_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                 apply_inner, apply_outer,
                                 temp_field, domain, r_range) where T
     
-    nr = domain.N
+    nr = oc_domain.N
     
     # Extract radial profile for this mode
     profile_real = zeros(T, nr)
@@ -728,7 +728,7 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
     Compute tau polynomial coefficients for both boundaries.
     Uses highest two Chebyshev modes as tau functions.
     """
-    nr = domain.N
+    nr = oc_domain.N
     
     # Tau polynomials: T_{N-1}(r) and T_N(r)
     tau1 = compute_chebyshev_polynomial(nr-1, domain)
@@ -761,7 +761,7 @@ function compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) whe
     Compute tau coefficient for inner boundary only.
     Uses a single tau function that doesn't affect outer boundary.
     """
-    nr = domain.N
+    nr = oc_domain.N
     
     # Use a polynomial that has zero derivative at outer boundary
     # This is a linear combination of Chebyshev polynomials
@@ -836,7 +836,7 @@ function compute_influence_functions_flux(domain::RadialDomain)
     Compute influence functions for flux BCs.
     These are solutions to the homogeneous equation with specific BCs.
     """
-    nr = domain.N
+    nr = oc_domain.N
     ri = domain.r[1, 4]
     ro = domain.r[nr, 4]
     
@@ -881,7 +881,7 @@ function apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                               temp_field.dr_matrix, domain, r_range)
     end
     
-    if domain.N in r_range
+    if oc_domain.N in r_range
         flux_outer = get_flux_value(lm_idx, 2, temp_field)
         modify_for_flux_outer!(spec_real, spec_imag, local_lm, flux_outer,
                               temp_field.dr_matrix, domain, r_range)
@@ -915,7 +915,7 @@ function compute_boundary_fluxes(profile::Vector{T}, dr_matrix::BandedMatrix{T},
     """
     Compute flux (dT/dr) at both boundaries using the derivative matrix.
     """
-    nr = domain.N
+    nr = oc_domain.N
     dprofile = apply_derivative_matrix(dr_matrix, profile)
     
     return dprofile[1], dprofile[nr]
@@ -925,7 +925,7 @@ function compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
     """
     Compute Chebyshev polynomial T_n on the radial grid.
     """
-    nr = domain.N
+    nr = oc_domain.N
     poly = zeros(nr)
     
     ri = domain.r[1, 4]
@@ -948,7 +948,7 @@ function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where
     Evaluate derivative of Chebyshev polynomial at a point.
     """
     ri = domain.r[1, 4]
-    ro = domain.r[domain.N, 4]
+    ro = domain.r[oc_domain.N, 4]
     
     # Map to [-1, 1]
     x = 2.0 * (r - ri) / (ro - ri) - 1.0
@@ -1041,7 +1041,7 @@ function validate_flux_bc(temp_field, domain)
             if temp_field.bc_type_outer[lm_idx] == 2
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
-                                                 domain.N, temp_field, domain)
+                                                 oc_domain.N, temp_field, domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
@@ -1075,7 +1075,7 @@ function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
     
     # Get flux at boundaries (requires communication)
     flux_inner = compute_surface_flux(grad_r, 1, temp_field.config)
-    flux_outer = compute_surface_flux(grad_r, domain.N, temp_field.config)
+    flux_outer = compute_surface_flux(grad_r, oc_domain.N, temp_field.config)
     
     # Nusselt number
     conductive_flux = 4π * domain.r[1, 4]^2
@@ -1299,13 +1299,13 @@ function set_internal_heating!(temp_field::SHTnsTemperatureField{T},
         r_mid = 0.5 * (domain.r[1, 4] + domain.r[end, 4])
         sigma = 0.1 * (domain.r[end, 4] - domain.r[1, 4])
         
-        for i in 1:domain.N
+        for i in 1:oc_domain.N
             r = domain.r[i, 4]
             temp_field.internal_sources[i] = amplitude * exp(-((r - r_mid)/sigma)^2)
         end
     elseif heating_type == :bottom
         # Heating concentrated near bottom
-        for i in 1:domain.N
+        for i in 1:oc_domain.N
             r = domain.r[i, 4]
             r_norm = (r - domain.r[1, 4]) / (domain.r[end, 4] - domain.r[1, 4])
             temp_field.internal_sources[i] = amplitude * exp(-5.0 * r_norm)
