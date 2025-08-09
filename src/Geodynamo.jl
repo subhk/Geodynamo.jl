@@ -12,7 +12,8 @@ module Geodynamo
     # exports shtns_config.jl
     export SHTnsConfig, create_shtns_config
     export get_mode_index, is_mode_local, get_local_modes
-    export validate_config
+    export validate_config, print_shtns_config_summary
+    export create_pencil_topology_shtns, create_shtns_pencils
 
     # exports pencil_decomps.jl
     export get_comm, get_rank, get_nprocs
@@ -25,7 +26,7 @@ module Geodynamo
 
 
     # exports field.jl
-    export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField
+    export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
     export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
     export create_shtns_vector_field, create_radial_domain
     export get_local_range, get_local_indices, local_data_size, get_local_data
