@@ -324,11 +324,11 @@ function update_implicit_matrices!(state::SHTnsSimulationState{T}) where T
     dt = state.timestep_state.dt
     
     state.implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.radial_domain, d_E, dt)
+        state.shtns_config, state.oc_domain, d_E, dt)
     state.implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.radial_domain, 1.0/d_Pm, dt)
+        state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
     state.implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.radial_domain, 1.0/d_Pr, dt)
+        state.shtns_config, state.oc_domain, 1.0/d_Pr, dt)
 end
 
 # function output_shtns_fields!(state::SHTnsSimulationState{T}) where T
