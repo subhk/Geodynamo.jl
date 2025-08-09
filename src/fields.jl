@@ -113,7 +113,7 @@ function create_radial_domain(nr::Int=i_N)
     radial_laplacian    = zeros(2*i_KL+1, N)
     integration_weights = zeros(N)
     
-    return RadialDomain(N, r, dr_matrices, radial_laplacian, integration_weights)
+    return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
 end
 
 
