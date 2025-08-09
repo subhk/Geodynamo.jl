@@ -2,6 +2,120 @@
 # Spectral to Physical Field Converter using PencilArrays and SHTns
 # Consistent with Geodynamo.jl codebase architecture
 # ============================================================================
+#
+# EXAMPLES:
+#
+# 1. Simple file conversion (most common use case):
+#    ```julia
+#    using Geodynamo
+#    using MPI
+#    
+#    MPI.Init()
+#    
+#    # Convert a single spectral data file to physical space
+#    converter = main_convert_file("simulation_step_001000.nc")
+#    
+#    # Convert with custom output filename
+#    converter = main_convert_file("input.nc", output_filename="my_physical_output.nc")
+#    
+#    MPI.Finalize()
+#    ```
+#
+# 2. Batch conversion of multiple files:
+#    ```julia
+#    using Geodynamo
+#    using MPI
+#    
+#    MPI.Init()
+#    
+#    # Convert all files matching pattern in directory
+#    main_batch_convert("simulation_output/",
+#                       output_dir="physical_fields/",
+#                       pattern="combined_global_time_")
+#    
+#    MPI.Finalize()
+#    ```
+#
+# 3. Advanced usage with full control:
+#    ```julia
+#    using Geodynamo
+#    using MPI
+#    
+#    MPI.Init()
+#    
+#    # Create converter from NetCDF file metadata
+#    converter = create_spectral_converter("data.nc", precision=Float64)
+#    
+#    # Load spectral data into Geodynamo field structures
+#    load_spectral_data!(converter, "data.nc")
+#    
+#    # Convert toroidal/poloidal spectral data to (r,θ,φ) physical components
+#    convert_to_physical!(converter)
+#    
+#    # Compute global diagnostics (kinetic energy, RMS values, etc.)
+#    diagnostics = compute_global_diagnostics(converter)
+#    
+#    # Access converted physical fields
+#    if converter.velocity_fields !== nothing
+#        v_r = converter.velocity_fields.velocity.r_component
+#        v_theta = converter.velocity_fields.velocity.θ_component
+#        v_phi = converter.velocity_fields.velocity.φ_component
+#    end
+#    
+#    # Save to NetCDF with parallel I/O
+#    save_physical_fields(converter, "output_physical.nc")
+#    
+#    MPI.Finalize()
+#    ```
+#
+# 4. MPI parallel execution example:
+#    ```bash
+#    # Run with 4 MPI processes
+#    mpirun -n 4 julia --project=. -e '
+#        using Geodynamo
+#        using MPI
+#        MPI.Init()
+#        main_batch_convert("data/", output_dir="physical/")
+#        MPI.Finalize()
+#    '
+#    ```
+#
+# 5. Custom parameter configuration:
+#    ```julia
+#    using Geodynamo
+#    
+#    # Load custom parameters before conversion
+#    params = load_parameters("my_simulation_params.jl")
+#    set_parameters!(params)
+#    
+#    # Now conversions will use your custom parameters
+#    converter = main_convert_file("data.nc")
+#    ```
+#
+# INPUT FILE REQUIREMENTS:
+# - NetCDF file with spectral coefficients in toroidal/poloidal form
+# - Required variables: "velocity_toroidal_real_global", "velocity_toroidal_imag_global"
+#                      "velocity_poloidal_real_global", "velocity_poloidal_imag_global"
+#                      "magnetic_toroidal_real_global", "magnetic_toroidal_imag_global"
+#                      "magnetic_poloidal_real_global", "magnetic_poloidal_imag_global"
+#                      "temperature_global" (physical space)
+# - Coordinate arrays: "l_values_global", "m_values_global", "r_spectral"
+#                      "theta", "phi", "r_physical"
+# - Time information: "time", "step"
+#
+# OUTPUT:
+# - NetCDF file with physical space vector components (r, θ, φ)
+# - Parallel I/O optimized for MPI
+# - Global diagnostics included as attributes
+# - Compatible with Geodynamo.jl field structures
+#
+# PERFORMANCE NOTES:
+# - Uses optimized PencilArrays for domain decomposition
+# - SHTns transforms are parallelized automatically
+# - Memory usage scales with local domain size
+# - I/O uses parallel NetCDF when available
+#
+# ============================================================================
 
 using Geodynamo
 using MPI
