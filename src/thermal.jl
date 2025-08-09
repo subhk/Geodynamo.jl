@@ -735,10 +735,10 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
     tau2 = compute_chebyshev_polynomial(nr, domain)
     
     # Derivatives of tau polynomials at boundaries
-    dtau1_inner = evaluate_chebyshev_derivative(nr-1, oc_domain.r[1, 4], domain)
-    dtau1_outer = evaluate_chebyshev_derivative(nr-1, oc_domain.r[nr, 4], domain)
-    dtau2_inner = evaluate_chebyshev_derivative(nr, oc_domain.r[1, 4], domain)
-    dtau2_outer = evaluate_chebyshev_derivative(nr, oc_domain.r[nr, 4], domain)
+    dtau1_inner = evaluate_chebyshev_derivative(nr-1, oc_domain.r[1, 4], oc_domain)
+    dtau1_outer = evaluate_chebyshev_derivative(nr-1, oc_domain.r[nr, 4], oc_domain)
+    dtau2_inner = evaluate_chebyshev_derivative(nr, oc_domain.r[1, 4], oc_domain)
+    dtau2_outer = evaluate_chebyshev_derivative(nr, oc_domain.r[nr, 4], oc_domain)
     
     # Solve 2x2 system for tau coefficients
     # [dtau1_inner  dtau2_inner] [c1]   [flux_error_inner]
