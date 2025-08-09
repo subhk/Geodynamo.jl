@@ -122,6 +122,13 @@ function get_local_range(pencil::Pencil{3}, dim::Int)
     return range_local(pencil, dim)
 end
 
+# range_local function for getting local index ranges in pencil decomposition
+function range_local(pencil::Pencil{3}, dim::Int)
+    # Get the local range for the specified dimension
+    local_shape = pencil.axes_in[dim]
+    return local_shape
+end
+
 function get_local_indices(pencil::Pencil{3})
     return range_local(pencil)
 end

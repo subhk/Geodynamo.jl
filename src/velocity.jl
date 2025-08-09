@@ -84,9 +84,9 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     end
     
     # Create radial derivative matrices
-    dr_matrix = create_derivative_matrix(1, domain)
-    d2r_matrix = create_derivative_matrix(2, domain)
-    laplacian_matrix = create_radial_laplacian(domain)
+    dr_matrix = create_derivative_matrix(1, oc_domain)
+    d2r_matrix = create_derivative_matrix(2, oc_domain)
+    laplacian_matrix = create_radial_laplacian(oc_domain)
     
     # Create optimized transform manager with full config integration
     transform_manager = get_transform_manager(T, config)
@@ -118,13 +118,13 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
-    compute_vorticity_spectral_full!(fields, domain)
+    compute_vorticity_spectral_full!(fields, oc_domain)
     
     # Step 3: Transform vorticity to physical space with batched operations
     shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
     # Step 4: Compute all nonlinear terms with optimized memory access patterns
-    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
+    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)
     
     # Step 5: Use optimized vector analysis with efficient data layout
     shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
@@ -476,7 +476,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
             end
         end
     elseif i_vel_bc == 2  # Stress-free
-        apply_stress_free_bc!(fields, domain)
+        apply_stress_free_bc!(fields, oc_domain)
     end
 end
 
@@ -524,16 +524,16 @@ function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain)
     # Modify profile to satisfy d(rT)/dr = 0 at boundaries
     # This uses linear extrapolation near boundaries
     
-    N = oc_domain.N
+    N = domain.N
     
     # Inner boundary: d(rT)/dr = 0 at r=ri
-    r1 = oc_domain.r[1, 4]
-    r2 = oc_domain.r[2, 4]
+    r1 = domain.r[1, 4]
+    r2 = domain.r[2, 4]
     profile[1] = profile[2] * r2 / r1  # Linear extrapolation
     
     # Outer boundary: d(rT)/dr = 0 at r=ro
-    rN = oc_domain.r[N, 4]
-    rN1 = oc_domain.r[N-1, 4]
+    rN = domain.r[N, 4]
+    rN1 = domain.r[N-1, 4]
     profile[N] = profile[N-1] * rN1 / rN  # Linear extrapolation
 end
 

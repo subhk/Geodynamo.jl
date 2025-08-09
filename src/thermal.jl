@@ -1233,7 +1233,7 @@ function set_temperature_ic!(temp_field::SHTnsTemperatureField{T},
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
-                    r = oc_domain.r[r_idx, 4]
+                    r = domain.r[r_idx, 4]
                     
                     if l == 0 && m == 0
                         # Conductive profile for l=0, m=0

@@ -190,7 +190,11 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     validate_config(shtns_config)
     
     # Create pencil decomposition optimized for the grid
-    pencil_θ, pencil_φ, pencil_r, pencil_spec = create_pencil_topology(shtns_config)
+    pencils_nt = create_pencil_topology(shtns_config)
+    pencil_θ = pencils_nt.θ
+    pencil_φ = pencils_nt.φ
+    pencil_r = pencils_nt.r
+    pencil_spec = pencils_nt.spec
     pencils = (pencil_θ, pencil_φ, pencil_r)
     
     # Create radial domain

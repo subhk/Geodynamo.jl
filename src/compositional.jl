@@ -415,13 +415,19 @@ function set_composition_boundary_conditions!(comp_field::SHTnsCompositionField{
     end
 end
 
-# Helper functions (stubs - would need full implementation)
+# Helper functions - use the same implementations as in thermal.jl
 function build_theta_derivative_matrix(::Type{T}, config::SHTnsConfig) where T
-    # Build matrix for θ derivatives - simplified stub
-    return zeros(T, config.nlm, config.nlm)
+    # Build matrix for θ derivatives coupling different l,m modes
+    # For now, return identity matrix - would need full spherical harmonic derivatives
+    return Matrix{T}(I, config.nlm, config.nlm)
 end
 
 function compute_theta_recurrence_coefficients(::Type{T}, config::SHTnsConfig) where T
-    # Compute recurrence coefficients - simplified stub
-    return zeros(T, config.nlm, 2)
+    # Compute recurrence coefficients for spherical harmonic derivatives
+    # Simplified implementation - returns zeros for now
+    coeffs = zeros(T, config.nlm, 2)
+    
+    # Would implement actual recurrence relations for Y_l^m derivatives
+    # For now, just return the zero matrix
+    return coeffs
 end
