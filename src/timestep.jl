@@ -2,12 +2,8 @@
 # Timestepping Module with SHTns
 # ============================================================================
 
-# module Timestepping
-# using LinearAlgebra
-# using PencilArrays
-# using ..Parameters
-# using ..VariableTypes
-# using ..LinearOps
+using MPI
+using LinearAlgebra
     
 # Timestepping state
 mutable struct TimestepState
@@ -195,6 +191,5 @@ function compute_timestep_error(new_field::SHTnsSpectralField{T},
 end
 
 
-export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices
-export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
+# Exports are handled by main module
 
