@@ -252,7 +252,7 @@ end
 # Fully spectral gradient computation (NO COMMUNICATION!)
 # ============================================================================
 function compute_all_gradients_spectral!(temp_field::SHTnsTemperatureField{T}, 
-                                        domain::RadialDomain) where T
+                                        oc_domain::RadialDomain) where T
     """
     Compute all three gradient components entirely in spectral space.
     This is a completely local operation - no MPI communication!
