@@ -118,13 +118,13 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
-    compute_vorticity_spectral_optimized!(fields, domain)
+    compute_vorticity_spectral_full!(fields, domain)
     
     # Step 3: Transform vorticity to physical space with batched operations
     shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
     # Step 4: Compute all nonlinear terms with optimized memory access patterns
-    compute_all_nonlinear_terms_optimized!(fields, temp_field, comp_field, mag_field, domain)
+    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
     
     # Step 5: Use optimized vector analysis with efficient data layout
     shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
@@ -135,8 +135,8 @@ end
 # =================================================
 # Enhanced vorticity computation with optimized derivatives
 # =================================================
-function compute_vorticity_spectral_optimized!(fields::SHTnsVelocityFields{T}, 
-                                              domain::RadialDomain) where T
+function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
+                                         domain::RadialDomain) where T
     # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
     # For toroidal-poloidal decomposition:
     # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol
@@ -208,9 +208,9 @@ end
 # ==========================================
 # Optimized nonlinear term computation
 # ==========================================
-function compute_all_nonlinear_terms_optimized!(fields::SHTnsVelocityFields{T},
-                                                temp_field, comp_field, mag_field,
-                                                domain::RadialDomain) where T
+function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
+                                               temp_field, comp_field, mag_field,
+                                               domain::RadialDomain) where T
     # Compute all forces in a single optimized loop
     
     # Get all data views
