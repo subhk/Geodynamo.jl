@@ -269,10 +269,10 @@ function compute_all_gradients_spectral!(temp_field::SHTnsTemperatureField{T},
     compute_theta_gradient_spectral!(temp_field)
     
     # 3. Radial gradient: ∂T/∂r using banded matrix
-    compute_radial_gradient_spectral!(temp_field, domain)
+    compute_radial_gradient_spectral!(temp_field, oc_domain)
     
     # Apply geometric factors (1/r, 1/(r sin θ)) in spectral space
-    apply_geometric_factors_spectral!(temp_field, domain)
+    apply_geometric_factors_spectral!(temp_field, oc_domain)
 end
 
 function compute_phi_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) where T
