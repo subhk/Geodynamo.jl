@@ -761,7 +761,7 @@ function compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) whe
     Compute tau coefficient for inner boundary only.
     Uses a single tau function that doesn't affect outer boundary.
     """
-    nr = oc_domain.N
+    nr = domain.N
     
     # Use a polynomial that has zero derivative at outer boundary
     # This is a linear combination of Chebyshev polynomials
@@ -855,8 +855,8 @@ function compute_influence_functions_flux(oc_domain::RadialDomain)
     end
     
     # Normalize to have unit flux contribution
-    normalize_influence_function!(G_inner, domain, 1)
-    normalize_influence_function!(G_outer, domain, 2)
+    normalize_influence_function!(G_inner, oc_domain, 1)
+    normalize_influence_function!(G_outer, oc_domain, 2)
     
     return G_inner, G_outer
 end
@@ -881,7 +881,7 @@ function apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                               temp_field.dr_matrix, domain, r_range)
     end
     
-    if oc_domain.N in r_range
+    if domain.N in r_range
         flux_outer = get_flux_value(lm_idx, 2, temp_field)
         modify_for_flux_outer!(spec_real, spec_imag, local_lm, flux_outer,
                               temp_field.dr_matrix, domain, r_range)
@@ -899,7 +899,7 @@ function modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
         local_1 = 1 - first(r_range) + 1
         local_2 = 2 - first(r_range) + 1
         
-        dr = oc_domain.r[2, 4] - oc_domain.r[1, 4]
+        dr = domain.r[2, 4] - domain.r[1, 4]
         
         # T(r1) ≈ T(r2) - prescribed_flux * dr
         spec_real[local_lm, 1, local_1] = spec_real[local_lm, 1, local_2] - prescribed_flux * dr
@@ -915,7 +915,7 @@ function compute_boundary_fluxes(profile::Vector{T}, dr_matrix::BandedMatrix{T},
     """
     Compute flux (dT/dr) at both boundaries using the derivative matrix.
     """
-    nr = oc_domain.N
+    nr = domain.N
     dprofile = apply_derivative_matrix(dr_matrix, profile)
     
     return dprofile[1], dprofile[nr]
@@ -925,14 +925,14 @@ function compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
     """
     Compute Chebyshev polynomial T_n on the radial grid.
     """
-    nr = oc_domain.N
+    nr = domain.N
     poly = zeros(nr)
     
-    ri = oc_domain.r[1, 4]
-    ro = oc_domain.r[nr, 4]
+    ri = domain.r[1, 4]
+    ro = domain.r[nr, 4]
     
     for i in 1:nr
-        r = oc_domain.r[i, 4]
+        r = domain.r[i, 4]
         # Map to [-1, 1]
         x = 2.0 * (r - ri) / (ro - ri) - 1.0
         # T_n(x) = cos(n * acos(x))
@@ -947,8 +947,8 @@ function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where
     """
     Evaluate derivative of Chebyshev polynomial at a point.
     """
-    ri = oc_domain.r[1, 4]
-    ro = oc_domain.r[oc_domain.N, 4]
+    ri = domain.r[1, 4]
+    ro = domain.r[domain.N, 4]
     
     # Map to [-1, 1]
     x = 2.0 * (r - ri) / (ro - ri) - 1.0
@@ -1041,7 +1041,7 @@ function validate_flux_bc(temp_field, domain)
             if temp_field.bc_type_outer[lm_idx] == 2
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
-                                                 oc_domain.N, temp_field, oc_domain)
+                                                 domain.N, temp_field, domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
