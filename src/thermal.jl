@@ -211,7 +211,7 @@ end
 # Main nonlinear computation with full spectral optimization
 # ============================================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields, domain::RadialDomain) where T
+                                        vel_fields, oc_domain::RadialDomain) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
@@ -219,7 +219,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(temp_field, domain)
+    compute_all_gradients_spectral!(temp_field, oc_domain)
     temp_field.spectral_time[] += MPI.Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
