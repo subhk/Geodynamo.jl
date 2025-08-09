@@ -69,6 +69,14 @@ module Geodynamo
     export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
     export batch_transform_to_physical!, apply_temperature_boundary_conditions_spectral!
 
+    # exports compositional.jl
+    export SHTnsCompositionField, create_shtns_composition_field
+    export compute_composition_nonlinear!
+    export compute_composition_rms, compute_composition_energy
+    export get_composition_statistics, zero_composition_work_arrays!
+    export set_composition_ic!, set_composition_boundary_conditions!
+    export apply_composition_boundary_conditions_spectral!
+
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
     export run_shtns_geodynamo_simulation
@@ -105,6 +113,7 @@ module Geodynamo
     include("velocity.jl")
     include("magnetic.jl")
     include("thermal.jl")
+    include("compositional.jl")
     include("outputs_writer.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")

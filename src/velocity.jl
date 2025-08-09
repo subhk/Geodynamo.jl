@@ -296,7 +296,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add Lorentz force if magnetic field present
     if mag_field !== nothing
-        add_lorentz_force!(fields, mag_field, domain)
+        add_lorentz_force!(fields, mag_field, oc_domain)
     end
 end
 
@@ -338,6 +338,40 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
     end
 end
 
+# Compositional buoyancy force (similar to thermal but for composition)
+function add_buoyancy_force!(force_r::AbstractArray{T,3}, 
+                             comp_field, factor::Float64,
+                             oc_domain::RadialDomain) where T
+    # Add compositional buoyancy force with proper radial scaling
+    
+    # Get compositional field data
+    if isa(comp_field, SHTnsPhysicalField)
+        comp_data = parent(comp_field.data)
+    else
+        comp_data = parent(comp_field.composition.data)
+    end
+    
+    # Get local radial range
+    r_range = get_local_range(comp_field.pencil, 3)
+    
+    # Vectorized addition with radial dependence
+    @inbounds @simd for idx in eachindex(force_r)
+        if idx <= length(comp_data)
+            # Get radial index for this point
+            k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
+            r_idx = k + first(r_range) - 1
+            
+            if r_idx <= oc_domain.N
+                # Include radial dependence for spherical geometry
+                r = oc_domain.r[r_idx, 4]
+                gravity_factor = r^2  # Gravity scales as r² in spherical geometry
+                force_r[idx] += factor * gravity_factor * comp_data[idx]
+            else
+                force_r[idx] += factor * comp_data[idx]
+            end
+        end
+    end
+end
 
 # ===============================
 # Optimized Lorentz force computation

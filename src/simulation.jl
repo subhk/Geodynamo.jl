@@ -8,6 +8,7 @@ struct SHTnsSimulationState{T}
     velocity::SHTnsVelocityFields{T}
     magnetic::SHTnsMagneticFields{T}
     temperature::SHTnsTemperatureField{T}
+    composition::Union{SHTnsCompositionField{T}, Nothing}
     
     # Geometric data
     shtns_config::SHTnsConfig
@@ -27,7 +28,7 @@ struct SHTnsSimulationState{T}
     output_counter::Int
 end
 
-function initialize_shtns_simulation(::Type{T} = Float64) where T
+function initialize_shtns_simulation(::Type{T} = Float64; include_composition::Bool = true) where T
     # Initialize MPI first
     MPI.Init()
     
@@ -55,6 +56,9 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
                                             ic_domain, pencils, pencil_spec)
     temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
     
+    # Create compositional field if requested
+    composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
+    
     # Initialize timestepping
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
     
@@ -67,8 +71,14 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
     implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
         shtns_config, oc_domain, 1.0/d_Pr, d_timestep)
     
-    return SHTnsSimulationState{T}(velocity, magnetic, temperature, shtns_config,
-                                    oc_domain, ic_domain,
+    # Add compositional diffusion matrix if composition is included
+    if include_composition
+        implicit_matrices[:composition] = create_shtns_timestepping_matrices(
+            shtns_config, oc_domain, 1.0/d_Sc, d_timestep)  # Schmidt number controls compositional diffusion
+    end
+    
+    return SHTnsSimulationState{T}(velocity, magnetic, temperature, composition,
+                                    shtns_config, oc_domain, ic_domain,
                                     pencils, pencil_spec, transforms, timestep_state,
                                     implicit_matrices, 0)
 end
@@ -100,6 +110,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
         prev_velocity = deepcopy(state.velocity.toroidal)
         prev_magnetic = deepcopy(state.magnetic.toroidal)
         prev_temperature = deepcopy(state.temperature.spectral)
+        prev_composition = state.composition !== nothing ? deepcopy(state.composition.spectral) : nothing
         
         while state.timestep_state.iteration <= 10 && 
                 state.timestep_state.error > d_dterr
@@ -119,7 +130,12 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
             error_mag  = compute_timestep_error(state.magnetic.toroidal, prev_magnetic)
             error_temp = compute_timestep_error(state.temperature.spectral, prev_temperature)
             
-            state.timestep_state.error = max(error_vel, error_mag, error_temp)
+            error_comp = 0.0
+            if state.composition !== nothing && prev_composition !== nothing
+                error_comp = compute_timestep_error(state.composition.spectral, prev_composition)
+            end
+            
+            state.timestep_state.error = max(error_vel, error_mag, error_temp, error_comp)
             
             if state.timestep_state.error < d_dterr
                 state.timestep_state.converged = true
@@ -130,6 +146,10 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
             prev_velocity    .= state.velocity.toroidal
             prev_magnetic    .= state.magnetic.toroidal
             prev_temperature .= state.temperature.spectral
+            
+            if state.composition !== nothing && prev_composition !== nothing
+                prev_composition .= state.composition.spectral
+            end
             
             state.timestep_state.iteration += 1
         end
@@ -222,16 +242,45 @@ function initialize_fields!(state::SHTnsSimulationState{T}) where T
             end
         end
     end
+    
+    # Compositional field: uniform background + small perturbation
+    if state.composition !== nothing
+        comp_real = parent(state.composition.spectral.data_real)
+        comp_imag = parent(state.composition.spectral.data_imag)
+        
+        for lm_idx in 1:state.composition.spectral.nlm
+            l = state.composition.spectral.config.l_values[lm_idx]
+            m = state.composition.spectral.config.m_values[lm_idx]
+            
+            for r_idx in axes(comp_real, 3)
+                if l == 0 && m == 0
+                    # Uniform background composition
+                    comp_real[lm_idx, 1, r_idx] = 0.5  # Background composition
+                elseif l <= 3 && l >= 1
+                    # Small perturbation
+                    comp_real[lm_idx, 1, r_idx] = 1e-4 * (rand() - 0.5)
+                    if m > 0
+                        comp_imag[lm_idx, 1, r_idx] = 1e-4 * (rand() - 0.5)
+                    end
+                end
+            end
+        end
+    end
 end
 
 function compute_all_nonlinear_terms!(state::SHTnsSimulationState{T}) where T
     # Compute nonlinear terms for all equations using SHTns transforms
     compute_velocity_nonlinear!(state.velocity, state.temperature, 
-                                nothing, state.magnetic, state.oc_domain)  # No composition for now
+                                state.composition, state.magnetic, state.oc_domain)
     
     compute_magnetic_nonlinear!(state.magnetic, state.velocity, 0.0)  # No inner core rotation for now
     
     compute_temperature_nonlinear!(state.temperature, state.velocity, state.oc_domain)
+    
+    # Compute compositional advection if composition is present
+    if state.composition !== nothing
+        compute_composition_nonlinear!(state.composition, state.velocity, state.oc_domain)
+    end
 end
 
 function predictor_step!(state::SHTnsSimulationState{T}) where T
@@ -276,6 +325,16 @@ function predictor_step!(state::SHTnsSimulationState{T}) where T
                             1.0/d_Pr, state.timestep_state.dt)
     solve_implicit_step!(state.temperature.spectral, rhs_temp, 
                         state.implicit_matrices[:temperature])
+    
+    # Composition (if present)
+    if state.composition !== nothing
+        rhs_comp = similar(state.composition.spectral)
+        apply_explicit_operator!(rhs_comp, state.composition.spectral, 
+                                state.composition.nonlinear, state.oc_domain,
+                                1.0/d_Sc, state.timestep_state.dt)
+        solve_implicit_step!(state.composition.spectral, rhs_comp, 
+                            state.implicit_matrices[:composition])
+    end
 end
 
 function corrector_step!(state::SHTnsSimulationState{T}) where T
@@ -338,6 +397,12 @@ function update_implicit_matrices!(state::SHTnsSimulationState{T}) where T
         state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
     state.implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
         state.shtns_config, state.oc_domain, 1.0/d_Pr, dt)
+    
+    # Update compositional matrix if composition is present
+    if state.composition !== nothing
+        state.implicit_matrices[:composition] = create_shtns_timestepping_matrices(
+            state.shtns_config, state.oc_domain, 1.0/d_Sc, dt)
+    end
 end
 
 # function output_shtns_fields!(state::SHTnsSimulationState{T}) where T
