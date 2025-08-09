@@ -220,8 +220,8 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(j_tor_real, 3)
-                    r_inv = domain.r[r_idx, 3]   # 1/r
-                    r_inv2 = domain.r[r_idx, 2]  # 1/r²
+                    r_inv = oc_domain.r[r_idx, 3]   # 1/r
+                    r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
                     
                     # Toroidal current from poloidal field (with full derivatives)
                     j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
