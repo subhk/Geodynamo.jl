@@ -160,7 +160,7 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.r, 3)
     
-    nr = domain.N
+    nr = oc_domain.N
     
     # Process each (l,m) mode
     @inbounds for lm_idx in lm_range
@@ -239,7 +239,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     @inbounds for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
-        if r_idx <= domain.N
+        if r_idx <= oc_domain.N
             r = domain.r[r_idx, 4]
             r_inv = domain.r[r_idx, 3]
         else
@@ -326,7 +326,7 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
             k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
             r_idx = k + first(r_range) - 1
             
-            if r_idx <= domain.N
+            if r_idx <= oc_domain.N
                 # Include radial dependence for spherical geometry
                 r = domain.r[r_idx, 4]
                 gravity_factor = r^2  # Gravity scales as r² in spherical geometry
@@ -406,8 +406,8 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
         end
     end
     
-    if domain.N in r_range
-        local_r = domain.N - first(r_range) + 1
+    if oc_domain.N in r_range
+        local_r = oc_domain.N - first(r_range) + 1
         @inbounds for lm_idx in lm_range
             if lm_idx <= fields.poloidal.nlm
                 local_lm = lm_idx - first(lm_range) + 1
@@ -431,8 +431,8 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
             end
         end
         
-        if domain.N in r_range
-            local_r = domain.N - first(r_range) + 1
+        if oc_domain.N in r_range
+            local_r = oc_domain.N - first(r_range) + 1
             @inbounds for lm_idx in lm_range
                 if lm_idx <= fields.toroidal.nlm
                     local_lm = lm_idx - first(lm_range) + 1
@@ -456,7 +456,7 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
     tor_imag = parent(fields.toroidal.data_imag)
     
     lm_range = get_local_range(fields.toroidal.pencil, 1)
-    nr = domain.N
+    nr = oc_domain.N
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
@@ -490,7 +490,7 @@ function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain)
     # Modify profile to satisfy d(rT)/dr = 0 at boundaries
     # This uses linear extrapolation near boundaries
     
-    N = domain.N
+    N = oc_domain.N
     
     # Inner boundary: d(rT)/dr = 0 at r=ri
     r1 = domain.r[1, 4]
@@ -557,7 +557,7 @@ end
 #     # Solve (∇²_r - l(l+1)/r²) u = source
 #     # This is a simplified solver - in practice would use more sophisticated methods
     
-#     N = domain.N
+#     N = oc_domain.N
 #     solution = zeros(T, N)
     
 #     # Build full operator for this l value
