@@ -68,6 +68,13 @@ module Geodynamo
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
     export run_shtns_geodynamo_simulation
 
+    # exports outputs_writer.jl
+    export OutputConfig, FieldInfo, TimeTracker
+    export default_config, create_time_tracker, should_output_now, should_restart_now
+    export write_fields!, write_restart!, read_restart!
+    export create_shtns_aware_output_config, validate_output_compatibility
+    export get_time_series, find_files_in_time_range, cleanup_old_files
+
     # Include Parameters first
     include("params.jl")
     #using .Parameters
@@ -82,5 +89,6 @@ module Geodynamo
     include("velocity.jl")
     include("magnetic.jl")
     include("thermal.jl")
+    include("outputs_writer.jl")
 
 end
