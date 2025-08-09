@@ -11,8 +11,8 @@ struct SHTnsSimulationState{T}
     
     # Geometric data
     shtns_config::SHTnsConfig
-    radial_domain::RadialDomain
-    inner_core_domain::RadialDomain
+    oc_domain::RadialDomain
+    ic_domain::RadialDomain
     
     # Pencil decomposition
     pencils::Tuple{Pencil{3}, Pencil{3}, Pencil{3}}
@@ -41,15 +41,15 @@ function initialize_shtns_simulation(::Type{T} = Float64) where T
     transforms = create_transforms(pencil_θ, pencil_φ, pencil_r, pencil_spec)
     
     # Initialize geometric data
-    radial_domain = create_radial_domain(pencil_r)
-    inner_core_domain = create_radial_domain(pencil_r)  # Modify for inner core
+    oc_domain = create_radial_domain(pencil_r)
+    ic_domain = create_radial_domain(pencil_r)  # Modify for inner core
     
     # Create field variables
     pencils = (pencil_θ, pencil_φ, pencil_r)
-    velocity = create_shtns_velocity_fields(T, shtns_config, radial_domain, pencils, pencil_spec)
-    magnetic = create_shtns_magnetic_fields(T, shtns_config, radial_domain, 
-                                            inner_core_domain, pencils, pencil_spec)
-    temperature = create_shtns_temperature_field(T, shtns_config, radial_domain, pencils, pencil_spec)
+    velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils, pencil_spec)
+    magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, 
+                                            ic_domain, pencils, pencil_spec)
+    temperature = create_shtns_temperature_field(T, shtns_config, oc_domain, pencils, pencil_spec)
     
     # Initialize timestepping
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
