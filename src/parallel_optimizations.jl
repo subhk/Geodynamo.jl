@@ -3,7 +3,6 @@
 # ============================================================================
 
 using MPI
-using CUDA
 using Base.Threads
 using LinearAlgebra
 using SparseArrays
@@ -113,83 +112,81 @@ function start_async_exchange!(manager::AsyncCommManager{T},
 end
 
 # ============================================================================
-# 2. GPU ACCELERATION SUPPORT
+# 2. MULTI-THREADING OPTIMIZATION
 # ============================================================================
 
 """
-    GPUAccelerator{T}
+    ThreadingAccelerator{T}
     
-GPU acceleration manager for compute-intensive operations.
+CPU threading acceleration manager for compute-intensive operations.
 """
-struct GPUAccelerator{T}
-    device_id::Int
-    stream::CUDA.CuStream
+struct ThreadingAccelerator{T}
+    thread_count::Int
     
-    # GPU memory pools
-    spectral_gpu::CUDA.CuArray{T,3}
-    physical_gpu::CUDA.CuArray{T,3}
-    work_arrays::Vector{CUDA.CuArray{T,3}}
-    
-    # GPU kernels (pre-compiled)
-    gradient_kernel::CUDA.CuFunction
-    advection_kernel::CUDA.CuFunction
-    diffusion_kernel::CUDA.CuFunction
+    # Thread-local work arrays
+    work_arrays::Vector{Vector{Array{T,3}}}
     
     # Performance metrics
-    gpu_utilization::Ref{Float64}
+    thread_utilization::Ref{Float64}
     memory_bandwidth::Ref{Float64}
 end
 
-function create_gpu_accelerator(::Type{T}, config::SHTnsConfig) where T
-    device_id = CUDA.device()
-    stream = CUDA.stream()
+function create_threading_accelerator(::Type{T}, config::SHTnsConfig) where T
+    thread_count = Threads.nthreads()
     
-    # Allocate GPU memory
-    nlm, nlat, nlon, nr = config.nlm, config.nlat, config.nlon, config.pencils.r.axes_in[3]
+    # Allocate thread-local work arrays
+    nlm, nlat, nlon = config.nlm, config.nlat, config.nlon
+    nr = length(range_local(config.pencils.r, 3))
     
-    spectral_gpu = CUDA.zeros(T, nlm, 1, nr)
-    physical_gpu = CUDA.zeros(T, nlat, nlon, nr) 
-    work_arrays = [CUDA.zeros(T, nlat, nlon, nr) for _ in 1:4]
+    work_arrays = Vector{Vector{Array{T,3}}}()
+    for tid in 1:thread_count
+        thread_arrays = [
+            zeros(T, nlat, nlon, nr),  # gradient_r
+            zeros(T, nlat, nlon, nr),  # gradient_θ  
+            zeros(T, nlat, nlon, nr),  # gradient_φ
+            zeros(T, nlat, nlon, nr)   # work buffer
+        ]
+        push!(work_arrays, thread_arrays)
+    end
     
-    # Pre-compile GPU kernels
-    gradient_kernel = compile_gradient_kernel(T)
-    advection_kernel = compile_advection_kernel(T)
-    diffusion_kernel = compile_diffusion_kernel(T)
-    
-    return GPUAccelerator{T}(
-        device_id, stream,
-        spectral_gpu, physical_gpu, work_arrays,
-        gradient_kernel, advection_kernel, diffusion_kernel,
+    return ThreadingAccelerator{T}(
+        thread_count, work_arrays,
         Ref(0.0), Ref(0.0)
     )
 end
 
 """
-    gpu_compute_gradients!(gpu, field)
+    threaded_compute_gradients!(threading, field)
     
-Compute gradients on GPU with high parallelism.
+Compute gradients using multiple threads with high parallelism.
 """
-function gpu_compute_gradients!(gpu::GPUAccelerator{T}, 
-                                field::SHTnsTemperatureField{T}) where T
-    # Copy data to GPU
-    CUDA.copyto!(gpu.spectral_gpu, parent(field.spectral.data_real))
+function threaded_compute_gradients!(threading::ThreadingAccelerator{T}, 
+                                    field::SHTnsTemperatureField{T}) where T
     
-    # Launch GPU kernel for gradient computation
-    threads_per_block = (16, 16, 4)
-    blocks_per_grid = cld.((size(gpu.physical_gpu)...,), threads_per_block)
+    # Get field data
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
     
-    CUDA.@cuda threads=threads_per_block blocks=blocks_per_grid gpu.gradient_kernel(
-        gpu.spectral_gpu, gpu.physical_gpu, gpu.work_arrays[1],
-        gpu.work_arrays[2], gpu.work_arrays[3]
-    )
+    grad_r_data = parent(field.gradient.r_component.data)
+    grad_θ_data = parent(field.gradient.θ_component.data)
+    grad_φ_data = parent(field.gradient.φ_component.data)
     
-    # Copy results back
-    CUDA.copyto!(parent(field.gradient.r_component.data), gpu.work_arrays[1])
-    CUDA.copyto!(parent(field.gradient.θ_component.data), gpu.work_arrays[2])  
-    CUDA.copyto!(parent(field.gradient.φ_component.data), gpu.work_arrays[3])
-    
-    # Synchronize stream
-    CUDA.synchronize(gpu.stream)
+    # Parallel gradient computation across radial levels
+    Threads.@threads for r_idx in axes(spec_real, 3)
+        tid = Threads.threadid()
+        work_r = threading.work_arrays[tid][1]
+        work_θ = threading.work_arrays[tid][2]
+        work_φ = threading.work_arrays[tid][3]
+        
+        # Compute gradients for this radial level
+        compute_gradient_slice!(work_r, work_θ, work_φ, 
+                               spec_real, spec_imag, r_idx, field.config)
+        
+        # Copy to output arrays
+        grad_r_data[:, :, r_idx] = work_r[:, :, 1]
+        grad_θ_data[:, :, r_idx] = work_θ[:, :, 1] 
+        grad_φ_data[:, :, r_idx] = work_φ[:, :, 1]
+    end
 end
 
 # ============================================================================
