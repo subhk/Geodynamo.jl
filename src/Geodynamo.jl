@@ -108,9 +108,10 @@ module Geodynamo
     export create_memory_optimizer, create_advanced_cpu_kernels, create_enhanced_cpu_parallelizer
     export enhanced_compute_nonlinear!, add_task!, execute_task_graph!
 
-    # exports simulation.jl (includes both basic and optimized simulation)
+    # exports simulation.jl (includes basic, optimized, and ultra-optimized simulation)
     export OptimizedSimulationState, initialize_optimized_simulation, run_optimized_simulation!
-    export run_optimized_geodynamo_simulation
+    export UltraOptimizedSimulationState, initialize_ultra_optimized_simulation, run_ultra_optimized_simulation!
+    export run_optimized_geodynamo_simulation, run_ultra_optimized_geodynamo_simulation
 
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
