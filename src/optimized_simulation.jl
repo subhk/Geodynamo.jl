@@ -43,7 +43,6 @@ Initialize simulation with all parallelization optimizations enabled.
 """
 function initialize_optimized_simulation(::Type{T}=Float64; 
                                         include_composition::Bool=true,
-                                        use_gpu::Bool=CUDA.functional(),
                                         auto_optimize::Bool=true,
                                         thread_count::Int=Threads.nthreads()) where T
     
@@ -61,7 +60,6 @@ function initialize_optimized_simulation(::Type{T}=Float64;
         println("="^80)
         println("MPI Processes: $nprocs")
         println("Threads per process: $thread_count")
-        println("GPU acceleration: $(use_gpu ? "ENABLED" : "DISABLED")")
         println("Auto-optimization: $(auto_optimize ? "ENABLED" : "DISABLED")")
         println("="^80)
     end
@@ -127,9 +125,6 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
-        if state.hybrid_parallelizer.use_gpu
-            println("GPU acceleration: ACTIVE")
-        end
         println()
     end
     
@@ -260,10 +255,9 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
         parallel_efficiency = get_parallel_efficiency(state.performance_monitor)
         println("Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
         
-        if state.hybrid_parallelizer.use_gpu
-            gpu_utilization = get_gpu_utilization(state.hybrid_parallelizer.gpu_accelerator)
-            println("GPU utilization: $(round(gpu_utilization*100, digits=1))%")
-        end
+        # Thread utilization
+        thread_utilization = get_thread_utilization(state.hybrid_parallelizer.threading_accelerator)
+        println("Thread utilization: $(round(thread_utilization*100, digits=1))%")
         
         println("="^80)
     end
@@ -340,7 +334,7 @@ update_performance_metrics!(monitor, step, compute_time, integrate_time, io_time
 auto_tune_parameters!(state) = nothing
 compute_adaptive_timestep(state, dt) = dt
 get_parallel_efficiency(monitor) = 0.85
-get_gpu_utilization(gpu) = 0.92
+get_thread_utilization(threading) = 0.92
 finalize_optimized_simulation!(state) = nothing
 
 export OptimizedSimulationState, initialize_optimized_simulation, run_optimized_simulation!

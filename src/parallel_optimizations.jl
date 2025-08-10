@@ -355,13 +355,13 @@ function async_write_fields!(io_optimizer::ParallelIOOptimizer{T},
 end
 
 # ============================================================================
-# 5. HYBRID MPI+THREADS+GPU PARALLELISM
+# 5. HYBRID MPI+THREADS PARALLELISM
 # ============================================================================
 
 """
     HybridParallelizer{T}
     
-Coordinates MPI, threads, and GPU for maximum parallelization.
+Coordinates MPI and threads for maximum CPU parallelization.
 """
 struct HybridParallelizer{T}
     # MPI level
@@ -371,11 +371,7 @@ struct HybridParallelizer{T}
     
     # Thread level
     thread_count::Int
-    thread_pools::Vector{Base.Threads.@spawn}
-    
-    # GPU level
-    gpu_accelerator::Union{GPUAccelerator{T}, Nothing}
-    use_gpu::Bool
+    threading_accelerator::ThreadingAccelerator{T}
     
     # Async communication
     async_comm::AsyncCommManager{T}
@@ -395,10 +391,7 @@ function create_hybrid_parallelizer(::Type{T}, config::SHTnsConfig) where T
     
     # Thread setup
     thread_count = Threads.nthreads()
-    
-    # GPU setup
-    use_gpu = CUDA.functional()
-    gpu_accelerator = use_gpu ? create_gpu_accelerator(T, config) : nothing
+    threading_accelerator = create_threading_accelerator(T, config)
     
     # Create sub-components
     async_comm = create_async_comm_manager(T)
@@ -407,8 +400,7 @@ function create_hybrid_parallelizer(::Type{T}, config::SHTnsConfig) where T
     
     return HybridParallelizer{T}(
         mpi_comm, mpi_rank, mpi_nprocs,
-        thread_count, Vector(),
-        gpu_accelerator, use_gpu,
+        thread_count, threading_accelerator,
         async_comm, load_balancer, io_optimizer
     )
 end
@@ -416,19 +408,14 @@ end
 """
     hybrid_compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
     
-Compute nonlinear terms using all available parallelism.
+Compute nonlinear terms using all available CPU parallelism.
 """
 function hybrid_compute_nonlinear!(parallelizer::HybridParallelizer{T},
                                   temp_field::SHTnsTemperatureField{T},
                                   vel_fields, domain::RadialDomain) where T
     
-    # Stage 1: GPU gradient computation (if available)
-    if parallelizer.use_gpu
-        gpu_compute_gradients!(parallelizer.gpu_accelerator, temp_field)
-    else
-        # CPU threaded gradients
-        threaded_compute_gradients!(temp_field, domain)
-    end
+    # Stage 1: Multi-threaded gradient computation
+    threaded_compute_gradients!(parallelizer.threading_accelerator, temp_field)
     
     # Stage 2: Asynchronous transform with communication overlap
     async_spectral_transform!(parallelizer.async_comm, 
@@ -463,7 +450,7 @@ mutable struct PerformanceMonitor
     
     # Resource utilization
     cpu_utilization::Vector{Float64}
-    gpu_utilization::Vector{Float64}
+    thread_utilization::Vector{Float64}
     memory_usage::Vector{Float64}
     network_bandwidth::Vector{Float64}
     
@@ -515,7 +502,7 @@ function analyze_parallel_performance(monitor::PerformanceMonitor)
     end
 end
 
-export AsyncCommManager, GPUAccelerator, DynamicLoadBalancer
+export AsyncCommManager, ThreadingAccelerator, DynamicLoadBalancer
 export ParallelIOOptimizer, HybridParallelizer, PerformanceMonitor
 export create_hybrid_parallelizer, hybrid_compute_nonlinear!
 export async_write_fields!, analyze_parallel_performance
@@ -525,9 +512,7 @@ prepare_send_data(field, rank, lm_range, r_range) = Float64[]
 compute_recv_size(rank, field) = 0
 perform_local_transforms!(manager, spec, phys) = nothing
 complete_async_transform!(manager, phys) = nothing
-compile_gradient_kernel(T) = nothing
-compile_advection_kernel(T) = nothing  
-compile_diffusion_kernel(T) = nothing
+compute_gradient_slice!(work_r, work_θ, work_φ, spec_real, spec_imag, r_idx, config) = nothing
 measure_parallel_efficiency(fields...) = 0.8
 compute_optimal_distribution(balancer, fields...) = zeros(Int, get_nprocs(), 3)
 estimate_migration_benefit(balancer, dist) = 0.1
