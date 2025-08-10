@@ -95,18 +95,17 @@ module Geodynamo
     export convert_spectral_file, batch_convert_directory
     export main_convert_file, main_batch_convert
 
-    # exports parallel_optimizations.jl
-    export AsyncCommManager, ThreadingAccelerator, DynamicLoadBalancer
-    export ParallelIOOptimizer, HybridParallelizer, PerformanceMonitor
-    export create_hybrid_parallelizer, hybrid_compute_nonlinear!
-    export async_write_fields!, analyze_parallel_performance
-    
-    # exports advanced_cpu_parallelization.jl
-    export AdvancedThreadManager, SIMDOptimizer, TaskGraph, MemoryOptimizer
-    export AdvancedCPUKernels, EnhancedCPUParallelizer
-    export create_advanced_thread_manager, create_simd_optimizer, create_task_graph
-    export create_memory_optimizer, create_advanced_cpu_kernels, create_enhanced_cpu_parallelizer
-    export enhanced_compute_nonlinear!, add_task!, execute_task_graph!
+    # exports optimizations.jl (unified parallelization system)
+    export AdvancedThreadManager, ThreadingAccelerator, SIMDOptimizer, TaskGraph, MemoryOptimizer
+    export AsyncCommManager, DynamicLoadBalancer, ParallelIOOptimizer, PerformanceMonitor
+    export HybridParallelizer, EnhancedCPUParallelizer, UltraParallelizer
+    export create_advanced_thread_manager, create_threading_accelerator, create_simd_optimizer
+    export create_task_graph, create_memory_optimizer, create_async_comm_manager
+    export create_dynamic_load_balancer, create_parallel_io_optimizer, create_performance_monitor
+    export create_hybrid_parallelizer, create_enhanced_cpu_parallelizer, create_ultra_parallelizer
+    export hybrid_compute_nonlinear!, enhanced_compute_nonlinear!, add_task!, execute_task_graph!
+    export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
+    export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!
 
     # exports simulation.jl (includes basic, optimized, and ultra-optimized simulation)
     export OptimizedSimulationState, initialize_optimized_simulation, run_optimized_simulation!
