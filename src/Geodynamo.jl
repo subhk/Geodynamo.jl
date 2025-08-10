@@ -100,6 +100,13 @@ module Geodynamo
     export ParallelIOOptimizer, HybridParallelizer, PerformanceMonitor
     export create_hybrid_parallelizer, hybrid_compute_nonlinear!
     export async_write_fields!, analyze_parallel_performance
+    
+    # exports advanced_cpu_parallelization.jl
+    export AdvancedThreadManager, SIMDOptimizer, TaskGraph, MemoryOptimizer
+    export AdvancedCPUKernels, EnhancedCPUParallelizer
+    export create_advanced_thread_manager, create_simd_optimizer, create_task_graph
+    export create_memory_optimizer, create_advanced_cpu_kernels, create_enhanced_cpu_parallelizer
+    export enhanced_compute_nonlinear!, add_task!, execute_task_graph!
 
     # exports simulation.jl (includes both basic and optimized simulation)
     export OptimizedSimulationState, initialize_optimized_simulation, run_optimized_simulation!
@@ -126,6 +133,7 @@ module Geodynamo
     include("compositional.jl")
     include("outputs_writer.jl")
     include("parallel_optimizations.jl")
+    include("advanced_cpu_parallelization.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
 

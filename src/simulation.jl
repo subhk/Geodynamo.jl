@@ -70,6 +70,38 @@ struct OptimizedSimulationState{T}
     auto_optimization::Bool
 end
 
+"""
+    UltraOptimizedSimulationState{T}
+    
+Ultra-high performance simulation state with advanced CPU parallelization.
+"""
+struct UltraOptimizedSimulationState{T}
+    # Original components
+    velocity::SHTnsVelocityFields{T}
+    magnetic::SHTnsMagneticFields{T}
+    temperature::SHTnsTemperatureField{T}
+    composition::Union{SHTnsCompositionField{T}, Nothing}
+    
+    # Geometric data
+    shtns_config::SHTnsConfig
+    oc_domain::RadialDomain
+    ic_domain::RadialDomain
+    
+    # Ultra-advanced CPU parallelization
+    cpu_parallelizer::EnhancedCPUParallelizer{T}
+    hybrid_parallelizer::HybridParallelizer{T}
+    performance_monitor::PerformanceMonitor
+    
+    # Timestepping
+    timestep_state::TimestepState
+    implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
+    
+    # Enhanced I/O
+    output_counter::Int
+    auto_optimization::Bool
+    adaptive_threading::Bool
+end
+
 # ============================================================================
 # BASIC SIMULATION INITIALIZATION
 # ============================================================================
