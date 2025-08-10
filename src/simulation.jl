@@ -1169,7 +1169,7 @@ function apply_ultra_optimized_implicit_step!(state::UltraOptimizedSimulationSta
     end
     
     # Execute all implicit solves in parallel
-    execute_task_graph!(task_graph, state.cpu_parallelizer.thread_manager)
+    execute_task_graph!(task_graph, state.ultra_parallelizer.cpu_parallelizer.thread_manager)
 end
 
 function adapt_thread_count!(state::UltraOptimizedSimulationState, efficiency_history::Vector{Float64})
@@ -1178,13 +1178,13 @@ function adapt_thread_count!(state::UltraOptimizedSimulationState, efficiency_hi
     
     if recent_efficiency < 0.7
         # Efficiency is low, might need fewer threads to reduce overhead
-        return max(1, state.cpu_parallelizer.thread_manager.compute_threads - 1)
+        return max(1, state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads - 1)
     elseif recent_efficiency > 0.9
         # High efficiency, could potentially use more threads
-        return min(state.cpu_parallelizer.thread_manager.total_threads, 
-                  state.cpu_parallelizer.thread_manager.compute_threads + 1)
+        return min(state.ultra_parallelizer.cpu_parallelizer.thread_manager.total_threads, 
+                  state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads + 1)
     else
-        return state.cpu_parallelizer.thread_manager.compute_threads
+        return state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads
     end
 end
 
@@ -1196,7 +1196,7 @@ end
 
 function analyze_ultra_performance(state::UltraOptimizedSimulationState)
     # Comprehensive performance analysis for ultra-optimized simulation
-    analyze_parallel_performance(state.performance_monitor)
+    analyze_parallel_performance(state.ultra_parallelizer.performance_monitor)
     
     # Additional CPU-specific analysis would go here
 end

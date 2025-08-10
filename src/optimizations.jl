@@ -934,11 +934,11 @@ struct HybridParallelizer{T}
 end
 
 """
-    EnhancedCPUParallelizer{T}
+    CPUParallelizer{T}
     
-Ultra-advanced CPU parallelization system with SIMD, NUMA, and task-based optimization.
+Advanced CPU parallelization system with SIMD, NUMA, and task-based parallelism.
 """
-struct EnhancedCPUParallelizer{T}
+struct CPUParallelizer{T}
     # Advanced threading
     thread_manager::AdvancedThreadManager
     
@@ -959,11 +959,11 @@ struct EnhancedCPUParallelizer{T}
 end
 
 """
-    UltraParallelizer{T}
+    MasterParallelizer{T}
     
-Ultimate parallelization system combining all optimization techniques.
+Comprehensive parallelization system combining all techniques.
 """
-struct UltraParallelizer{T}
+struct MasterParallelizer{T}
     # MPI optimization
     mpi_comm::MPI.Comm
     mpi_rank::Int
@@ -971,7 +971,7 @@ struct UltraParallelizer{T}
     async_comm::AsyncCommManager{T}
     
     # CPU optimization
-    cpu_parallelizer::EnhancedCPUParallelizer{T}
+    cpu_parallelizer::CPUParallelizer{T}
     
     # Traditional threading (backward compatibility)
     threading_accelerator::ThreadingAccelerator{T}
@@ -1006,21 +1006,21 @@ function create_hybrid_parallelizer(::Type{T}, config::SHTnsConfig) where T
     )
 end
 
-function create_enhanced_cpu_parallelizer(::Type{T}) where T
+function create_cpu_parallelizer(::Type{T}) where T
     # Create advanced CPU components
     thread_manager = create_advanced_thread_manager()
     simd_optimizer = create_simd_optimizer(T)
     memory_optimizer = create_memory_optimizer(T)
     task_graph_template = create_task_graph()
     
-    return EnhancedCPUParallelizer{T}(
+    return CPUParallelizer{T}(
         thread_manager, simd_optimizer, memory_optimizer, task_graph_template,
         Dict{Symbol, Vector{Float64}}(),
         Ref(0.0), Ref(0.0), Ref(0.0)
     )
 end
 
-function create_ultra_parallelizer(::Type{T}, config::SHTnsConfig) where T
+function create_master_parallelizer(::Type{T}, config::SHTnsConfig) where T
     # MPI setup
     mpi_comm = get_comm()
     mpi_rank = get_rank()
@@ -1028,7 +1028,7 @@ function create_ultra_parallelizer(::Type{T}, config::SHTnsConfig) where T
     async_comm = create_async_comm_manager(T)
     
     # CPU optimization
-    cpu_parallelizer = create_enhanced_cpu_parallelizer(T)
+    cpu_parallelizer = create_cpu_parallelizer(T)
     
     # Traditional threading (backward compatibility)
     threading_accelerator = create_threading_accelerator(T, config)
@@ -1040,7 +1040,7 @@ function create_ultra_parallelizer(::Type{T}, config::SHTnsConfig) where T
     # Unified performance monitoring
     performance_monitor = create_performance_monitor()
     
-    return UltraParallelizer{T}(
+    return MasterParallelizer{T}(
         mpi_comm, mpi_rank, mpi_nprocs, async_comm,
         cpu_parallelizer, threading_accelerator,
         load_balancer, io_optimizer, performance_monitor
@@ -1074,11 +1074,11 @@ function hybrid_compute_nonlinear!(parallelizer::HybridParallelizer{T},
 end
 
 """
-    enhanced_compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
+    compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
     
 Enhanced CPU-optimized computation with SIMD, NUMA, and task-based parallelism.
 """
-function enhanced_compute_nonlinear!(parallelizer::EnhancedCPUParallelizer{T},
+function compute_nonlinear!(parallelizer::CPUParallelizer{T},
                                     temp_field, vel_fields, domain) where T
     
     start_time = time()
@@ -1243,6 +1243,6 @@ export create_advanced_thread_manager, create_threading_accelerator, create_simd
 export create_task_graph, create_memory_optimizer, create_async_comm_manager
 export create_dynamic_load_balancer, create_parallel_io_optimizer, create_performance_monitor
 export create_hybrid_parallelizer, create_enhanced_cpu_parallelizer, create_ultra_parallelizer
-export hybrid_compute_nonlinear!, enhanced_compute_nonlinear!, add_task!, execute_task_graph!
+export hybrid_compute_nonlinear!, compute_nonlinear!, add_task!, execute_task_graph!
 export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
 export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!
