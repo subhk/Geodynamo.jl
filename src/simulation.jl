@@ -631,7 +631,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
     output_config = create_enhanced_output_config(state)
     time_tracker = create_time_tracker(output_config)
     
-    # Main timestepping loop with ultra-optimizations
+    # Main timestepping loop with advanced features
     step = 0
     simulation_time = d_time
     dt = d_timestep
@@ -648,9 +648,9 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         step += 1
         step_start = MPI.Wtime()
         
-        # === ULTRA-OPTIMIZED PHYSICS COMPUTATION ===
+        # === ADVANCED PHYSICS COMPUTATION ===
         
-        # 1. Ultra-advanced nonlinear computation (CPU + SIMD + Task-based)
+        # 1. Advanced nonlinear computation (CPU + SIMD + Task-based)
         compute_start = MPI.Wtime()
         
         # Temperature evolution with maximum CPU optimizations
@@ -659,25 +659,25 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         
         # Velocity evolution with task-based parallelism
         if state.velocity !== nothing
-            compute_velocity_nonlinear_ultra!(state, state.magnetic, state.temperature, state.oc_domain)
+            compute_velocity_nonlinear_master!(state, state.magnetic, state.temperature, state.oc_domain)
         end
         
         # Magnetic field evolution with SIMD optimization
         if i_B == 1 && state.magnetic !== nothing
-            compute_magnetic_nonlinear_ultra!(state, state.velocity, state.oc_domain, state.ic_domain)
+            compute_magnetic_nonlinear_master!(state, state.velocity, state.oc_domain, state.ic_domain)
         end
         
         # Compositional evolution (if enabled) with memory optimization
         if state.composition !== nothing
-            compute_composition_nonlinear_ultra!(state, state.velocity, state.oc_domain)
+            compute_composition_nonlinear_master!(state, state.velocity, state.oc_domain)
         end
         
         compute_time = MPI.Wtime() - compute_start
         
-        # 2. Ultra-optimized time integration with task scheduling
+        # 2. Advanced time integration with task scheduling
         integrate_start = MPI.Wtime()
         
-        # Apply implicit time integration with ultra-optimized solvers
+        # Apply implicit time integration with advanced solvers
         apply_master_implicit_step!(state, dt)
         
         integrate_time = MPI.Wtime() - integrate_start
@@ -737,7 +737,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
             
             # Auto-tuning of parameters with CPU-specific heuristics
             if step % 200 == 0
-                auto_tune_parameters_ultra!(state)
+                auto_tune_parameters_master!(state)
             end
             
             # Memory optimization
@@ -757,7 +757,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         
         # Adaptive timestep with CPU-aware scaling
         if step % 5 == 0  # More frequent timestep adaptation
-            dt = compute_adaptive_timestep_ultra(state, dt)
+            dt = compute_adaptive_timestep_master(state, dt)
         end
     end
     
