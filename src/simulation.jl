@@ -242,6 +242,104 @@ function initialize_optimized_simulation(::Type{T}=Float64;
 end
 
 # ============================================================================
+# ULTRA-OPTIMIZED SIMULATION INITIALIZATION
+# ============================================================================
+
+"""
+    initialize_ultra_optimized_simulation(::Type{T}=Float64; kwargs...)
+    
+Initialize simulation with maximum CPU parallelization optimizations.
+"""
+function initialize_ultra_optimized_simulation(::Type{T}=Float64; 
+                                              include_composition::Bool=true,
+                                              auto_optimize::Bool=true,
+                                              adaptive_threading::Bool=true,
+                                              thread_count::Int=Threads.nthreads()) where T
+    
+    # Initialize MPI first
+    if !MPI.Initialized()
+        MPI.Init()
+    end
+    
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    if rank == 0
+        println("="^90)
+        println("    GEODYNAMO.jl - ULTRA-OPTIMIZED CPU PARALLEL INITIALIZATION")
+        println("="^90)
+        println("MPI Processes: $nprocs")
+        println("Threads per process: $thread_count")
+        println("Auto-optimization: $(auto_optimize ? "ENABLED" : "DISABLED")")
+        println("Adaptive threading: $(adaptive_threading ? "ENABLED" : "DISABLED")")
+        println("Advanced CPU features: SIMD, NUMA-aware, Task-based parallelism")
+        println("="^90)
+    end
+    
+    # Create SHTns configuration with ultra-optimized topology
+    shtns_config = create_shtns_config(optimize_decomp=true, enable_timing=true)
+    
+    # Initialize ultra-enhanced pencil decomposition
+    pencils = create_pencil_topology(shtns_config, optimize=true)
+    pencil_spec = pencils.spec
+    
+    # Initialize geometric domains
+    oc_domain = create_radial_domain(i_N)
+    ic_domain = create_radial_domain(i_Nic)
+    
+    # Create field variables with ultra-optimized memory layout
+    pencils_tuple = (pencils.θ, pencils.φ, pencils.r)
+    velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils_tuple, pencil_spec)
+    magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, ic_domain, pencils_tuple, pencil_spec)
+    temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
+    
+    # Create compositional field if requested
+    composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
+    
+    # Initialize ultra-advanced CPU parallelization system
+    cpu_parallelizer = create_enhanced_cpu_parallelizer(T)
+    hybrid_parallelizer = create_hybrid_parallelizer(T, shtns_config)
+    performance_monitor = create_performance_monitor()
+    
+    if rank == 0
+        cpu_mgr = cpu_parallelizer.thread_manager
+        println("CPU Topology detected:")
+        println("  NUMA nodes: $(cpu_mgr.numa_nodes)")
+        println("  Cores per node: $(cpu_mgr.cores_per_node)")
+        println("  Compute threads: $(cpu_mgr.compute_threads)")
+        println("  I/O threads: $(cpu_mgr.io_threads)")
+        println("  Communication threads: $(cpu_mgr.comm_threads)")
+        
+        simd_opt = cpu_parallelizer.simd_optimizer
+        println("SIMD Optimization:")
+        println("  Vector width: $(simd_opt.vector_width)")
+        println("  Memory alignment: $(simd_opt.alignment_bytes) bytes")
+        println("  Prefetch distance: $(simd_opt.prefetch_distance) bytes")
+    end
+    
+    # Initialize timestepping with ultra-optimized matrices
+    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
+    
+    # Create implicit matrices for each equation
+    implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
+    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, oc_domain, d_E, d_timestep)
+    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Pm, d_timestep)
+    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Pr, d_timestep)
+    
+    if include_composition
+        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Sc, d_timestep)
+    end
+    
+    return UltraOptimizedSimulationState{T}(
+        velocity, magnetic, temperature, composition,
+        shtns_config, oc_domain, ic_domain,
+        cpu_parallelizer, hybrid_parallelizer, performance_monitor,
+        timestep_state, implicit_matrices,
+        0, auto_optimize, adaptive_threading
+    )
+end
+
+# ============================================================================
 # BASIC SIMULATION RUNNER
 # ============================================================================
 
@@ -502,6 +600,210 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
     
     # Cleanup
     finalize_optimized_simulation!(state)
+end
+
+# ============================================================================
+# ULTRA-OPTIMIZED SIMULATION RUNNER
+# ============================================================================
+
+"""
+    run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T})
+    
+Run geodynamo simulation with maximum CPU parallelization optimizations.
+"""
+function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}) where T
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    if rank == 0
+        println("\n🚀 Starting ULTRA-OPTIMIZED geodynamo simulation...")
+        println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
+        println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
+        println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
+        println("CPU optimization level: MAXIMUM (SIMD + NUMA + Task-based)")
+        println()
+    end
+    
+    # Initialize fields with perturbations
+    initialize_ultra_optimized_fields!(state)
+    
+    # Create enhanced output configuration
+    output_config = create_optimized_output_config(state)
+    time_tracker = create_time_tracker(output_config)
+    
+    # Main timestepping loop with ultra-optimizations
+    step = 0
+    simulation_time = d_time
+    dt = d_timestep
+    
+    # Performance monitoring
+    total_start = MPI.Wtime()
+    last_output_time = simulation_time
+    
+    # Adaptive threading state
+    thread_efficiency_history = Float64[]
+    optimal_thread_count = Threads.nthreads()
+    
+    while simulation_time < 1.0 && step < i_maxtstep
+        step += 1
+        step_start = MPI.Wtime()
+        
+        # === ULTRA-OPTIMIZED PHYSICS COMPUTATION ===
+        
+        # 1. Ultra-advanced nonlinear computation (CPU + SIMD + Task-based)
+        compute_start = MPI.Wtime()
+        
+        # Temperature evolution with maximum CPU optimizations
+        enhanced_compute_nonlinear!(state.cpu_parallelizer, state.temperature, 
+                                   state.velocity, state.oc_domain)
+        
+        # Velocity evolution with task-based parallelism
+        if state.velocity !== nothing
+            compute_velocity_nonlinear_ultra!(state, state.magnetic, state.temperature, state.oc_domain)
+        end
+        
+        # Magnetic field evolution with SIMD optimization
+        if i_B == 1 && state.magnetic !== nothing
+            compute_magnetic_nonlinear_ultra!(state, state.velocity, state.oc_domain, state.ic_domain)
+        end
+        
+        # Compositional evolution (if enabled) with memory optimization
+        if state.composition !== nothing
+            compute_composition_nonlinear_ultra!(state, state.velocity, state.oc_domain)
+        end
+        
+        compute_time = MPI.Wtime() - compute_start
+        
+        # 2. Ultra-optimized time integration with task scheduling
+        integrate_start = MPI.Wtime()
+        
+        # Apply implicit time integration with ultra-optimized solvers
+        apply_ultra_optimized_implicit_step!(state, dt)
+        
+        integrate_time = MPI.Wtime() - integrate_start
+        
+        # 3. Asynchronous I/O with memory-aware scheduling
+        io_start = MPI.Wtime()
+        
+        if should_output_now(time_tracker, simulation_time, output_config)
+            # Prepare fields for output with optimal memory layout
+            fields = extract_all_fields_optimized(state)
+            metadata = create_enhanced_metadata(state, simulation_time, step)
+            
+            # Asynchronous write with NUMA-aware I/O
+            async_write_fields!(state.hybrid_parallelizer.io_optimizer, fields, 
+                               generate_filename(output_config, simulation_time, step, rank))
+            
+            update_tracker!(time_tracker, simulation_time, output_config, true, false)
+            
+            if rank == 0
+                cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
+                cache_efficiency = state.cpu_parallelizer.cache_efficiency[]
+                memory_bw = state.cpu_parallelizer.memory_bandwidth[]
+                
+                println("Step $step: t=$(round(simulation_time, digits=4)), " *
+                       "compute=$(round(compute_time*1000, digits=1))ms, " *
+                       "integrate=$(round(integrate_time*1000, digits=1))ms")
+                println("  CPU efficiency: $(round(cpu_efficiency*100, digits=1))%, " *
+                       "Cache: $(round(cache_efficiency*100, digits=1))%, " *
+                       "Memory BW: $(round(memory_bw, digits=2)) GB/s")
+            end
+        end
+        
+        io_time = MPI.Wtime() - io_start
+        
+        # 4. Advanced performance monitoring and adaptive optimization
+        if state.auto_optimization && step % 25 == 0  # More frequent optimization
+            monitor_start = MPI.Wtime()
+            
+            # Update performance metrics
+            update_performance_metrics!(state.performance_monitor, step, 
+                                      compute_time, integrate_time, io_time)
+            
+            # CPU-specific optimizations
+            current_cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
+            push!(thread_efficiency_history, current_cpu_efficiency)
+            
+            # Adaptive threading adjustment
+            if state.adaptive_threading && step % 100 == 0 && length(thread_efficiency_history) > 5
+                optimal_thread_count = adapt_thread_count!(state, thread_efficiency_history)
+                if rank == 0 && optimal_thread_count != Threads.nthreads()
+                    println("  Adaptive threading: Optimal thread count adjusted to $optimal_thread_count")
+                end
+            end
+            
+            # Dynamic load balancing with CPU awareness
+            adaptive_rebalance!(state.hybrid_parallelizer.load_balancer, state.temperature)
+            
+            # Auto-tuning of parameters with CPU-specific heuristics
+            if step % 200 == 0
+                auto_tune_parameters_ultra!(state)
+            end
+            
+            # Memory optimization
+            if step % 150 == 0
+                optimize_memory_usage!(state)
+            end
+            
+            monitor_time = MPI.Wtime() - monitor_start
+        end
+        
+        # Update simulation state
+        simulation_time += dt
+        state.timestep_state.current_time = simulation_time
+        state.timestep_state.step_count = step
+        
+        step_time = MPI.Wtime() - step_start
+        
+        # Adaptive timestep with CPU-aware scaling
+        if step % 5 == 0  # More frequent timestep adaptation
+            dt = compute_adaptive_timestep_ultra(state, dt)
+        end
+    end
+    
+    total_time = MPI.Wtime() - total_start
+    
+    # Final ultra-detailed performance analysis
+    if rank == 0
+        analyze_ultra_performance(state)
+        
+        println("\n" * "="^100)
+        println("         🎉 ULTRA-OPTIMIZED SIMULATION COMPLETED SUCCESSFULLY 🎉")
+        println("="^100)
+        println("Total steps: $step")
+        println("Final time: $(round(simulation_time, digits=4))")
+        println("Total wall time: $(round(total_time, digits=2)) seconds")
+        println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
+        
+        # Ultra-detailed efficiency metrics
+        parallel_efficiency = get_parallel_efficiency(state.performance_monitor)
+        cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
+        cache_efficiency = state.cpu_parallelizer.cache_efficiency[]
+        memory_bandwidth = state.cpu_parallelizer.memory_bandwidth[]
+        
+        println("\n📊 ULTRA-PERFORMANCE METRICS:")
+        println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
+        println("  CPU thread efficiency: $(round(cpu_efficiency*100, digits=1))%")
+        println("  Cache hit rate: $(round(cache_efficiency*100, digits=1))%")
+        println("  Memory bandwidth: $(round(memory_bandwidth, digits=2)) GB/s")
+        
+        # SIMD utilization
+        simd_opt = state.cpu_parallelizer.simd_optimizer
+        println("  SIMD vector width utilized: $(simd_opt.vector_width)")
+        println("  Memory alignment: $(simd_opt.alignment_bytes)-byte aligned")
+        
+        # Thread topology efficiency
+        cpu_mgr = state.cpu_parallelizer.thread_manager
+        avg_thread_util = sum(cpu_mgr.thread_utilization) / length(cpu_mgr.thread_utilization)
+        println("  Average thread utilization: $(round(avg_thread_util*100, digits=1))%")
+        println("  NUMA nodes utilized: $(cpu_mgr.numa_nodes)")
+        
+        println("="^100)
+    end
+    
+    # Cleanup with memory deallocation
+    finalize_ultra_optimized_simulation!(state)
 end
 
 # ============================================================================
