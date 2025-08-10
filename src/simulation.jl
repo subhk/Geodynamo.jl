@@ -46,8 +46,8 @@ function initialize_shtns_simulation(::Type{T} = Float64; include_composition::B
     transforms = ()
     
     # Initialize geometric data
-    oc_domain = create_radial_domain(pencil_r)
-    ic_domain = create_radial_domain(pencil_r)  # Modify for inner core
+    oc_domain = create_radial_domain(i_N)
+    ic_domain = create_radial_domain(i_Nic)  # Inner core domain
     
     # Create field variables
     pencils = (pencil_θ, pencil_φ, pencil_r)
