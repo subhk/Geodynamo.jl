@@ -1237,4 +1237,11 @@ function run_optimized_geodynamo_simulation()
     MPI.Finalize()
 end
 
+# Main entry point for ultra-optimized simulation
+function run_ultra_optimized_geodynamo_simulation()
+    state = initialize_ultra_optimized_simulation(Float64)
+    run_ultra_optimized_simulation!(state)
+    MPI.Finalize()
+end
+
 # Exports are handled by the main Geodynamo.jl module
