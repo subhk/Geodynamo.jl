@@ -654,7 +654,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         compute_start = MPI.Wtime()
         
         # Temperature evolution with maximum CPU optimizations
-        enhanced_compute_nonlinear!(state.cpu_parallelizer, state.temperature, 
+        enhanced_compute_nonlinear!(state.ultra_parallelizer.cpu_parallelizer, state.temperature, 
                                    state.velocity, state.oc_domain)
         
         # Velocity evolution with task-based parallelism
@@ -691,15 +691,15 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             metadata = create_enhanced_metadata(state, simulation_time, step)
             
             # Asynchronous write with NUMA-aware I/O
-            async_write_fields!(state.hybrid_parallelizer.io_optimizer, fields, 
+            async_write_fields!(state.ultra_parallelizer.io_optimizer, fields, 
                                generate_filename(output_config, simulation_time, step, rank))
             
             update_tracker!(time_tracker, simulation_time, output_config, true, false)
             
             if rank == 0
-                cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
-                cache_efficiency = state.cpu_parallelizer.cache_efficiency[]
-                memory_bw = state.cpu_parallelizer.memory_bandwidth[]
+                cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
+                cache_efficiency = state.ultra_parallelizer.cpu_parallelizer.cache_efficiency[]
+                memory_bw = state.ultra_parallelizer.cpu_parallelizer.memory_bandwidth[]
                 
                 println("Step $step: t=$(round(simulation_time, digits=4)), " *
                        "compute=$(round(compute_time*1000, digits=1))ms, " *
@@ -717,11 +717,11 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             monitor_start = MPI.Wtime()
             
             # Update performance metrics
-            update_performance_metrics!(state.performance_monitor, step, 
+            update_performance_metrics!(state.ultra_parallelizer.performance_monitor, step, 
                                       compute_time, integrate_time, io_time)
             
             # CPU-specific optimizations
-            current_cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
+            current_cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
             push!(thread_efficiency_history, current_cpu_efficiency)
             
             # Adaptive threading adjustment
@@ -733,7 +733,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             end
             
             # Dynamic load balancing with CPU awareness
-            adaptive_rebalance!(state.hybrid_parallelizer.load_balancer, state.temperature)
+            adaptive_rebalance!(state.ultra_parallelizer.load_balancer, state.temperature)
             
             # Auto-tuning of parameters with CPU-specific heuristics
             if step % 200 == 0
@@ -776,10 +776,10 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
         
         # Ultra-detailed efficiency metrics
-        parallel_efficiency = get_parallel_efficiency(state.performance_monitor)
-        cpu_efficiency = state.cpu_parallelizer.thread_efficiency[]
-        cache_efficiency = state.cpu_parallelizer.cache_efficiency[]
-        memory_bandwidth = state.cpu_parallelizer.memory_bandwidth[]
+        parallel_efficiency = get_parallel_efficiency(state.ultra_parallelizer.performance_monitor)
+        cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
+        cache_efficiency = state.ultra_parallelizer.cpu_parallelizer.cache_efficiency[]
+        memory_bandwidth = state.ultra_parallelizer.cpu_parallelizer.memory_bandwidth[]
         
         println("\n📊 ULTRA-PERFORMANCE METRICS:")
         println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
@@ -788,15 +788,19 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         println("  Memory bandwidth: $(round(memory_bandwidth, digits=2)) GB/s")
         
         # SIMD utilization
-        simd_opt = state.cpu_parallelizer.simd_optimizer
+        simd_opt = state.ultra_parallelizer.cpu_parallelizer.simd_optimizer
         println("  SIMD vector width utilized: $(simd_opt.vector_width)")
         println("  Memory alignment: $(simd_opt.alignment_bytes)-byte aligned")
         
         # Thread topology efficiency
-        cpu_mgr = state.cpu_parallelizer.thread_manager
+        cpu_mgr = state.ultra_parallelizer.cpu_parallelizer.thread_manager
         avg_thread_util = sum(cpu_mgr.thread_utilization) / length(cpu_mgr.thread_utilization)
         println("  Average thread utilization: $(round(avg_thread_util*100, digits=1))%")
         println("  NUMA nodes utilized: $(cpu_mgr.numa_nodes)")
+        
+        # MPI efficiency
+        println("  MPI processes: $(state.ultra_parallelizer.mpi_nprocs)")
+        println("  Communication efficiency: $(state.ultra_parallelizer.async_comm.overlap_efficiency[])%")
         
         println("="^100)
     end
@@ -1115,7 +1119,7 @@ update_tracker!(tracker, time, config, output, restart) = nothing
 # Ultra-optimized computation functions
 function compute_velocity_nonlinear_ultra!(state, magnetic, temperature, domain)
     # Use enhanced CPU parallelization for velocity computation
-    enhanced_compute_nonlinear!(state.cpu_parallelizer, temperature, state.velocity, domain)
+    enhanced_compute_nonlinear!(state.ultra_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
 end
 
 function compute_magnetic_nonlinear_ultra!(state, velocity, oc_domain, ic_domain)
