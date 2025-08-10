@@ -129,6 +129,12 @@ function range_local(pencil::Pencil{3}, dim::Int)
     return local_shape
 end
 
+# Additional range_local method for compatibility
+function range_local(pencil::Pencil{3})
+    # Return all local ranges as tuple
+    return (pencil.axes_in[1], pencil.axes_in[2], pencil.axes_in[3])
+end
+
 function get_local_indices(pencil::Pencil{3})
     return range_local(pencil)
 end
