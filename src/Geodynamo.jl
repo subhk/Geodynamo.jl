@@ -95,6 +95,12 @@ module Geodynamo
     export convert_spectral_file, batch_convert_directory
     export main_convert_file, main_batch_convert
 
+    # exports parallel_optimizations.jl
+    export AsyncCommManager, GPUAccelerator, DynamicLoadBalancer
+    export ParallelIOOptimizer, HybridParallelizer, PerformanceMonitor
+    export create_hybrid_parallelizer, hybrid_compute_nonlinear!
+    export async_write_fields!, analyze_parallel_performance
+
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
     export get_parameters, set_parameters!, initialize_parameters
@@ -115,6 +121,7 @@ module Geodynamo
     include("thermal.jl")
     include("compositional.jl")
     include("outputs_writer.jl")
+    include("parallel_optimizations.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
 
