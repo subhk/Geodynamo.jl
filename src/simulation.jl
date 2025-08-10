@@ -87,7 +87,7 @@ struct MasterSimulationState{T}
     oc_domain::RadialDomain
     ic_domain::RadialDomain
     
-    # Unified ultra-parallelization system
+    # Unified master parallelization system
     master_parallelizer::MasterParallelizer{T}
     
     # Timestepping
@@ -185,7 +185,7 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     
     if rank == 0
         println("="^80)
-        println("    GEODYNAMO.jl - OPTIMIZED PARALLEL INITIALIZATION")
+        println("    GEODYNAMO.jl - ENHANCED PARALLEL INITIALIZATION")
         println("="^80)
         println("MPI Processes: $nprocs")
         println("Threads per process: $thread_count")
@@ -264,7 +264,7 @@ function initialize_master_simulation(::Type{T}=Float64;
     
     if rank == 0
         println("="^90)
-        println("    GEODYNAMO.jl - ULTRA-OPTIMIZED CPU PARALLEL INITIALIZATION")
+        println("    GEODYNAMO.jl - MASTER CPU PARALLEL INITIALIZATION")
         println("="^90)
         println("MPI Processes: $nprocs")
         println("Threads per process: $thread_count")
@@ -274,10 +274,10 @@ function initialize_master_simulation(::Type{T}=Float64;
         println("="^90)
     end
     
-    # Create SHTns configuration with ultra-optimized topology
+    # Create SHTns configuration with advanced topology
     shtns_config = create_shtns_config(optimize_decomp=true, enable_timing=true)
     
-    # Initialize ultra-enhanced pencil decomposition
+    # Initialize advanced pencil decomposition
     pencils = create_pencil_topology(shtns_config, optimize=true)
     pencil_spec = pencils.spec
     
@@ -285,7 +285,7 @@ function initialize_master_simulation(::Type{T}=Float64;
     oc_domain = create_radial_domain(i_N)
     ic_domain = create_radial_domain(i_Nic)
     
-    # Create field variables with ultra-optimized memory layout
+    # Create field variables with advanced memory layout
     pencils_tuple = (pencils.θ, pencils.φ, pencils.r)
     velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils_tuple, pencil_spec)
     magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, ic_domain, pencils_tuple, pencil_spec)
@@ -294,7 +294,7 @@ function initialize_master_simulation(::Type{T}=Float64;
     # Create compositional field if requested
     composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
     
-    # Initialize unified ultra-parallelization system
+    # Initialize unified master parallelization system
     master_parallelizer = create_master_parallelizer(T, shtns_config)
     
     if rank == 0
@@ -316,7 +316,7 @@ function initialize_master_simulation(::Type{T}=Float64;
         println("Unified system: ALL components integrated")
     end
     
-    # Initialize timestepping with ultra-optimized matrices
+    # Initialize timestepping with advanced matrices
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
     
     # Create implicit matrices for each equation
@@ -464,7 +464,7 @@ function run_enhanced_simulation!(state::EnhancedSimulationState{T}) where T
     end
     
     # Initialize fields with perturbations
-    initialize_optimized_fields!(state)
+    initialize_enhanced_fields!(state)
     
     # Create enhanced output configuration
     output_config = create_enhanced_output_config(state)
@@ -625,7 +625,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
     end
     
     # Initialize fields with perturbations
-    initialize_ultra_optimized_fields!(state)
+    initialize_master_fields!(state)
     
     # Create enhanced output configuration
     output_config = create_enhanced_output_config(state)
