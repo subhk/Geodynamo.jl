@@ -101,8 +101,9 @@ module Geodynamo
     export create_hybrid_parallelizer, hybrid_compute_nonlinear!
     export async_write_fields!, analyze_parallel_performance
 
-    # exports optimized_simulation.jl
+    # exports simulation.jl (includes both basic and optimized simulation)
     export OptimizedSimulationState, initialize_optimized_simulation, run_optimized_simulation!
+    export run_optimized_geodynamo_simulation
 
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
@@ -125,7 +126,6 @@ module Geodynamo
     include("compositional.jl")
     include("outputs_writer.jl")
     include("parallel_optimizations.jl")
-    include("optimized_simulation.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
 
