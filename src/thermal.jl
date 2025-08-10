@@ -1,5 +1,5 @@
 # ===============================================================
-# Temperature  field components with optimized SHTns transforms
+# Temperature  field components with enhanced SHTns transforms
 # ===============================================================
 # For uniform heating from below (l=0, m=0 mode has flux BC)
 # Other modes have fixed temperature

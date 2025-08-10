@@ -44,7 +44,7 @@ end
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
                                       oc_domain::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
-    # Use optimized pencil topology from config if not provided
+    # Use enhanced pencil topology from config if not provided
     if pencils === nothing
         pencils = create_pencil_topology(config, optimize=true)
     end
@@ -88,7 +88,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     d2r_matrix = create_derivative_matrix(2, oc_domain)
     laplacian_matrix = create_radial_laplacian(oc_domain)
     
-    # Create optimized transform manager with full config integration
+    # Create enhanced transform manager with full config integration
     transform_manager = get_transform_manager(T, config)
     
     # Create transpose plans for efficient data movement
@@ -114,7 +114,7 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     # Zero work arrays once
     zero_velocity_work_arrays!(fields)
     
-    # Step 1: Use optimized vector synthesis with automatic transpose handling
+    # Step 1: Use enhanced vector synthesis with automatic transpose handling
     shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
@@ -123,17 +123,17 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     # Step 3: Transform vorticity to physical space with batched operations
     shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
-    # Step 4: Compute all nonlinear terms with optimized memory access patterns
+    # Step 4: Compute all nonlinear terms with enhanced memory access patterns
     compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)
     
-    # Step 5: Use optimized vector analysis with efficient data layout
+    # Step 5: Use enhanced vector analysis with efficient data layout
     shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
 end
 
 
 
 # =================================================
-# Enhanced vorticity computation with optimized derivatives
+# Enhanced vorticity computation with enhanced derivatives
 # =================================================
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
                                          domain::RadialDomain) where T
@@ -142,7 +142,7 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol
     # ω_pol = -l(l+1)/r² u_tor
     
-    # Get local data views with optimized memory access
+    # Get local data views with enhanced memory access
     u_tor_real = parent(fields.toroidal.data_real)
     u_tor_imag = parent(fields.toroidal.data_imag)
     u_pol_real = parent(fields.poloidal.data_real)
@@ -153,7 +153,7 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     ω_pol_real = parent(fields.vort_poloidal.data_real)
     ω_pol_imag = parent(fields.vort_poloidal.data_imag)
     
-    # Use optimized range functions from pencil decomposition
+    # Use enhanced range functions from pencil decomposition
     config = fields.toroidal.config
     
     # Get local ranges using pencil topology
@@ -211,7 +211,7 @@ end
 function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
-    # Compute all forces in a single optimized loop
+    # Compute all forces in a single enhanced loop
     
     # Get all data views
     vel_r = parent(fields.velocity.r_component.data)
@@ -232,10 +232,10 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     nlat = config.nlat
     nlon = config.nlon
     
-    # Use pencil ranges for optimized loop bounds
+    # Use pencil ranges for enhanced loop bounds
     r_range = range_local(config.pencils.r, 3)
     
-    # Main fused computation loop with optimized indexing
+    # Main fused computation loop with enhanced indexing
     @inbounds for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
@@ -384,7 +384,7 @@ function add_lorentz_force!(fields::SHTnsVelocityFields{T},
     # Step 1: Use pre-computed current density from magnetic field
     # Leverage shared memory access patterns for efficiency
     
-    # Step 2: Compute j × B with optimized vectorization
+    # Step 2: Compute j × B with enhanced vectorization
     j_r = parent(mag_field.current.r_component.data)
     j_θ = parent(mag_field.current.θ_component.data)
     j_φ = parent(mag_field.current.φ_component.data)

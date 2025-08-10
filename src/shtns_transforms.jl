@@ -15,7 +15,7 @@ struct SHTnsTransformManager{T}
     vt_work::Matrix{ComplexF64}
     vp_work::Matrix{ComplexF64}
     
-    # Communication buffers (optimized)
+    # Communication buffers (enhanced)
     send_buffer::Vector{ComplexF64}
     recv_buffer::Vector{ComplexF64}
     
@@ -38,7 +38,7 @@ end
 """
     create_transform_manager(::Type{T}, config::SHTnsConfig) where T
     
-Create optimized transform manager using config's pencil information.
+Create enhanced transform manager using config's pencil information.
 """
 function create_transform_manager(::Type{T}, config::SHTnsConfig) where T
     nlm  = config.nlm
@@ -152,7 +152,7 @@ function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T},
     r_range = range_local(config.pencils.r, 3)
     lm_range = range_local(config.pencils.spec, 1)
     
-    # Process radial levels with optimized communication
+    # Process radial levels with enhanced communication
     if manager.comm_pattern == :allreduce
         process_radial_levels_allreduce!(sht, spec_real, spec_imag, phys_data,
                                         r_range, lm_range, manager)
@@ -393,7 +393,7 @@ function shtns_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
     r_range  = range_local(config.pencils.r, 3)
     lm_range = range_local(config.pencils.spec, 1)
     
-    # Process with optimized communication
+    # Process with enhanced communication
     process_vector_synthesis!(sht, tor_real, tor_imag, 
                                        pol_real, pol_imag,
                                        v_theta, v_phi, 
@@ -519,7 +519,7 @@ function shtns_vector_analysis!(vec_phys::SHTnsVectorField{T},
     r_range  = range_local(config.pencils.r, 3)
     lm_range = range_local(config.pencils.spec, 1)
     
-    # Process with optimized work arrays
+    # Process with enhanced work arrays
     process_vector_analysis!(sht, v_theta, v_phi,
                                       tor_real, tor_imag, pol_real, pol_imag,
                                       r_range, lm_range, manager, config)
@@ -556,7 +556,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
             tor_coeffs, pol_coeffs = vector_analysis(sht, vt_work, vp_work)
             
             # Store with reality constraints
-            store_vector_spectral_optimized!(tor_real, tor_imag, pol_real, pol_imag,
+            store_vector_spectral_enhanced!(tor_real, tor_imag, pol_real, pol_imag,
                                             tor_coeffs, pol_coeffs, 
                                             local_r, lm_range, config)
         end
@@ -675,7 +675,7 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
-            fill_coefficients_optimized!(manager.coeffs_full, spec_real, spec_imag,
+            fill_coefficients_enhanced!(manager.coeffs_full, spec_real, spec_imag,
                                         local_r, lm_range)
             
             # Communication

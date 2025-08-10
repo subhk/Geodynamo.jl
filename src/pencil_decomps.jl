@@ -116,7 +116,7 @@ end
 """
     create_pencil_topology(shtns_config::SHTnsConfig; optimize=true)
     
-Create optimized pencil decomposition for SHTns grids.
+Create enhanced pencil decomposition for SHTns grids.
 Supports both 1D and 2D decompositions with automatic optimization.
 """
 function create_pencil_topology(shtns_config::SHTnsConfig; optimize::Bool=true)
@@ -180,7 +180,7 @@ function create_computation_pencils(topology::PencilArrays.Topology,
     spec_dims = (config.nlm, 1, nr)
     pencil_spec = Pencil(topology, spec_dims, (2,))  # Decomposed only in dummy dimension
     
-    # Create optimized pencil for mixed operations
+    # Create enhanced pencil for mixed operations
     # This is useful for operations that need both spectral and physical access
     mixed_dims = (config.nlm, config.nlat, nr)
     pencil_mixed = Pencil(topology, mixed_dims, (2,))
@@ -199,7 +199,7 @@ end
 """
     create_transpose_plans(pencils)
     
-Create optimized transpose plans between pencil orientations.
+Create enhanced transpose plans between pencil orientations.
 Includes caching and communication optimization.
 """
 function create_transpose_plans(pencils)
@@ -495,7 +495,7 @@ end
 # # Enable timing for performance analysis
 # ENABLE_TIMING[] = true
 
-# # Create optimized pencil topology
+# # Create enhanced pencil topology
 # pencils = create_pencil_topology(shtns_config, optimize=true)
 
 # # Analyze load balance

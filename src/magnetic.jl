@@ -55,7 +55,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
                                       domain_ic::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
 
-    # Use optimized pencil topology from config if not provided
+    # Use enhanced pencil topology from config if not provided
     if pencils === nothing
         pencils = create_pencil_topology(config, optimize=true)
     end
@@ -91,7 +91,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
-    # Create optimized transform manager with full config integration
+    # Create enhanced transform manager with full config integration
     transform_manager = get_transform_manager(T, config)
     
     # Create transpose plans for efficient data movement
@@ -111,14 +111,14 @@ end
 
 
 # ========================================================
-# Main nonlinear computation using optimized transforms
+# Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T}, 
                                     vel_fields, rotation_rate) where T
     # Zero work arrays
     zero_magnetic_work_arrays!(mag_fields)
     
-    # Step 1: Convert spectral B to physical space using optimized transforms
+    # Step 1: Convert spectral B to physical space using enhanced transforms
     shtns_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal, 
                             mag_fields.magnetic)
     
@@ -260,7 +260,7 @@ end
 
 
 function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
-    # Compute u × B in physical space with optimized memory access
+    # Compute u × B in physical space with enhanced memory access
     
     # Get local data views
     u_r = parent(vel_fields.velocity.r_component.data)
@@ -276,7 +276,7 @@ function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, ve
     uxB_θ = parent(mag_fields.induction_physical.θ_component.data)
     uxB_φ = parent(mag_fields.induction_physical.φ_component.data)
     
-    # Get configuration for optimized access patterns
+    # Get configuration for enhanced access patterns
     config = mag_fields.magnetic.r_component.config
     
     # Compute cross product with vectorization
@@ -584,7 +584,7 @@ end
 """
     compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
     
-Compute magnetic helicity using optimized spectral integration
+Compute magnetic helicity using enhanced spectral integration
 """
 function compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
     # Compute helicity H = ∫ A · B dV in spectral space

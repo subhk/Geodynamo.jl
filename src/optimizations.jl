@@ -145,7 +145,7 @@ struct SIMDOptimizer{T}
     alignment_bytes::Int
     prefetch_distance::Int
     
-    # Optimized kernels for different operations
+    # Specialized kernels for different operations
     gradient_kernel::Function
     advection_kernel::Function
     diffusion_kernel::Function
@@ -1076,21 +1076,21 @@ end
 """
     compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
     
-Enhanced CPU-optimized computation with SIMD, NUMA, and task-based parallelism.
+Advanced CPU computation with SIMD, NUMA, and task-based parallelism.
 """
 function compute_nonlinear!(parallelizer::CPUParallelizer{T},
                                     temp_field, vel_fields, domain) where T
     
     start_time = time()
     
-    # Stage 1: SIMD-optimized gradient computation with NUMA awareness
+    # Stage 1: SIMD gradient computation with NUMA awareness
     gradient_start = time()
-    compute_gradients_ultra!(parallelizer, temp_field, domain)
+    compute_gradients_advanced!(parallelizer, temp_field, domain)
     gradient_time = time() - gradient_start
     
     # Stage 2: Task-based advection computation
     advection_start = time()
-    compute_advection_ultra!(parallelizer, temp_field, vel_fields, domain)
+    compute_advection_advanced!(parallelizer, temp_field, vel_fields, domain)
     advection_time = time() - advection_start
     
     total_time = time() - start_time
@@ -1099,7 +1099,7 @@ function compute_nonlinear!(parallelizer::CPUParallelizer{T},
     update_cpu_performance_metrics!(parallelizer, gradient_time, advection_time, total_time)
 end
 
-function compute_gradients_ultra!(parallelizer::EnhancedCPUParallelizer{T}, 
+function compute_gradients_advanced!(parallelizer::CPUParallelizer{T}, 
                                  temp_field, domain) where T
     # Create task graph for parallel gradient computation
     task_graph = create_task_graph()
@@ -1134,10 +1134,10 @@ function compute_gradients_ultra!(parallelizer::EnhancedCPUParallelizer{T},
     execute_task_graph!(task_graph, thread_mgr)
 end
 
-function compute_advection_ultra!(parallelizer::EnhancedCPUParallelizer{T},
+function compute_advection_advanced!(parallelizer::CPUParallelizer{T},
                                  temp_field, vel_fields, domain) where T
     
-    # Use SIMD-optimized advection kernel
+    # Use SIMD advection kernel
     simd_opt = parallelizer.simd_optimizer
     
     # Get field data
@@ -1152,7 +1152,7 @@ function compute_advection_ultra!(parallelizer::EnhancedCPUParallelizer{T},
 end
 
 function compute_gradient_slice_simd!(temp_field, r_range, domain, simd_opt, memory_opt)
-    # SIMD-optimized gradient computation for a radial slice
+    # SIMD gradient computation for a radial slice
     for r_idx in r_range
         # Use SIMD gradient kernel
         field_slice = view(parent(temp_field.temperature.data), :, :, r_idx)
@@ -1171,7 +1171,7 @@ function compute_gradient_slice_simd!(temp_field, r_range, domain, simd_opt, mem
     end
 end
 
-function update_cpu_performance_metrics!(parallelizer::EnhancedCPUParallelizer, 
+function update_cpu_performance_metrics!(parallelizer::CPUParallelizer, 
                                        gradient_time, advection_time, total_time)
     # Update computation times
     if !haskey(parallelizer.computation_times, :gradient)
@@ -1188,7 +1188,7 @@ function update_cpu_performance_metrics!(parallelizer::EnhancedCPUParallelizer,
     update_cpu_efficiency_metrics!(parallelizer)
 end
 
-function update_cpu_efficiency_metrics!(parallelizer::EnhancedCPUParallelizer)
+function update_cpu_efficiency_metrics!(parallelizer::CPUParallelizer)
     # Calculate thread efficiency
     thread_mgr = parallelizer.thread_manager
     total_utilization = sum(thread_mgr.thread_utilization)
@@ -1238,11 +1238,11 @@ generate_optimization_recommendations!(monitor) = nothing
 
 export AdvancedThreadManager, ThreadingAccelerator, SIMDOptimizer, TaskGraph, MemoryOptimizer
 export AsyncCommManager, DynamicLoadBalancer, ParallelIOOptimizer, PerformanceMonitor
-export HybridParallelizer, EnhancedCPUParallelizer, UltraParallelizer
+export HybridParallelizer, CPUParallelizer, MasterParallelizer
 export create_advanced_thread_manager, create_threading_accelerator, create_simd_optimizer
 export create_task_graph, create_memory_optimizer, create_async_comm_manager
 export create_dynamic_load_balancer, create_parallel_io_optimizer, create_performance_monitor
-export create_hybrid_parallelizer, create_enhanced_cpu_parallelizer, create_ultra_parallelizer
+export create_hybrid_parallelizer, create_cpu_parallelizer, create_master_parallelizer
 export hybrid_compute_nonlinear!, compute_nonlinear!, add_task!, execute_task_graph!
 export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
 export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!

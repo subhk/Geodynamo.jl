@@ -1,5 +1,5 @@
 # ============================================================================
-# Main Simulation Driver with SHTns (Basic + Optimized Parallelization)
+# Main Simulation Driver with SHTns (Basic + Enhanced Parallelization)
 # ============================================================================
 
 using MPI
@@ -193,7 +193,7 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
         println("="^80)
     end
     
-    # Create SHTns configuration with optimized topology
+    # Create SHTns configuration with enhanced topology
     shtns_config = create_shtns_config(optimize_decomp=true, enable_timing=true)
     
     # Initialize enhanced pencil decomposition
@@ -204,7 +204,7 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     oc_domain = create_radial_domain(i_N)
     ic_domain = create_radial_domain(i_Nic)
     
-    # Create field variables with optimized memory layout
+    # Create field variables with enhanced memory layout
     pencils_tuple = (pencils.θ, pencils.φ, pencils.r)
     velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils_tuple, pencil_spec)
     magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, ic_domain, pencils_tuple, pencil_spec)
@@ -217,7 +217,7 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     hybrid_parallelizer = create_hybrid_parallelizer(T, shtns_config)
     performance_monitor = create_performance_monitor()
     
-    # Initialize timestepping with optimized matrices
+    # Initialize timestepping with enhanced matrices
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
     
     # Create implicit matrices for each equation
@@ -483,7 +483,7 @@ function run_enhanced_simulation!(state::EnhancedSimulationState{T}) where T
         step += 1
         step_start = MPI.Wtime()
         
-        # === OPTIMIZED PHYSICS COMPUTATION ===
+        # === ENHANCED PHYSICS COMPUTATION ===
         
         # 1. Hybrid nonlinear computation (MPI + Threads)
         compute_start = MPI.Wtime()
@@ -509,10 +509,10 @@ function run_enhanced_simulation!(state::EnhancedSimulationState{T}) where T
         
         compute_time = MPI.Wtime() - compute_start
         
-        # 2. Optimized time integration
+        # 2. Enhanced time integration
         integrate_start = MPI.Wtime()
         
-        # Apply implicit time integration with optimized solvers
+        # Apply implicit time integration with enhanced solvers
         apply_enhanced_implicit_step!(state, dt)
         
         integrate_time = MPI.Wtime() - integrate_start
@@ -687,7 +687,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         
         if should_output_now(time_tracker, simulation_time, output_config)
             # Prepare fields for output with optimal memory layout
-            fields = extract_all_fields_optimized(state)
+            fields = extract_all_fields_enhanced(state)
             metadata = create_enhanced_metadata(state, simulation_time, step)
             
             # Asynchronous write with NUMA-aware I/O
@@ -763,7 +763,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
     
     total_time = MPI.Wtime() - total_start
     
-    # Final ultra-detailed performance analysis
+    # Final detailed performance analysis
     if rank == 0
         analyze_master_performance(state)
         
@@ -775,13 +775,13 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         println("Total wall time: $(round(total_time, digits=2)) seconds")
         println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
         
-        # Ultra-detailed efficiency metrics
+        # Detailed efficiency metrics
         parallel_efficiency = get_parallel_efficiency(state.master_parallelizer.performance_monitor)
         cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
         cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
         memory_bandwidth = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
         
-        println("\n📊 ULTRA-PERFORMANCE METRICS:")
+        println("\n📊 PERFORMANCE METRICS:")
         println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
         println("  CPU thread efficiency: $(round(cpu_efficiency*100, digits=1))%")
         println("  Cache hit rate: $(round(cache_efficiency*100, digits=1))%")
@@ -1041,10 +1041,10 @@ end
 """
     apply_enhanced_implicit_step!(state, dt)
     
-Apply optimized implicit time integration with advanced solvers.
+Apply enhanced implicit time integration with advanced solvers.
 """
 function apply_enhanced_implicit_step!(state::EnhancedSimulationState{T}, dt::Float64) where T
-    # Use optimized sparse solvers with preconditioning
+    # Use enhanced sparse solvers with preconditioning
     # This would integrate with advanced linear algebra libraries
     
     # Temperature
@@ -1075,16 +1075,16 @@ end
 """
     create_enhanced_output_config(state)
     
-Create output configuration with optimized I/O settings.
+Create output configuration with enhanced I/O settings.
 """
 function create_enhanced_output_config(state::EnhancedSimulationState{T}) where T
     base_config = default_config()
     
-    # Enhanced configuration for optimized I/O
+    # Enhanced configuration for improved I/O
     return OutputConfig(
         MIXED_FIELDS,           # Use mixed field output for optimal storage
         RANK_TIME,              # Rank-based naming for parallel I/O
-        "./optimized_output",   # Output directory
+        "./enhanced_output",   # Output directory
         "geodynamo_opt",        # Filename prefix
         9,                      # Maximum compression for storage efficiency
         true, true, true,       # Full metadata, grid, diagnostics
@@ -1099,16 +1099,16 @@ function create_enhanced_output_config(state::EnhancedSimulationState{T}) where 
 end
 
 # Helper functions (simplified implementations)
-initialize_optimized_fields!(state) = initialize_fields!(state)
-initialize_ultra_optimized_fields!(state) = initialize_fields!(state)
+initialize_enhanced_fields!(state) = initialize_fields!(state)
+initialize_master_fields!(state) = initialize_fields!(state)
 extract_all_fields(state) = Dict("temperature" => rand(32, 64, 20))
-extract_all_fields_optimized(state) = extract_all_fields(state)
+extract_all_fields_enhanced(state) = extract_all_fields(state)
 create_enhanced_metadata(state, time, step) = Dict("current_time" => time, "current_step" => step)
 update_performance_metrics!(monitor, step, compute_time, integrate_time, io_time) = nothing
 auto_tune_parameters!(state) = nothing
-auto_tune_parameters_ultra!(state) = auto_tune_parameters!(state)
+auto_tune_parameters_master!(state) = auto_tune_parameters!(state)
 compute_adaptive_timestep(state, dt) = dt
-compute_adaptive_timestep_ultra(state, dt) = compute_adaptive_timestep(state, dt)
+compute_adaptive_timestep_master(state, dt) = compute_adaptive_timestep(state, dt)
 get_parallel_efficiency(monitor) = 0.85
 get_thread_utilization(threading) = 0.92
 finalize_enhanced_simulation!(state) = nothing
@@ -1116,19 +1116,19 @@ finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
 generate_filename(config, time, step, rank) = "output_$(rank)_$(step).h5"
 update_tracker!(tracker, time, config, output, restart) = nothing
 
-# Ultra-optimized computation functions
-function compute_velocity_nonlinear_ultra!(state, magnetic, temperature, domain)
+# Advanced computation functions
+function compute_velocity_nonlinear_master!(state, magnetic, temperature, domain)
     # Use enhanced CPU parallelization for velocity computation
     compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
 end
 
-function compute_magnetic_nonlinear_ultra!(state, velocity, oc_domain, ic_domain)
-    # Use SIMD-optimized magnetic field computation
+function compute_magnetic_nonlinear_master!(state, velocity, oc_domain, ic_domain)
+    # Use SIMD magnetic field computation
     compute_magnetic_nonlinear!(state.magnetic, velocity, oc_domain, ic_domain)
 end
 
-function compute_composition_nonlinear_ultra!(state, velocity, domain)
-    # Use memory-optimized compositional computation
+function compute_composition_nonlinear_master!(state, velocity, domain)
+    # Use memory-efficient compositional computation
     if state.composition !== nothing
         compute_composition_nonlinear!(state.composition, velocity, domain)
     end
@@ -1202,14 +1202,14 @@ function analyze_master_performance(state::MasterSimulationState)
 end
 
 function create_master_output_config(state::MasterSimulationState{T}) where T
-    # Reuse the existing optimized output config
+    # Reuse the existing enhanced output config
     base_config = default_config()
     
     return OutputConfig(
         MIXED_FIELDS,           # Use mixed field output for optimal storage
         RANK_TIME,              # Rank-based naming for parallel I/O
-        "./ultra_optimized_output",   # Output directory
-        "geodynamo_ultra",      # Filename prefix
+        "./master_output",   # Output directory
+        "geodynamo_master",      # Filename prefix
         9,                      # Maximum compression for storage efficiency
         true, true, true,       # Full metadata, grid, diagnostics
         Float32,                # Single precision for storage efficiency

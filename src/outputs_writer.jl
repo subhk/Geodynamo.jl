@@ -455,11 +455,11 @@ end
 
 function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConfig, 
                           field_info::FieldInfo=FieldInfo())
-    # Write temperature (physical space) with optimized memory access
+    # Write temperature (physical space) with enhanced memory access
     if haskey(fields, "temperature") && NetCDF.varid(nc_file, "temperature") != -1
         T_data = fields["temperature"]
         
-        # Use optimized data copying for large arrays
+        # Use enhanced data copying for large arrays
         if length(T_data) > 10000
             data_out = similar(T_data, config.output_precision)
             copyto!(data_out, T_data)
@@ -470,11 +470,11 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
         NetCDF.putvar(nc_file, "temperature", data_out)
     end
     
-    # Write composition (physical space) with optimized memory access
+    # Write composition (physical space) with enhanced memory access
     if haskey(fields, "composition") && NetCDF.varid(nc_file, "composition") != -1
         C_data = fields["composition"]
         
-        # Use optimized data copying for large arrays
+        # Use enhanced data copying for large arrays
         if length(C_data) > 10000
             data_out = similar(C_data, config.output_precision)
             copyto!(data_out, C_data)
@@ -494,7 +494,7 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
                 imag_name = "$(component)_imag"
                 
                 if NetCDF.varid(nc_file, real_name) != -1 && NetCDF.varid(nc_file, imag_name) != -1
-                    # Handle 3D arrays (nlm, 1, nr) -> (nlm, nr) with optimized processing
+                    # Handle 3D arrays (nlm, 1, nr) -> (nlm, nr) with enhanced processing
                     real_data = field_data["real"]
                     imag_data = field_data["imag"]
                     
@@ -503,7 +503,7 @@ function write_field_data!(nc_file, fields::Dict{String,Any}, config::OutputConf
                         imag_data = imag_data[:, 1, :]
                     end
                     
-                    # Use optimized conversion for large spectral arrays
+                    # Use enhanced conversion for large spectral arrays
                     if length(real_data) > 5000
                         real_out = similar(real_data, config.output_precision)
                         imag_out = similar(imag_data, config.output_precision)
@@ -630,8 +630,8 @@ function batch_write_spectral_fields!(nc_file, fields::Dict{String,Any},
             field_data = fields[component]
             if haskey(field_data, "real") && haskey(field_data, "imag")
                 # Process data layout optimization
-                optimized_data = optimize_field_data_layout!(field_data, field_info)
-                batch_data[component] = optimized_data
+                enhanced_data = optimize_field_data_layout!(field_data, field_info)
+                batch_data[component] = enhanced_data
             end
         end
         
@@ -651,7 +651,7 @@ end
 """
     write_single_spectral_component!(nc_file, component, field_data, config)
     
-Write a single spectral component with optimized memory handling
+Write a single spectral component with enhanced memory handling
 """
 function write_single_spectral_component!(nc_file, component::String, field_data::Dict, 
                                          config::OutputConfig)

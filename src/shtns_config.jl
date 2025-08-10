@@ -29,7 +29,7 @@ end
 """
     create_shtns_config(; optimize_decomp=true, enable_timing=false)
     
-Create SHTns configuration with optimized parallel decomposition.
+Create SHTns configuration with enhanced parallel decomposition.
 """
 function create_shtns_config(; optimize_decomp::Bool=true, 
                             enable_timing::Bool=false)
@@ -73,7 +73,7 @@ function create_shtns_config(; optimize_decomp::Bool=true,
         end
     end
     
-    # Create optimized pencil decomposition
+    # Create enhanced pencil decomposition
     if enable_timing
         ENABLE_TIMING[] = true
     end
@@ -215,7 +215,7 @@ end
 """
     create_shtns_pencils(topology, dims, config)
     
-Create pencils optimized for SHTns operations.
+Create pencils enhanced for SHTns operations.
 """
 function create_shtns_pencils(topology::PencilArrays.Topology, 
                             dims::Tuple{Int,Int,Int}, 
@@ -232,7 +232,7 @@ function create_shtns_pencils(topology::PencilArrays.Topology,
     pencil_spec = Pencil(topology, spec_dims, (2,))
     
     # Hybrid pencil for SHTns transforms
-    # This is optimized for the synthesis/analysis operations
+    # This is enhanced for the synthesis/analysis operations
     hybrid_dims = (max(nlat, config.nlm), nlon, nr)
     pencil_hybrid = Pencil(topology, hybrid_dims, (2, 3))
     
@@ -301,7 +301,7 @@ end
 Print configuration summary.
 """
 function print_shtns_config_summary(nlat, nlon, lmax, mmax, nlm, 
-                                   nprocs, mem_str, optimized)
+                                   nprocs, mem_str, enhanced)
     println("\n╔═══════════════════════════════════════════════════════╗")
     println("║         SHTns Configuration Summary                    ║")
     println("╠═══════════════════════════════════════════════════════╣")
@@ -312,7 +312,7 @@ function print_shtns_config_summary(nlat, nlon, lmax, mmax, nlm,
     println("║                                                        ║")
     println("║ Parallel Configuration:                                ║")
     println("║   MPI Processes:    $(lpad(nprocs,4))                               ║")
-    println("║   Decomposition:    $(optimized ? "Optimized" : "Default  ")                          ║")
+    println("║   Decomposition:    $(enhanced ? "Enhanced" : "Default  ")                          ║")
     println("║   Memory/process:   $(lpad(mem_str,10))                     ║")
     println("╚═══════════════════════════════════════════════════════╝")
 end
