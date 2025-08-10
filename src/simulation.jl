@@ -37,15 +37,15 @@ struct SHTnsSimulationState{T}
 end
 
 # ============================================================================
-# OPTIMIZED SIMULATION STRUCTURES
+# ENHANCED SIMULATION STRUCTURES
 # ============================================================================
 
 """
-    OptimizedSimulationState{T}
+    EnhancedSimulationState{T}
     
 Enhanced simulation state with advanced parallelization features.
 """
-struct OptimizedSimulationState{T}
+struct EnhancedSimulationState{T}
     # Original components
     velocity::SHTnsVelocityFields{T}
     magnetic::SHTnsMagneticFields{T}
@@ -71,11 +71,11 @@ struct OptimizedSimulationState{T}
 end
 
 """
-    UltraOptimizedSimulationState{T}
+    MasterSimulationState{T}
     
-Ultra-high performance simulation state with unified parallelization system.
+High-performance simulation state with unified parallelization system.
 """
-struct UltraOptimizedSimulationState{T}
+struct MasterSimulationState{T}
     # Original components
     velocity::SHTnsVelocityFields{T}
     magnetic::SHTnsMagneticFields{T}
@@ -88,7 +88,7 @@ struct UltraOptimizedSimulationState{T}
     ic_domain::RadialDomain
     
     # Unified ultra-parallelization system
-    ultra_parallelizer::UltraParallelizer{T}
+    master_parallelizer::MasterParallelizer{T}
     
     # Timestepping
     timestep_state::TimestepState
@@ -162,15 +162,15 @@ function initialize_shtns_simulation(::Type{T} = Float64; include_composition::B
 end
 
 # ============================================================================
-# OPTIMIZED SIMULATION INITIALIZATION
+# ENHANCED SIMULATION INITIALIZATION
 # ============================================================================
 
 """
-    initialize_optimized_simulation(::Type{T}=Float64; kwargs...)
+    initialize_enhanced_simulation(::Type{T}=Float64; kwargs...)
     
-Initialize simulation with all parallelization optimizations enabled.
+Initialize simulation with all parallelization features enabled.
 """
-function initialize_optimized_simulation(::Type{T}=Float64; 
+function initialize_enhanced_simulation(::Type{T}=Float64; 
                                         include_composition::Bool=true,
                                         auto_optimize::Bool=true,
                                         thread_count::Int=Threads.nthreads()) where T
@@ -230,7 +230,7 @@ function initialize_optimized_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Sc, d_timestep)
     end
     
-    return OptimizedSimulationState{T}(
+    return EnhancedSimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, oc_domain, ic_domain,
         hybrid_parallelizer, performance_monitor,
@@ -240,15 +240,15 @@ function initialize_optimized_simulation(::Type{T}=Float64;
 end
 
 # ============================================================================
-# ULTRA-OPTIMIZED SIMULATION INITIALIZATION
+# MASTER SIMULATION INITIALIZATION
 # ============================================================================
 
 """
-    initialize_ultra_optimized_simulation(::Type{T}=Float64; kwargs...)
+    initialize_master_simulation(::Type{T}=Float64; kwargs...)
     
-Initialize simulation with maximum CPU parallelization optimizations.
+Initialize simulation with comprehensive CPU parallelization.
 """
-function initialize_ultra_optimized_simulation(::Type{T}=Float64; 
+function initialize_master_simulation(::Type{T}=Float64; 
                                               include_composition::Bool=true,
                                               auto_optimize::Bool=true,
                                               adaptive_threading::Bool=true,
@@ -295,10 +295,10 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
     composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
     
     # Initialize unified ultra-parallelization system
-    ultra_parallelizer = create_ultra_parallelizer(T, shtns_config)
+    master_parallelizer = create_master_parallelizer(T, shtns_config)
     
     if rank == 0
-        cpu_mgr = ultra_parallelizer.cpu_parallelizer.thread_manager
+        cpu_mgr = master_parallelizer.cpu_parallelizer.thread_manager
         println("CPU Topology detected:")
         println("  NUMA nodes: $(cpu_mgr.numa_nodes)")
         println("  Cores per node: $(cpu_mgr.cores_per_node)")
@@ -306,14 +306,14 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
         println("  I/O threads: $(cpu_mgr.io_threads)")
         println("  Communication threads: $(cpu_mgr.comm_threads)")
         
-        simd_opt = ultra_parallelizer.cpu_parallelizer.simd_optimizer
+        simd_opt = master_parallelizer.cpu_parallelizer.simd_optimizer
         println("SIMD Optimization:")
         println("  Vector width: $(simd_opt.vector_width)")
         println("  Memory alignment: $(simd_opt.alignment_bytes) bytes")
         println("  Prefetch distance: $(simd_opt.prefetch_distance) bytes")
         
-        println("MPI Communication: $(ultra_parallelizer.mpi_nprocs) processes")
-        println("Unified optimization: ALL systems integrated")
+        println("MPI Communication: $(master_parallelizer.mpi_nprocs) processes")
+        println("Unified system: ALL components integrated")
     end
     
     # Initialize timestepping with ultra-optimized matrices
@@ -329,10 +329,10 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Sc, d_timestep)
     end
     
-    return UltraOptimizedSimulationState{T}(
+    return MasterSimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, oc_domain, ic_domain,
-        ultra_parallelizer,
+        master_parallelizer,
         timestep_state, implicit_matrices,
         0, auto_optimize, adaptive_threading
     )
@@ -442,21 +442,21 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
 end
 
 # ============================================================================
-# OPTIMIZED SIMULATION RUNNER
+# ENHANCED SIMULATION RUNNER
 # ============================================================================
 
 """
-    run_optimized_simulation!(state::OptimizedSimulationState{T})
+    run_enhanced_simulation!(state::EnhancedSimulationState{T})
     
 Run geodynamo simulation with all parallelization optimizations.
 """
-function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
+function run_enhanced_simulation!(state::EnhancedSimulationState{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
     
     if rank == 0
-        println("\nStarting optimized geodynamo simulation...")
+        println("\nStarting enhanced geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
@@ -467,7 +467,7 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
     initialize_optimized_fields!(state)
     
     # Create enhanced output configuration
-    output_config = create_optimized_output_config(state)
+    output_config = create_enhanced_output_config(state)
     time_tracker = create_time_tracker(output_config)
     
     # Main timestepping loop with optimizations
@@ -513,7 +513,7 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
         integrate_start = MPI.Wtime()
         
         # Apply implicit time integration with optimized solvers
-        apply_optimized_implicit_step!(state, dt)
+        apply_enhanced_implicit_step!(state, dt)
         
         integrate_time = MPI.Wtime() - integrate_start
         
@@ -598,29 +598,29 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
     end
     
     # Cleanup
-    finalize_optimized_simulation!(state)
+    finalize_enhanced_simulation!(state)
 end
 
 # ============================================================================
-# ULTRA-OPTIMIZED SIMULATION RUNNER
+# MASTER SIMULATION RUNNER
 # ============================================================================
 
 """
-    run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T})
+    run_master_simulation!(state::MasterSimulationState{T})
     
 Run geodynamo simulation with maximum CPU parallelization optimizations.
 """
-function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}) where T
+function run_master_simulation!(state::MasterSimulationState{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
     
     if rank == 0
-        println("\n🚀 Starting ULTRA-OPTIMIZED geodynamo simulation...")
+        println("\n🚀 Starting MASTER geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
-        println("CPU optimization level: MAXIMUM (SIMD + NUMA + Task-based)")
+        println("CPU parallelization level: COMPREHENSIVE (SIMD + NUMA + Task-based)")
         println()
     end
     
@@ -628,7 +628,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
     initialize_ultra_optimized_fields!(state)
     
     # Create enhanced output configuration
-    output_config = create_optimized_output_config(state)
+    output_config = create_enhanced_output_config(state)
     time_tracker = create_time_tracker(output_config)
     
     # Main timestepping loop with ultra-optimizations
@@ -654,7 +654,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         compute_start = MPI.Wtime()
         
         # Temperature evolution with maximum CPU optimizations
-        enhanced_compute_nonlinear!(state.ultra_parallelizer.cpu_parallelizer, state.temperature, 
+        compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature, 
                                    state.velocity, state.oc_domain)
         
         # Velocity evolution with task-based parallelism
@@ -678,7 +678,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         integrate_start = MPI.Wtime()
         
         # Apply implicit time integration with ultra-optimized solvers
-        apply_ultra_optimized_implicit_step!(state, dt)
+        apply_master_implicit_step!(state, dt)
         
         integrate_time = MPI.Wtime() - integrate_start
         
@@ -691,15 +691,15 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             metadata = create_enhanced_metadata(state, simulation_time, step)
             
             # Asynchronous write with NUMA-aware I/O
-            async_write_fields!(state.ultra_parallelizer.io_optimizer, fields, 
+            async_write_fields!(state.master_parallelizer.io_optimizer, fields, 
                                generate_filename(output_config, simulation_time, step, rank))
             
             update_tracker!(time_tracker, simulation_time, output_config, true, false)
             
             if rank == 0
-                cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
-                cache_efficiency = state.ultra_parallelizer.cpu_parallelizer.cache_efficiency[]
-                memory_bw = state.ultra_parallelizer.cpu_parallelizer.memory_bandwidth[]
+                cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
+                cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
+                memory_bw = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
                 
                 println("Step $step: t=$(round(simulation_time, digits=4)), " *
                        "compute=$(round(compute_time*1000, digits=1))ms, " *
@@ -717,11 +717,11 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             monitor_start = MPI.Wtime()
             
             # Update performance metrics
-            update_performance_metrics!(state.ultra_parallelizer.performance_monitor, step, 
+            update_performance_metrics!(state.master_parallelizer.performance_monitor, step, 
                                       compute_time, integrate_time, io_time)
             
             # CPU-specific optimizations
-            current_cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
+            current_cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
             push!(thread_efficiency_history, current_cpu_efficiency)
             
             # Adaptive threading adjustment
@@ -733,7 +733,7 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
             end
             
             # Dynamic load balancing with CPU awareness
-            adaptive_rebalance!(state.ultra_parallelizer.load_balancer, state.temperature)
+            adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
             
             # Auto-tuning of parameters with CPU-specific heuristics
             if step % 200 == 0
@@ -765,10 +765,10 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
     
     # Final ultra-detailed performance analysis
     if rank == 0
-        analyze_ultra_performance(state)
+        analyze_master_performance(state)
         
         println("\n" * "="^100)
-        println("         🎉 ULTRA-OPTIMIZED SIMULATION COMPLETED SUCCESSFULLY 🎉")
+        println("         🎉 MASTER SIMULATION COMPLETED SUCCESSFULLY 🎉")
         println("="^100)
         println("Total steps: $step")
         println("Final time: $(round(simulation_time, digits=4))")
@@ -776,10 +776,10 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
         
         # Ultra-detailed efficiency metrics
-        parallel_efficiency = get_parallel_efficiency(state.ultra_parallelizer.performance_monitor)
-        cpu_efficiency = state.ultra_parallelizer.cpu_parallelizer.thread_efficiency[]
-        cache_efficiency = state.ultra_parallelizer.cpu_parallelizer.cache_efficiency[]
-        memory_bandwidth = state.ultra_parallelizer.cpu_parallelizer.memory_bandwidth[]
+        parallel_efficiency = get_parallel_efficiency(state.master_parallelizer.performance_monitor)
+        cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
+        cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
+        memory_bandwidth = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
         
         println("\n📊 ULTRA-PERFORMANCE METRICS:")
         println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
@@ -788,25 +788,25 @@ function run_ultra_optimized_simulation!(state::UltraOptimizedSimulationState{T}
         println("  Memory bandwidth: $(round(memory_bandwidth, digits=2)) GB/s")
         
         # SIMD utilization
-        simd_opt = state.ultra_parallelizer.cpu_parallelizer.simd_optimizer
+        simd_opt = state.master_parallelizer.cpu_parallelizer.simd_optimizer
         println("  SIMD vector width utilized: $(simd_opt.vector_width)")
         println("  Memory alignment: $(simd_opt.alignment_bytes)-byte aligned")
         
         # Thread topology efficiency
-        cpu_mgr = state.ultra_parallelizer.cpu_parallelizer.thread_manager
+        cpu_mgr = state.master_parallelizer.cpu_parallelizer.thread_manager
         avg_thread_util = sum(cpu_mgr.thread_utilization) / length(cpu_mgr.thread_utilization)
         println("  Average thread utilization: $(round(avg_thread_util*100, digits=1))%")
         println("  NUMA nodes utilized: $(cpu_mgr.numa_nodes)")
         
         # MPI efficiency
-        println("  MPI processes: $(state.ultra_parallelizer.mpi_nprocs)")
-        println("  Communication efficiency: $(state.ultra_parallelizer.async_comm.overlap_efficiency[])%")
+        println("  MPI processes: $(state.master_parallelizer.mpi_nprocs)")
+        println("  Communication efficiency: $(state.master_parallelizer.async_comm.overlap_efficiency[])%")
         
         println("="^100)
     end
     
     # Cleanup with memory deallocation
-    finalize_ultra_optimized_simulation!(state)
+    finalize_master_simulation!(state)
 end
 
 # ============================================================================
@@ -1035,15 +1035,15 @@ function update_implicit_matrices!(state::SHTnsSimulationState{T}) where T
 end
 
 # ============================================================================
-# OPTIMIZED SIMULATION HELPER FUNCTIONS
+# ENHANCED SIMULATION HELPER FUNCTIONS
 # ============================================================================
 
 """
-    apply_optimized_implicit_step!(state, dt)
+    apply_enhanced_implicit_step!(state, dt)
     
 Apply optimized implicit time integration with advanced solvers.
 """
-function apply_optimized_implicit_step!(state::OptimizedSimulationState{T}, dt::Float64) where T
+function apply_enhanced_implicit_step!(state::EnhancedSimulationState{T}, dt::Float64) where T
     # Use optimized sparse solvers with preconditioning
     # This would integrate with advanced linear algebra libraries
     
@@ -1073,11 +1073,11 @@ function apply_optimized_implicit_step!(state::OptimizedSimulationState{T}, dt::
 end
 
 """
-    create_optimized_output_config(state)
+    create_enhanced_output_config(state)
     
 Create output configuration with optimized I/O settings.
 """
-function create_optimized_output_config(state::OptimizedSimulationState{T}) where T
+function create_enhanced_output_config(state::EnhancedSimulationState{T}) where T
     base_config = default_config()
     
     # Enhanced configuration for optimized I/O
@@ -1111,15 +1111,15 @@ compute_adaptive_timestep(state, dt) = dt
 compute_adaptive_timestep_ultra(state, dt) = compute_adaptive_timestep(state, dt)
 get_parallel_efficiency(monitor) = 0.85
 get_thread_utilization(threading) = 0.92
-finalize_optimized_simulation!(state) = nothing
-finalize_ultra_optimized_simulation!(state) = finalize_optimized_simulation!(state)
+finalize_enhanced_simulation!(state) = nothing
+finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
 generate_filename(config, time, step, rank) = "output_$(rank)_$(step).h5"
 update_tracker!(tracker, time, config, output, restart) = nothing
 
 # Ultra-optimized computation functions
 function compute_velocity_nonlinear_ultra!(state, magnetic, temperature, domain)
     # Use enhanced CPU parallelization for velocity computation
-    enhanced_compute_nonlinear!(state.ultra_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
+    compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
 end
 
 function compute_magnetic_nonlinear_ultra!(state, velocity, oc_domain, ic_domain)
@@ -1134,7 +1134,7 @@ function compute_composition_nonlinear_ultra!(state, velocity, domain)
     end
 end
 
-function apply_ultra_optimized_implicit_step!(state::UltraOptimizedSimulationState{T}, dt::Float64) where T
+function apply_master_implicit_step!(state::MasterSimulationState{T}, dt::Float64) where T
     # Task-based implicit time integration
     task_graph = create_task_graph()
     
@@ -1169,39 +1169,39 @@ function apply_ultra_optimized_implicit_step!(state::UltraOptimizedSimulationSta
     end
     
     # Execute all implicit solves in parallel
-    execute_task_graph!(task_graph, state.ultra_parallelizer.cpu_parallelizer.thread_manager)
+    execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
 end
 
-function adapt_thread_count!(state::UltraOptimizedSimulationState, efficiency_history::Vector{Float64})
+function adapt_thread_count!(state::MasterSimulationState, efficiency_history::Vector{Float64})
     # Simple adaptive threading - could be more sophisticated
     recent_efficiency = mean(efficiency_history[max(1, end-4):end])
     
     if recent_efficiency < 0.7
         # Efficiency is low, might need fewer threads to reduce overhead
-        return max(1, state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads - 1)
+        return max(1, state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads - 1)
     elseif recent_efficiency > 0.9
         # High efficiency, could potentially use more threads
-        return min(state.ultra_parallelizer.cpu_parallelizer.thread_manager.total_threads, 
-                  state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads + 1)
+        return min(state.master_parallelizer.cpu_parallelizer.thread_manager.total_threads, 
+                  state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads + 1)
     else
-        return state.ultra_parallelizer.cpu_parallelizer.thread_manager.compute_threads
+        return state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads
     end
 end
 
-function optimize_memory_usage!(state::UltraOptimizedSimulationState)
+function optimize_memory_usage!(state::MasterSimulationState)
     # Optimize memory layout and garbage collection
     # This would implement more sophisticated memory optimization in practice
     GC.gc()  # Force garbage collection to free unused memory
 end
 
-function analyze_ultra_performance(state::UltraOptimizedSimulationState)
-    # Comprehensive performance analysis for ultra-optimized simulation
-    analyze_parallel_performance(state.ultra_parallelizer.performance_monitor)
+function analyze_master_performance(state::MasterSimulationState)
+    # Comprehensive performance analysis for master simulation
+    analyze_parallel_performance(state.master_parallelizer.performance_monitor)
     
     # Additional CPU-specific analysis would go here
 end
 
-function create_optimized_output_config(state::UltraOptimizedSimulationState{T}) where T
+function create_master_output_config(state::MasterSimulationState{T}) where T
     # Reuse the existing optimized output config
     base_config = default_config()
     
@@ -1233,17 +1233,17 @@ function run_shtns_geodynamo_simulation()
     MPI.Finalize()
 end
 
-# Main entry point for optimized simulation
-function run_optimized_geodynamo_simulation()
-    state = initialize_optimized_simulation(Float64)
-    run_optimized_simulation!(state)
+# Main entry point for enhanced simulation
+function run_enhanced_geodynamo_simulation()
+    state = initialize_enhanced_simulation(Float64)
+    run_enhanced_simulation!(state)
     MPI.Finalize()
 end
 
-# Main entry point for ultra-optimized simulation
-function run_ultra_optimized_geodynamo_simulation()
-    state = initialize_ultra_optimized_simulation(Float64)
-    run_ultra_optimized_simulation!(state)
+# Main entry point for master simulation
+function run_master_geodynamo_simulation()
+    state = initialize_master_simulation(Float64)
+    run_master_simulation!(state)
     MPI.Finalize()
 end
 
