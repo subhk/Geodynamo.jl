@@ -133,8 +133,7 @@ module Geodynamo
     include("thermal.jl")
     include("compositional.jl")
     include("outputs_writer.jl")
-    include("parallel_optimizations.jl")
-    include("advanced_cpu_parallelization.jl")
+    include("optimizations.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
 
