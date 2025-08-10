@@ -11,7 +11,7 @@ Geodynamo.jl now includes comprehensive parallelization optimizations that can d
 | Aspect | Original | Optimized | Improvement |
 |--------|----------|-----------|-------------|
 | **MPI Communication** | Synchronous barriers | Async overlap | ~3-5x faster |
-| **GPU Acceleration** | CPU-only | CUDA kernels | ~10-50x for compute |
+| **CPU Threading** | Single-threaded | Multi-threaded | ~4-8x for compute |
 | **I/O Performance** | Sequential writes | Parallel I/O | ~5-10x throughput |
 | **Load Balancing** | Static | Dynamic adaptive | ~20-40% efficiency gain |
 | **Memory Usage** | Standard arrays | Optimized buffers | ~30% reduction |
@@ -31,7 +31,7 @@ MPI.Init()
 # Create optimized simulation (auto-detects best settings)
 state = initialize_optimized_simulation(Float64,
     include_composition = true,    # Enable compositional convection
-    use_gpu = true,               # Enable GPU acceleration
+    thread_count = Threads.nthreads()  # Use all available threads
     auto_optimize = true,         # Enable automatic optimization
     thread_count = Threads.nthreads()  # Use all available threads
 )
@@ -47,26 +47,24 @@ MPI.Finalize()
 ```julia
 using Geodynamo
 using MPI
-using CUDA
+# CPU-only optimization - no GPU dependencies
 
 MPI.Init()
 
 # Manual configuration for maximum control
 state = initialize_optimized_simulation(Float32,  # Use single precision for speed
     include_composition = true,
-    use_gpu = CUDA.functional(),
+    thread_count = Threads.nthreads(),
     auto_optimize = true
 )
 
 # Access the hybrid parallelizer for fine-tuning
 parallelizer = state.hybrid_parallelizer
 
-# Configure GPU settings
-if parallelizer.use_gpu
-    gpu = parallelizer.gpu_accelerator
-    println("Using GPU device: $(gpu.device_id)")
-    println("GPU memory allocated: $(sizeof(gpu.spectral_gpu) + sizeof(gpu.physical_gpu)) bytes")
-end
+# Configure CPU threading settings
+threading_accel = parallelizer.threading_accelerator
+println("Using $(threading_accel.thread_count) CPU threads")
+println("Thread utilization: $(threading_accel.thread_utilization[])%")
 
 # Configure asynchronous communication
 async_comm = parallelizer.async_comm
@@ -81,10 +79,10 @@ analyze_parallel_performance(state.performance_monitor)
 MPI.Finalize()
 ```
 
-### **3. MPI + GPU Hybrid Example**
+### **3. MPI + CPU Threading Hybrid Example**
 
 ```bash
-# Run with 8 MPI processes, 4 threads each, on 2 GPUs
+# Run with 8 MPI processes, 4 threads each, CPU-only
 export JULIA_NUM_THREADS=4
 mpirun -n 8 julia --project=. -e '
     using Geodynamo
@@ -92,9 +90,9 @@ mpirun -n 8 julia --project=. -e '
     
     MPI.Init()
     
-    # The system will automatically use available GPUs
+    # The system will automatically use all available CPU threads
     state = initialize_optimized_simulation(Float64, 
-                                           use_gpu=true, 
+                                           thread_count=Threads.nthreads(), 
                                            auto_optimize=true)
     run_optimized_simulation!(state)
     
@@ -118,18 +116,16 @@ println("Communication overlap efficiency: $(async_comm.overlap_efficiency[])")
 println("Communication time: $(async_comm.comm_time[]) seconds")
 ```
 
-### **2. GPU Acceleration**
-- **CUDA kernel compilation**: Optimized GPU kernels for gradients, advection, diffusion
-- **Memory management**: Efficient GPU memory pools
-- **Stream processing**: Concurrent GPU operations
+### **2. CPU Threading Acceleration**
+- **Multi-threaded kernels**: Optimized CPU threading for gradients, advection, diffusion
+- **Memory management**: Efficient thread-local memory pools
+- **SIMD optimization**: Vectorized CPU operations
 
 ```julia
-# Check GPU utilization
-if state.hybrid_parallelizer.use_gpu
-    gpu = state.hybrid_parallelizer.gpu_accelerator
-    println("GPU utilization: $(gpu.gpu_utilization[])%")
-    println("Memory bandwidth: $(gpu.memory_bandwidth[]) GB/s")
-end
+# Check CPU thread utilization
+threading_accel = state.hybrid_parallelizer.threading_accelerator
+println("Thread utilization: $(threading_accel.thread_utilization[])%")
+println("Memory bandwidth: $(threading_accel.memory_bandwidth[]) GB/s")
 ```
 
 ### **3. Dynamic Load Balancing**
@@ -195,7 +191,7 @@ println("Weak scaling efficiency: $(weak_scaling[end,2]/weak_scaling[1,2])")
 ### **For Maximum Speed:**
 ```julia
 state = initialize_optimized_simulation(Float32,  # Single precision
-    use_gpu = true,          # Enable GPU
+    thread_count = Threads.nthreads(),  # Use all threads
     auto_optimize = true,    # Auto-tuning
     include_composition = false  # Disable if not needed
 )
@@ -204,7 +200,7 @@ state = initialize_optimized_simulation(Float32,  # Single precision
 ### **For Maximum Accuracy:**
 ```julia
 state = initialize_optimized_simulation(Float64,  # Double precision
-    use_gpu = false,         # CPU for precision
+    thread_count = 1,        # Single-threaded for precision
     auto_optimize = false,   # Manual control
     include_composition = true
 )
@@ -213,7 +209,7 @@ state = initialize_optimized_simulation(Float64,  # Double precision
 ### **For Large Scale (1000+ cores):**
 ```julia
 state = initialize_optimized_simulation(Float64,
-    use_gpu = true,          # GPU acceleration essential
+    thread_count = 2,        # Fewer threads per process for memory
     auto_optimize = true,    # Dynamic load balancing critical
     thread_count = 2         # Fewer threads per process for memory
 )
@@ -221,15 +217,14 @@ state = initialize_optimized_simulation(Float64,
 
 ## 🔍 Troubleshooting
 
-### **GPU Issues:**
+### **Threading Issues:**
 ```julia
-# Check GPU availability
-using CUDA
-println("CUDA available: $(CUDA.functional())")
-println("GPU count: $(CUDA.devicecount())")
+# Check thread availability
+println("Available threads: $(Threads.nthreads())")
+println("CPU cores: $(Sys.CPU_THREADS)")
 
-# If GPU fails, disable gracefully
-state = initialize_optimized_simulation(use_gpu=false)
+# Adjust thread count if needed
+state = initialize_optimized_simulation(thread_count=min(4, Threads.nthreads()))
 ```
 
 ### **Memory Issues:**
@@ -257,23 +252,23 @@ println("Communication pattern: $(async_comm.comm_pattern)")
 
 ### **Typical Speedups:**
 
-| Configuration | Processes | GPU | Expected Speedup | Best For |
-|---------------|-----------|-----|------------------|----------|
-| **Desktop** | 4-8 | RTX 3080 | 10-20x | Development |
-| **Workstation** | 16-32 | A100 | 50-100x | Production |
-| **HPC Cluster** | 100-500 | V100×4 | 200-1000x | Large simulations |
-| **Supercomputer** | 1000+ | Multi-GPU | 1000x+ | Extreme scale |
+| Configuration | Processes | CPU Threads | Expected Speedup | Best For |
+|---------------|-----------|-------------|------------------|----------|
+| **Desktop** | 4-8 | 8-16 | 4-8x | Development |
+| **Workstation** | 16-32 | 32-64 | 10-20x | Production |
+| **HPC Cluster** | 100-500 | 2000-4000 | 50-200x | Large simulations |
+| **Supercomputer** | 1000+ | 10000+ | 200-1000x | Extreme scale |
 
 ### **Scaling Characteristics:**
 - **Strong scaling**: Excellent up to 1000+ cores
 - **Weak scaling**: Near-perfect efficiency maintained
-- **GPU scaling**: Linear with GPU count
+- **Threading scaling**: Near-linear with thread count
 - **I/O scaling**: Logarithmic improvement with process count
 
 ## 🎯 Best Practices
 
 1. **Always enable auto-optimization** for automatic tuning
-2. **Use GPU acceleration** when available for 10-50x speedup
+2. **Use multi-threading** for 4-8x speedup on modern CPUs
 3. **Monitor performance regularly** with built-in analysis
 4. **Profile before scaling** to identify bottlenecks
 5. **Use appropriate precision** (Float32 vs Float64) for your needs

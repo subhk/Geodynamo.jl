@@ -96,7 +96,7 @@ module Geodynamo
     export main_convert_file, main_batch_convert
 
     # exports parallel_optimizations.jl
-    export AsyncCommManager, GPUAccelerator, DynamicLoadBalancer
+    export AsyncCommManager, ThreadingAccelerator, DynamicLoadBalancer
     export ParallelIOOptimizer, HybridParallelizer, PerformanceMonitor
     export create_hybrid_parallelizer, hybrid_compute_nonlinear!
     export async_write_fields!, analyze_parallel_performance

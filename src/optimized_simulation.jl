@@ -150,7 +150,7 @@ function run_optimized_simulation!(state::OptimizedSimulationState{T}) where T
         
         # === OPTIMIZED PHYSICS COMPUTATION ===
         
-        # 1. Hybrid nonlinear computation (MPI + Threads + GPU)
+        # 1. Hybrid nonlinear computation (MPI + Threads)
         compute_start = MPI.Wtime()
         
         # Temperature evolution with all optimizations
