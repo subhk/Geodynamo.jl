@@ -73,7 +73,7 @@ end
 """
     UltraOptimizedSimulationState{T}
     
-Ultra-high performance simulation state with advanced CPU parallelization.
+Ultra-high performance simulation state with unified parallelization system.
 """
 struct UltraOptimizedSimulationState{T}
     # Original components
@@ -87,10 +87,8 @@ struct UltraOptimizedSimulationState{T}
     oc_domain::RadialDomain
     ic_domain::RadialDomain
     
-    # Ultra-advanced CPU parallelization
-    cpu_parallelizer::EnhancedCPUParallelizer{T}
-    hybrid_parallelizer::HybridParallelizer{T}
-    performance_monitor::PerformanceMonitor
+    # Unified ultra-parallelization system
+    ultra_parallelizer::UltraParallelizer{T}
     
     # Timestepping
     timestep_state::TimestepState
@@ -296,13 +294,11 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
     # Create compositional field if requested
     composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
     
-    # Initialize ultra-advanced CPU parallelization system
-    cpu_parallelizer = create_enhanced_cpu_parallelizer(T)
-    hybrid_parallelizer = create_hybrid_parallelizer(T, shtns_config)
-    performance_monitor = create_performance_monitor()
+    # Initialize unified ultra-parallelization system
+    ultra_parallelizer = create_ultra_parallelizer(T, shtns_config)
     
     if rank == 0
-        cpu_mgr = cpu_parallelizer.thread_manager
+        cpu_mgr = ultra_parallelizer.cpu_parallelizer.thread_manager
         println("CPU Topology detected:")
         println("  NUMA nodes: $(cpu_mgr.numa_nodes)")
         println("  Cores per node: $(cpu_mgr.cores_per_node)")
@@ -310,11 +306,14 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
         println("  I/O threads: $(cpu_mgr.io_threads)")
         println("  Communication threads: $(cpu_mgr.comm_threads)")
         
-        simd_opt = cpu_parallelizer.simd_optimizer
+        simd_opt = ultra_parallelizer.cpu_parallelizer.simd_optimizer
         println("SIMD Optimization:")
         println("  Vector width: $(simd_opt.vector_width)")
         println("  Memory alignment: $(simd_opt.alignment_bytes) bytes")
         println("  Prefetch distance: $(simd_opt.prefetch_distance) bytes")
+        
+        println("MPI Communication: $(ultra_parallelizer.mpi_nprocs) processes")
+        println("Unified optimization: ALL systems integrated")
     end
     
     # Initialize timestepping with ultra-optimized matrices
@@ -333,7 +332,7 @@ function initialize_ultra_optimized_simulation(::Type{T}=Float64;
     return UltraOptimizedSimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, oc_domain, ic_domain,
-        cpu_parallelizer, hybrid_parallelizer, performance_monitor,
+        ultra_parallelizer,
         timestep_state, implicit_matrices,
         0, auto_optimize, adaptive_threading
     )
