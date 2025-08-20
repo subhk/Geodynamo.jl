@@ -238,7 +238,7 @@ end
 Perform transpose with optional timing and statistics.
 """
 function transpose_with_timer!(dest::PencilArray, src::PencilArray, 
-                               plan::Transpositions.Plan, label::String="")
+                               plan::Transpositions.Plan, label::Symbol=:default)
     if ENABLE_TIMING[]
         t_start = MPI.Wtime()
         transpose!(dest, src, plan)
@@ -255,8 +255,8 @@ end
 
 # Global timing controls
 const ENABLE_TIMING = Ref(false)
-const TRANSPOSE_TIMES = Dict{String, Float64}()
-const TRANSPOSE_COUNTS = Dict{String, Int}()
+const TRANSPOSE_TIMES = Dict{Symbol, Float64}()
+const TRANSPOSE_COUNTS = Dict{Symbol, Int}()
 
 
 """
