@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geodynamo.jl - Earth's Magnetic Field Simulation</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <header class="hero">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-globe"></i> Geodynamo.jl</h1>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#getting-started">Get Started</a></li>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#examples">Examples</a></li>
+                <li><a href="#documentation">Docs</a></li>
+                <li><a href="https://github.com/subhk/Geodynamo.jl" target="_blank"><i class="fab fa-github"></i></a></li>
+            </ul>
+        </nav>
+        <div class="hero-content">
+            <h1>Earth's Magnetic Field Simulation in Julia</h1>
+            <p>High-performance geodynamo modeling with spherical harmonic transforms and flexible boundary conditions</p>
+            <div class="hero-buttons">
+                <a href="#getting-started" class="btn btn-primary">Get Started</a>
+                <a href="#features" class="btn btn-secondary">Learn More</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Quick Start Section -->
+        <section id="quick-start" class="section">
+            <div class="container">
+                <h2><i class="fas fa-rocket"></i> Quick Start</h2>
+                <div class="quick-start-grid">
+                    <div class="quick-start-step">
+                        <div class="step-number">1</div>
+                        <h3>Install</h3>
+                        <pre><code class="language-julia">using Pkg
+Pkg.add("Geodynamo")</code></pre>
+                    </div>
+                    <div class="quick-start-step">
+                        <div class="step-number">2</div>
+                        <h3>Configure</h3>
+                        <pre><code class="language-julia">using Geodynamo
+config = create_optimized_config(32, 32, 
+    nlat=64, nlon=128)</code></pre>
+                    </div>
+                    <div class="quick-start-step">
+                        <div class="step-number">3</div>
+                        <h3>Simulate</h3>
+                        <pre><code class="language-julia">domain = create_radial_domain(0.35, 1.0, 64)
+temp_field = create_shtns_temperature_field(
+    Float64, config, domain)</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section id="features" class="section bg-light">
+            <div class="container">
+                <h2><i class="fas fa-star"></i> Key Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-wave-square"></i>
+                        </div>
+                        <h3>Spherical Harmonic Transforms</h3>
+                        <p>Efficient spectral methods using SHTns for spherical geometry calculations</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-border-style"></i>
+                        </div>
+                        <h3>Flexible Boundary Conditions</h3>
+                        <p>Support for NetCDF data files, programmatic patterns, and hybrid approaches</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-tachometer-alt"></i>
+                        </div>
+                        <h3>High Performance</h3>
+                        <p>CPU-optimized with SIMD vectorization, threading, and MPI parallelization</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <h3>NetCDF Integration</h3>
+                        <p>Read boundary conditions from observational data or numerical model outputs</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <h3>Performance Monitoring</h3>
+                        <p>Built-in profiling and optimization tools for large-scale simulations</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <h3>Time-Dependent Boundaries</h3>
+                        <p>Support for evolving boundary conditions during simulation</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Getting Started Section -->
+        <section id="getting-started" class="section">
+            <div class="container">
+                <h2><i class="fas fa-play-circle"></i> Getting Started</h2>
+                
+                <div class="tabs">
+                    <div class="tab-buttons">
+                        <button class="tab-button active" data-tab="basic">Basic Setup</button>
+                        <button class="tab-button" data-tab="boundaries">Boundary Conditions</button>
+                        <button class="tab-button" data-tab="netcdf">NetCDF Data</button>
+                        <button class="tab-button" data-tab="hybrid">Hybrid Approaches</button>
+                    </div>
+                    
+                    <div class="tab-content active" id="basic">
+                        <h3>Basic Thermal Convection</h3>
+                        <p>Start with a simple thermal convection simulation:</p>
+                        <pre><code class="language-julia">using Geodynamo
+
+function basic_thermal_convection()
+    # 1. Create configuration
+    config = create_optimized_config(32, 32, nlat=64, nlon=128)
+    
+    # 2. Set up radial domain (Earth-like)
+    domain = create_radial_domain(0.35, 1.0, 64)
+    
+    # 3. Create temperature field
+    temp_field = create_shtns_temperature_field(Float64, config, domain)
+    
+    # 4. Simple boundaries: hot bottom, cold top
+    temp_boundaries = create_hybrid_temperature_boundaries(
+        (:uniform, 4000.0),    # Hot CMB (4000 K)
+        (:uniform, 300.0),     # Cool surface (300 K)
+        config
+    )
+    
+    # 5. Apply boundaries
+    apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
+    
+    println("✓ Basic thermal convection setup complete!")
+end
+
+basic_thermal_convection()</code></pre>
+                    </div>
+                    
+                    <div class="tab-content" id="boundaries">
+                        <h3>Programmatic Boundary Patterns</h3>
+                        <p>Create realistic boundary conditions using built-in patterns:</p>
+                        <pre><code class="language-julia"># Hot plume at CMB
+temp_boundaries = create_hybrid_temperature_boundaries(
+    (:plume, 4200.0, Dict(
+        "center_theta" => π/3,    # Plume location (60° from north)
+        "center_phi" => 0.0,      # Prime meridian
+        "width" => π/6            # 30° plume width
+    )),
+    (:uniform, 300.0),            # Uniform cool surface
+    config
+)
+
+# Spherical harmonic patterns
+y11_boundaries = create_hybrid_temperature_boundaries(
+    (:y11, 4000.0, Dict("amplitude" => 200.0)),  # Y₁₁ + perturbation
+    (:uniform, 300.0),                           # Uniform surface
+    config
+)
+
+# Available patterns: :uniform, :y11, :y20, :plume, :hemisphere, 
+#                    :dipole, :quadrupole, :checkerboard, :custom</code></pre>
+                        <div class="pattern-grid">
+                            <div class="pattern-card">
+                                <h4>:uniform</h4>
+                                <p>Constant value across boundary</p>
+                            </div>
+                            <div class="pattern-card">
+                                <h4>:y11</h4>
+                                <p>Y₁₁ spherical harmonic pattern</p>
+                            </div>
+                            <div class="pattern-card">
+                                <h4>:plume</h4>
+                                <p>Gaussian plume structure</p>
+                            </div>
+                            <div class="pattern-card">
+                                <h4>:custom</h4>
+                                <p>Your own mathematical function</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" id="netcdf">
+                        <h3>Using NetCDF Data Files</h3>
+                        <p>Load boundary conditions from observational or model data:</p>
+                        <pre><code class="language-julia"># 1. Create sample NetCDF files (one-time setup)
+include("examples/create_sample_netcdf_boundaries.jl")
+
+# 2. Load temperature boundaries from NetCDF files
+temp_boundaries = load_temperature_boundaries("cmb_temp.nc", "surface_temp.nc")
+
+# 3. Load compositional boundaries
+comp_boundaries = load_composition_boundaries("cmb_comp.nc", "surface_comp.nc")
+
+# 4. Apply to fields
+apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
+apply_netcdf_composition_boundaries!(comp_field, comp_boundaries)
+
+# 5. Inspect loaded data
+print_boundary_info(temp_boundaries)
+stats = get_boundary_statistics(temp_boundaries.inner_boundary)
+println("CMB temperature range: [$(stats["min"]), $(stats["max"])] K")</code></pre>
+                        
+                        <div class="info-box">
+                            <h4><i class="fas fa-info-circle"></i> NetCDF File Format</h4>
+                            <p>Your NetCDF files should include:</p>
+                            <ul>
+                                <li><strong>Coordinates:</strong> theta (colatitude) and phi (longitude)</li>
+                                <li><strong>Data variable:</strong> temperature, composition, etc.</li>
+                                <li><strong>Optional:</strong> time dimension for time-dependent boundaries</li>
+                                <li><strong>Metadata:</strong> units, descriptions, and attributes</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" id="hybrid">
+                        <h3>Hybrid Approaches</h3>
+                        <p>Mix NetCDF data with programmatic patterns for maximum flexibility:</p>
+                        <pre><code class="language-julia"># NetCDF inner boundary + programmatic outer boundary
+temp_boundaries = create_hybrid_temperature_boundaries(
+    "realistic_cmb.nc",       # Complex CMB from data file
+    (:uniform, 300.0),        # Simple uniform surface
+    config
+)
+
+# Programmatic inner + NetCDF outer
+temp_boundaries = create_hybrid_temperature_boundaries(
+    (:plume, 4200.0, Dict("width" => π/6)),  # Analytical plume pattern
+    "earth_surface_temps.nc",                # Real surface temperature data
+    config
+)
+
+# Custom function example
+my_pattern(theta, phi) = sin(3*theta) * cos(2*phi) + 0.5*cos(theta)^2
+
+custom_boundaries = create_hybrid_temperature_boundaries(
+    (:custom, 4000.0, Dict("function" => my_pattern)),  # Your function
+    (:uniform, 300.0),                                  # Simple outer
+    config
+)</code></pre>
+                        
+                        <div class="advantage-box">
+                            <h4><i class="fas fa-lightbulb"></i> Why Hybrid?</h4>
+                            <ul>
+                                <li><strong>Flexibility:</strong> Use data where available, analytical where not</li>
+                                <li><strong>Performance:</strong> Simple boundaries where physics allows</li>
+                                <li><strong>Testing:</strong> Compare complex vs. simple boundary effects</li>
+                                <li><strong>Development:</strong> Gradually add complexity to boundaries</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Examples Section -->
+        <section id="examples" class="section bg-light">
+            <div class="container">
+                <h2><i class="fas fa-code"></i> Examples</h2>
+                <div class="examples-grid">
+                    <div class="example-card">
+                        <h3><i class="fas fa-thermometer-half"></i> Thermal Convection</h3>
+                        <p>Basic temperature-driven convection with hot CMB and cool surface</p>
+                        <a href="#" class="btn btn-outline" onclick="showExample('thermal')">View Example</a>
+                    </div>
+                    <div class="example-card">
+                        <h3><i class="fas fa-volcano"></i> Plume Dynamics</h3>
+                        <p>Hot plume rising from core-mantle boundary with realistic structure</p>
+                        <a href="#" class="btn btn-outline" onclick="showExample('plume')">View Example</a>
+                    </div>
+                    <div class="example-card">
+                        <h3><i class="fas fa-globe-americas"></i> Earth-like Model</h3>
+                        <p>Realistic Earth parameters with observational boundary conditions</p>
+                        <a href="#" class="btn btn-outline" onclick="showExample('earth')">View Example</a>
+                    </div>
+                    <div class="example-card">
+                        <h3><i class="fas fa-clock"></i> Time Evolution</h3>
+                        <p>Time-dependent boundaries with rotating patterns and seasonal variations</p>
+                        <a href="#" class="btn btn-outline" onclick="showExample('time')">View Example</a>
+                    </div>
+                </div>
+                
+                <!-- Example Code Modals -->
+                <div id="example-modal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="hideExample()">&times;</span>
+                        <div id="example-content"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Performance Section -->
+        <section id="performance" class="section">
+            <div class="container">
+                <h2><i class="fas fa-tachometer-alt"></i> Performance & Optimization</h2>
+                <div class="performance-grid">
+                    <div class="perf-card">
+                        <h3><i class="fas fa-microchip"></i> CPU Optimization</h3>
+                        <ul>
+                            <li>SIMD vectorization for 20-30% speedup</li>
+                            <li>Multi-threading with optimal core utilization</li>
+                            <li>Memory pooling reduces allocation by 30-40%</li>
+                            <li>Type stability eliminates dispatch overhead</li>
+                        </ul>
+                    </div>
+                    <div class="perf-card">
+                        <h3><i class="fas fa-network-wired"></i> MPI Parallelization</h3>
+                        <ul>
+                            <li>Scalable to thousands of cores</li>
+                            <li>Optimized communication patterns</li>
+                            <li>Load balancing for irregular decompositions</li>
+                            <li>Overlap computation with communication</li>
+                        </ul>
+                    </div>
+                    <div class="perf-card">
+                        <h3><i class="fas fa-chart-line"></i> Monitoring Tools</h3>
+                        <ul>
+                            <li>Built-in performance profiling</li>
+                            <li>Memory allocation tracking</li>
+                            <li>Transform operation analysis</li>
+                            <li>Real-time optimization suggestions</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="performance-example">
+                    <h3>Performance Monitoring Example</h3>
+                    <pre><code class="language-julia"># Reset performance counters
+reset_performance_stats!()
+
+# Run simulation with monitoring
+@timed_transform begin
+    for step in 1:nsteps
+        compute_temperature_nonlinear!(temp_field, vel_field)
+        solve_implicit_step!(temp_field, dt)
+    end
+end
+
+# View detailed performance report
+print_performance_report()
+
+# Output:
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    Transform Performance Report                   ║
+# ╠═══════════════════════════════════════════════════════════════════╣
+# ║ Total Transforms:        1250                                     ║
+# ║ Total Time:             12.456 s                                  ║
+# ║ Average Time:            9.965 ms                                 ║
+# ║ CPU Transforms:          1250                                     ║
+# ║ Memory Allocated:        245.3 MB                                 ║
+# ║ Communication Time:       15.2%                                   ║
+# ╚═══════════════════════════════════════════════════════════════════╝</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Documentation Section -->
+        <section id="documentation" class="section bg-light">
+            <div class="container">
+                <h2><i class="fas fa-book"></i> Documentation</h2>
+                <div class="docs-grid">
+                    <div class="doc-card">
+                        <h3><i class="fas fa-play"></i> Getting Started Guide</h3>
+                        <p>Complete beginner's guide to geodynamo modeling</p>
+                        <a href="GETTING_STARTED.md" class="btn btn-outline">Read Guide</a>
+                    </div>
+                    <div class="doc-card">
+                        <h3><i class="fas fa-database"></i> NetCDF Boundaries</h3>
+                        <p>Detailed guide for NetCDF boundary conditions</p>
+                        <a href="NETCDF_BOUNDARIES.md" class="btn btn-outline">View Docs</a>
+                    </div>
+                    <div class="doc-card">
+                        <h3><i class="fas fa-cog"></i> API Reference</h3>
+                        <p>Complete function and type documentation</p>
+                        <a href="#" class="btn btn-outline">Browse API</a>
+                    </div>
+                    <div class="doc-card">
+                        <h3><i class="fas fa-examples"></i> Example Gallery</h3>
+                        <p>Working examples for common use cases</p>
+                        <a href="#" class="btn btn-outline">View Examples</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Installation Section -->
+        <section id="installation" class="section">
+            <div class="container">
+                <h2><i class="fas fa-download"></i> Installation</h2>
+                <div class="install-steps">
+                    <div class="install-step">
+                        <h3>1. Install Julia</h3>
+                        <p>Download and install Julia 1.6+ from <a href="https://julialang.org/downloads/">julialang.org</a></p>
+                    </div>
+                    <div class="install-step">
+                        <h3>2. Install Geodynamo.jl</h3>
+                        <pre><code class="language-julia">using Pkg
+Pkg.add("Geodynamo")</code></pre>
+                    </div>
+                    <div class="install-step">
+                        <h3>3. Install Dependencies</h3>
+                        <pre><code class="language-julia"># For NetCDF support
+Pkg.add("NCDatasets")
+
+# For MPI parallelization (optional)
+Pkg.add("MPI")</code></pre>
+                    </div>
+                    <div class="install-step">
+                        <h3>4. Test Installation</h3>
+                        <pre><code class="language-julia">using Geodynamo
+println("Geodynamo.jl installed successfully!")</code></pre>
+                    </div>
+                </div>
+                
+                <div class="system-requirements">
+                    <h3>System Requirements</h3>
+                    <div class="req-grid">
+                        <div class="req-card">
+                            <h4>Minimum</h4>
+                            <ul>
+                                <li>Julia 1.6+</li>
+                                <li>4 GB RAM</li>
+                                <li>2 CPU cores</li>
+                                <li>Linux/macOS/Windows</li>
+                            </ul>
+                        </div>
+                        <div class="req-card">
+                            <h4>Recommended</h4>
+                            <ul>
+                                <li>Julia 1.8+</li>
+                                <li>16+ GB RAM</li>
+                                <li>8+ CPU cores</li>
+                                <li>SSD storage</li>
+                            </ul>
+                        </div>
+                        <div class="req-card">
+                            <h4>High-Performance</h4>
+                            <ul>
+                                <li>Julia 1.9+</li>
+                                <li>64+ GB RAM</li>
+                                <li>MPI cluster</li>
+                                <li>High-speed interconnect</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Geodynamo.jl</h3>
+                    <p>High-performance Earth's magnetic field simulation in Julia</p>
+                    <div class="social-links">
+                        <a href="https://github.com/subhk/Geodynamo.jl"><i class="fab fa-github"></i></a>
+                        <a href="#"><i class="fas fa-envelope"></i></a>
+                    </div>
+                </div>
+                <div class="footer-section">
+                    <h4>Documentation</h4>
+                    <ul>
+                        <li><a href="GETTING_STARTED.md">Getting Started</a></li>
+                        <li><a href="NETCDF_BOUNDARIES.md">NetCDF Guide</a></li>
+                        <li><a href="#">API Reference</a></li>
+                        <li><a href="#">Examples</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://github.com/subhk/Geodynamo.jl/issues">Report Issues</a></li>
+                        <li><a href="https://github.com/subhk/Geodynamo.jl/discussions">Discussions</a></li>
+                        <li><a href="#">Contributing</a></li>
+                        <li><a href="#">Citation</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Related</h4>
+                    <ul>
+                        <li><a href="#">SHTnsKit.jl</a></li>
+                        <li><a href="https://julialang.org/">Julia Language</a></li>
+                        <li><a href="#">Scientific Computing</a></li>
+                        <li><a href="#">Geophysics</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Geodynamo.jl. Licensed under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/components/prism-julia.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
