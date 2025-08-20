@@ -117,6 +117,47 @@ end
 # Thread-local transform manager cache for better performance
 const THREAD_LOCAL_MANAGERS = [Dict{UInt64, SHTnsTransformManager}() for _ in 1:Threads.nthreads()]
 
+# Memory pool for temporary arrays to reduce allocations
+struct BufferPool{T}
+    spectral_buffers::Vector{Vector{T}}
+    physical_buffers::Vector{Matrix{T}}
+    in_use::Vector{Bool}
+    lock::ReentrantLock
+end
+
+function BufferPool(::Type{T}, nlm::Int, nlat::Int, nlon::Int, pool_size::Int=4) where T
+    spectral_buffers = [Vector{T}(undef, nlm) for _ in 1:pool_size]
+    physical_buffers = [Matrix{T}(undef, nlat, nlon) for _ in 1:pool_size]
+    in_use = fill(false, pool_size)
+    return BufferPool{T}(spectral_buffers, physical_buffers, in_use, ReentrantLock())
+end
+
+function acquire_buffers(pool::BufferPool{T}) where T
+    lock(pool.lock) do
+        for i in eachindex(pool.in_use)
+            if !pool.in_use[i]
+                pool.in_use[i] = true
+                return (pool.spectral_buffers[i], pool.physical_buffers[i], i)
+            end
+        end
+        # If no buffers available, create new ones (fallback)
+        nlm = length(pool.spectral_buffers[1])
+        nlat, nlon = size(pool.physical_buffers[1])
+        return (Vector{T}(undef, nlm), Matrix{T}(undef, nlat, nlon), 0)
+    end
+end
+
+function release_buffers(pool::BufferPool{T}, buffer_id::Int) where T
+    if buffer_id > 0
+        lock(pool.lock) do
+            pool.in_use[buffer_id] = false
+        end
+    end
+end
+
+# Thread-local buffer pools
+const THREAD_LOCAL_POOLS = Dict{Tuple{Type, Int, Int, Int}, BufferPool}()
+
 """
     get_transform_manager(::Type{T}, config::SHTnsConfig) where T
     
@@ -193,7 +234,7 @@ end
     phys_work = manager.physical_work
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
@@ -223,7 +264,7 @@ end
     chunk_size = manager.nlm ÷ nprocs
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(spec_real, 3)
             # Prepare send buffer
@@ -291,8 +332,8 @@ end
     fill!(coeffs, zero(ComplexF64))
     
     @inbounds for lm_idx in lm_range
-        if lm_idx <= length(coeffs)
-            local_lm = lm_idx - first(lm_range) + 1
+        if is_valid_index(lm_idx, length(coeffs))
+            local_lm = local_lm_index(lm_idx, lm_range)
             @fastmath coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
                                               spec_imag[local_lm, 1, local_r])
         end
@@ -357,7 +398,7 @@ end
     coeffs    = manager.spectral_work
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(phys_data, 3)
             # Copy to complex work array
@@ -447,7 +488,7 @@ end
     vp_work = manager.vector_v
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(tor_real, 3)
             # Fill both coefficient arrays
@@ -571,7 +612,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
     vp_work = manager.vector_v
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(v_theta, 3)
             # Copy to complex arrays
@@ -702,7 +743,7 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
     lm_range = range_local(config.pencils.spec, 1)
     
     @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
+        local_r = local_r_index(r_idx, r_range)
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
