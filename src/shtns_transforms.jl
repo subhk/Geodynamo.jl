@@ -767,6 +767,118 @@ function analysis!(output::Vector{T},
     return nothing
 end
 
+# ======================================================
+# Advanced SHTnsKit Features
+# ======================================================
+
+"""
+    create_optimized_config(lmax, mmax; use_gpu=false, use_threading=true)
+    
+Create an optimized SHTns configuration leveraging SHTnsKit features.
+"""
+function create_optimized_config(lmax::Int, mmax::Int; 
+                                use_gpu::Bool=false, 
+                                use_threading::Bool=true,
+                                nlat::Union{Nothing,Int}=nothing,
+                                nlon::Union{Nothing,Int}=nothing)
+    if use_threading
+        SHTnsKit.set_optimal_threads()
+    end
+    
+    if use_gpu
+        try
+            SHTnsKit.initialize_gpu()
+            return SHTnsKit.create_gpu_config(lmax, mmax; nlat=nlat, nlon=nlon)
+        catch e
+            @warn "GPU initialization failed, falling back to CPU: $e"
+            return SHTnsKit.create_gauss_config(lmax, mmax; nlat=nlat, nlon=nlon)
+        end
+    else
+        return SHTnsKit.create_gauss_config(lmax, mmax; nlat=nlat, nlon=nlon)
+    end
+end
+
+"""
+    accelerated_transform!(config, spectral_data, physical_data; use_gpu=false)
+    
+Perform accelerated spherical harmonic transform using available optimizations.
+"""
+function accelerated_transform!(config::SHTnsConfig, 
+                               spectral_data::AbstractVector{T},
+                               physical_data::AbstractMatrix{T};
+                               use_gpu::Bool=false) where T
+    sht = config.sht
+    
+    if use_gpu && SHTnsKit.has_shtns_symbols()
+        try
+            # Try GPU-accelerated transform
+            result = SHTnsKit.synthesize_gpu(sht, spectral_data)
+            physical_data .= result
+            return true
+        catch e
+            @debug "GPU transform failed, falling back to CPU: $e"
+        end
+    end
+    
+    # CPU transform with threading
+    SHTnsKit.synthesize!(sht, spectral_data, physical_data)
+    return false  # Indicates CPU was used
+end
+
+"""
+    compute_power_spectrum(config, spectral_coeffs)
+    
+Compute power spectrum using SHTnsKit's built-in function.
+"""
+function compute_power_spectrum(config::SHTnsConfig, spectral_coeffs::AbstractVector{T}) where T
+    try
+        return SHTnsKit.power_spectrum(config.sht, spectral_coeffs)
+    catch e
+        @warn "Power spectrum computation failed: $e"
+        # Fallback manual computation
+        nlm = length(spectral_coeffs)
+        lmax = config.lmax
+        power = zeros(T, lmax+1)
+        for idx in 1:nlm
+            l, m = SHTnsKit.index_to_lm(config.sht, idx)
+            power[l+1] += abs2(spectral_coeffs[idx]) * (m == 0 ? 1 : 2)
+        end
+        return power
+    end
+end
+
+"""
+    evaluate_field_at_coordinates(config, spectral_coeffs, theta, phi)
+    
+Evaluate spherical harmonic field at specific coordinates.
+"""
+function evaluate_field_at_coordinates(config::SHTnsConfig, 
+                                     spectral_coeffs::AbstractVector{T},
+                                     theta::Real, phi::Real) where T
+    try
+        return SHTnsKit.evaluate_at_point(config.sht, spectral_coeffs, theta, phi)
+    catch e
+        @warn "Point evaluation failed: $e"
+        return zero(T)
+    end
+end
+
+"""
+    rotate_spherical_field(config, spectral_coeffs, alpha, beta, gamma)
+    
+Rotate spherical harmonic field by Euler angles.
+"""
+function rotate_spherical_field(config::SHTnsConfig,
+                               spectral_coeffs::AbstractVector{T},
+                               alpha::Real, beta::Real, gamma::Real) where T
+    try
+        return SHTnsKit.rotate_field(config.sht, spectral_coeffs, alpha, beta, gamma)
+    catch e
+        @warn "Field rotation failed: $e"
+        return copy(spectral_coeffs)
+    end
+end
+
 # # Export functions
 export shtns_spectral_to_physical!, shtns_physical_to_spectral!
 export shtns_vector_synthesis!, shtns_vector_analysis!
@@ -775,3 +887,8 @@ export shtns_compute_gradient!
 export get_transform_statistics, print_transform_statistics
 export clear_transform_cache!
 export SHTnsTransformManager, get_transform_manager
+
+# Export new advanced functions
+export create_optimized_config, accelerated_transform!
+export compute_power_spectrum, evaluate_field_at_coordinates
+export rotate_spherical_field

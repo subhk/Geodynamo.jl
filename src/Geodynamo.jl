@@ -39,6 +39,11 @@ module Geodynamo
     export get_transform_statistics, print_transform_statistics
     export clear_transform_cache!
     export SHTnsTransformManager, get_transform_manager
+    
+    # Export advanced SHTnsKit features
+    export create_optimized_config, accelerated_transform!
+    export compute_power_spectrum, evaluate_field_at_coordinates
+    export rotate_spherical_field
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
