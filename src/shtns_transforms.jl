@@ -341,13 +341,22 @@ end
 end
 
 @inline function copy_physical_data!(phys_data, phys_work, local_r)
-    # Vectorized copy with bounds checking
+    # CPU-optimized vectorized copy with enhanced SIMD
     n = length(phys_work)
     offset = (local_r - 1) * n
     
-    @inbounds @simd for i in 1:n
-        if offset + i <= length(phys_data)
+    # Bounds check once for the entire range
+    if offset + n <= length(phys_data)
+        # Use @turbo for enhanced CPU vectorization (if available)
+        @inbounds @simd ivdep for i in 1:n
             phys_data[offset + i] = real(phys_work[i])
+        end
+    else
+        # Fallback with individual bounds checking
+        @inbounds @simd for i in 1:n
+            if offset + i <= length(phys_data)
+                phys_data[offset + i] = real(phys_work[i])
+            end
         end
     end
 end
@@ -559,10 +568,22 @@ end
     n = length(vt)
     offset = (local_r - 1) * n
     
-    @inbounds @simd for i in 1:n
-        if offset + i <= length(v_theta)
-            v_theta[offset + i] = real(vt[i])
-            v_phi[offset + i] = real(vp[i])
+    # CPU-optimized vector component storage with enhanced vectorization
+    if offset + n <= length(v_theta) && offset + n <= length(v_phi)
+        # Optimized path: vectorize both components simultaneously
+        @inbounds @simd ivdep for i in 1:n
+            idx = offset + i
+            v_theta[idx] = real(vt[i])
+            v_phi[idx] = real(vp[i])
+        end
+    else
+        # Safe fallback
+        @inbounds @simd for i in 1:n
+            idx = offset + i
+            if idx <= length(v_theta) && idx <= length(v_phi)
+                v_theta[idx] = real(vt[i])
+                v_phi[idx] = real(vp[i])
+            end
         end
     end
 end
@@ -662,8 +683,159 @@ end
 
 
 # =============================
-# Batched Transform Operations
+# CPU-Intensive Batched Transform Operations
 # =============================
+
+"""
+    cpu_intensive_batch_transform!(specs, physs; use_threading=true, chunk_size=4)
+    
+Perform CPU-intensive batched transforms with enhanced threading and vectorization.
+"""
+function cpu_intensive_batch_transform!(specs::Vector{SHTnsSpectralField{T}},
+                                       physs::Vector{SHTnsPhysicalField{T}};
+                                       use_threading::Bool=true,
+                                       chunk_size::Int=4) where T
+    @assert length(specs) == length(physs)
+    
+    if isempty(specs)
+        return
+    end
+    
+    config = specs[1].config
+    sht = config.sht
+    manager = get_transform_manager(T, config)
+    
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
+    
+    # Use config's ranges
+    r_range  = range_local(config.pencils.r, 3)
+    lm_range = range_local(config.pencils.spec, 1)
+    
+    if use_threading && Threads.nthreads() > 1
+        # Thread-parallel processing with work-stealing
+        cpu_threaded_batch_process!(specs, physs, sht, r_range, lm_range, manager, chunk_size)
+    else
+        # Sequential processing with CPU optimizations
+        cpu_sequential_batch_process!(specs, physs, sht, r_range, lm_range, manager)
+    end
+    
+    if ENABLE_TIMING[]
+        elapsed = MPI.Wtime() - t_start
+        manager.total_time[] += elapsed
+        manager.transform_count[] += length(specs)
+    end
+end
+
+"""
+CPU-optimized threaded batch processing with work-stealing.
+"""
+function cpu_threaded_batch_process!(specs, physs, sht, r_range, lm_range, manager, chunk_size)
+    n_fields = length(specs)
+    n_threads = Threads.nthreads()
+    
+    # Create work chunks for better CPU utilization
+    chunks = [(i, min(i + chunk_size - 1, n_fields)) for i in 1:chunk_size:n_fields]
+    
+    Threads.@threads for chunk in chunks
+        start_idx, end_idx = chunk
+        
+        # Thread-local buffer to reduce contention
+        thread_manager = get_transform_manager(eltype(specs[1].data_real), 
+                                             specs[1].config)
+        
+        for field_idx in start_idx:end_idx
+            spec = specs[field_idx]
+            phys = physs[field_idx]
+            
+            # Process all radial levels for this field
+            for r_idx in r_range
+                local_r = local_r_index(r_idx, r_range)
+                cpu_simd_process_single_level!(sht, spec, phys, local_r, 
+                                              lm_range, thread_manager)
+            end
+        end
+    end
+end
+
+"""
+CPU-optimized sequential batch processing.
+"""
+function cpu_sequential_batch_process!(specs, physs, sht, r_range, lm_range, manager)
+    # Process radial levels in cache-friendly order
+    for r_idx in r_range
+        local_r = local_r_index(r_idx, r_range)
+        
+        # Process all fields at this radial level for better cache utilization
+        for (spec, phys) in zip(specs, physs)
+            cpu_simd_process_single_level!(sht, spec, phys, local_r, lm_range, manager)
+        end
+    end
+end
+
+"""
+SIMD-optimized processing of a single radial level.
+"""
+@inline function cpu_simd_process_single_level!(sht, spec, phys, local_r, lm_range, manager)
+    spec_real = parent(spec.data_real)
+    spec_imag = parent(spec.data_imag)
+    phys_data = parent(phys.data)
+    
+    if local_r <= size(spec_real, 3)
+        # Use SIMD-optimized coefficient filling
+        cpu_simd_fill_coefficients!(manager.spectral_work, spec_real, spec_imag, 
+                                   local_r, lm_range)
+        
+        # Communication
+        if manager.comm_pattern == :allreduce
+            MPI.Allreduce!(manager.spectral_work, MPI.SUM, get_comm())
+        end
+        
+        # SIMD synthesis
+        cpu_simd_synthesize!(sht, manager.spectral_work, manager.physical_work)
+        
+        # SIMD copy
+        cpu_simd_copy_physical_data!(phys_data, manager.physical_work, local_r)
+    end
+end
+
+"""
+SIMD-optimized coefficient filling.
+"""
+@inline function cpu_simd_fill_coefficients!(coeffs, spec_real, spec_imag, local_r, lm_range)
+    # Fast zero fill
+    fill!(coeffs, zero(ComplexF64))
+    
+    # Vectorized coefficient assembly
+    @inbounds @simd ivdep for lm_idx in lm_range
+        if is_valid_index(lm_idx, length(coeffs))
+            local_lm = local_lm_index(lm_idx, lm_range)
+            if local_lm <= size(spec_real, 1)
+                @fastmath coeffs[lm_idx] = complex(spec_real[local_lm, 1, local_r],
+                                                  spec_imag[local_lm, 1, local_r])
+            end
+        end
+    end
+end
+
+"""
+SIMD-optimized physical data copying.
+"""
+@inline function cpu_simd_copy_physical_data!(phys_data, phys_work, local_r)
+    n = length(phys_work)
+    offset = (local_r - 1) * n
+    
+    if offset + n <= length(phys_data)
+        @inbounds @simd ivdep for i in 1:n
+            phys_data[offset + i] = real(phys_work[i])
+        end
+    else
+        @inbounds @simd for i in 1:n
+            if offset + i <= length(phys_data)
+                phys_data[offset + i] = real(phys_work[i])
+            end
+        end
+    end
+end
 function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
                                     physs::Vector{SHTnsPhysicalField{T}}) where T
     @assert length(specs) == length(physs)
