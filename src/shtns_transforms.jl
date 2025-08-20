@@ -73,9 +73,9 @@ function create_transform_manager(::Type{T}, config::SHTnsConfig) where T
     requests = Vector{MPI.Request}(undef, max_requests)
     
     return SHTnsTransformManager{T}(
-        coeffs_full, coeffs_work,
-        phys_work, phys_real,
-        vt_work, vp_work,
+        spectral_work, spectral_complex,
+        physical_work, physical_complex,
+        vector_tor, vector_pol, vector_u, vector_v,
         send_buffer, recv_buffer,
         requests, comm_pattern,
         nlm, nlat, nlon, config,
@@ -203,8 +203,8 @@ end
             # Single allreduce for complete coefficients
             MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
             
-            # Synthesis
-            SHTnsKit.synthesis!(phys_work, sht, coeffs)
+            # Synthesis using SHTnsKit high-level API
+            SHTnsKit.synthesize!(sht, coeffs, phys_work)
             
             # Copy to output
             copy_physical_data!(phys_data, phys_work, local_r)
@@ -238,7 +238,7 @@ end
             unpack_alltoall_buffer!(coeffs, manager.recv_buffer, chunk_size)
             
             # Synthesis and copy
-            SHTnsKit.synthesis!(phys_work, sht, coeffs)
+            SHTnsKit.synthesize!(sht, coeffs, phys_work)
             copy_physical_data!(phys_data, phys_work, local_r)
         end
     end
@@ -344,7 +344,7 @@ end
             end
             
             # Analysis
-            SHTnsKit.analysis!(coeffs, sht, phys_work)
+            SHTnsKit.analyze!(sht, phys_work, coeffs)
             
             # Store local portion with m=0 reality constraint
             store_spectral_coefficients!(spec_real, spec_imag, coeffs,
@@ -441,7 +441,7 @@ end
             end
             
             # Vector synthesis
-            vt_work, vp_work = SHTnsKit.vector_synthesis(sht, tor_coeffs, pol_coeffs)
+            vt_work, vp_work = SHTnsKit.synthesize_vector(sht, tor_coeffs, pol_coeffs)
             
             # Store results with vectorization
             store_vector_components!(v_theta, v_phi, vt_work, vp_work, local_r)
@@ -559,7 +559,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
             end
             
             # Vector analysis
-            tor_coeffs, pol_coeffs = SHTnsKit.vector_analysis(sht, vt_work, vp_work)
+            tor_coeffs, pol_coeffs = SHTnsKit.analyze_vector(sht, vt_work, vp_work)
             
             # Store with reality constraints
             store_vector_spectral!(tor_real, tor_imag, pol_real, pol_imag,
@@ -647,7 +647,7 @@ end
             MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
         end
         
-        SHTnsKit.synthesis!(manager.phys_work, sht, manager.coeffs_full)
+        SHTnsKit.synthesize!(sht, manager.spectral_work, manager.physical_work)
         copy_physical_data!(phys_data, manager.phys_work, local_r)
     end
 end
@@ -689,17 +689,16 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
                 MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
             end
             
-            # Compute derivatives
-            dtheta = SHTnsKit.synthesis_dtheta(sht, manager.coeffs_full)
-            dphi   = SHTnsKit.synthesis_dphi(sht, manager.coeffs_full)
+            # Compute derivatives using SHTnsKit gradient computation
+            grad_theta, grad_phi = SHTnsKit.compute_gradient(sht, manager.spectral_work)
             
             # Store results
-            n = length(dtheta)
+            n = length(grad_theta)
             offset = (local_r - 1) * n
             @simd for i in 1:n
                 if offset + i <= length(grad_theta_data)
-                    grad_theta_data[offset + i] = real(dtheta[i])
-                    grad_phi_data[offset + i] = real(dphi[i])
+                    grad_theta_data[offset + i] = real(grad_theta[i])
+                    grad_phi_data[offset + i] = real(grad_phi[i])
                 end
             end
         end
@@ -756,17 +755,15 @@ end
 # ================================================
 # In-place SHTns wrappers for better performance
 # ================================================
-function synthesis!(output::Matrix{ComplexF64}, 
-                   sht::SHTnsKit.SHTnsSphere, coeffs::Vector{ComplexF64})
-    result = SHTnsKit.synthesis(sht, coeffs)
-    output .= result
+function synthesis!(output::Matrix{T}, 
+                   cfg::SHTnsKit.SHTnsConfig, coeffs::Vector{T}) where T
+    SHTnsKit.synthesize!(cfg, coeffs, output)
     return nothing
 end
 
-function analysis!(output::Vector{ComplexF64}, 
-                  sht::SHTnsKit.SHTnsSphere, input::Matrix{ComplexF64})
-    result = SHTnsKit.analysis(sht, input)
-    output .= result
+function analysis!(output::Vector{T}, 
+                  cfg::SHTnsKit.SHTnsConfig, input::Matrix{T}) where T
+    SHTnsKit.analyze!(cfg, input, output)
     return nothing
 end
 
