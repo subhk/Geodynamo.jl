@@ -11,7 +11,7 @@ PencilArrays = "062a5362-cb4d-4eca-b05c-82ce5e4eb7fc"
 PencilFFTs = "4a48f351-57a6-4f7f-8d90-db2b2dbd238b"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
-SHTnsKit = "67b7f79d-3a80-42e4-bc74-f7c9a1b0b8db"
+SHTnsKit = "1b9d0af0-2e90-4fb0-9eae-4a2e2cdf5320"
 
 [compat]
 julia = "1.6"

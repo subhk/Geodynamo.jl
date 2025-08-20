@@ -3,17 +3,19 @@
 # ============================================================================
 
 struct SHTnsTransformManager{T}
-    # Pre-allocated coefficient arrays
-    coeffs_full::Vector{ComplexF64}
-    coeffs_work::Vector{ComplexF64}
+    # Pre-allocated spectral arrays
+    spectral_work::Vector{T}
+    spectral_complex::Vector{ComplexF64}
     
     # Pre-allocated physical arrays
-    phys_work::Matrix{ComplexF64}
-    phys_real::Matrix{T}
+    physical_work::Matrix{T}
+    physical_complex::Matrix{ComplexF64}
 
     # Vector work arrays
-    vt_work::Matrix{ComplexF64}
-    vp_work::Matrix{ComplexF64}
+    vector_tor::Vector{T}
+    vector_pol::Vector{T}
+    vector_u::Matrix{T}
+    vector_v::Matrix{T}
     
     # Communication buffers (enhanced)
     send_buffer::Vector{ComplexF64}
@@ -49,13 +51,17 @@ function create_transform_manager(::Type{T}, config::SHTnsConfig) where T
     lm_range = range_local(config.pencils.spec, 1)
     comm_pattern = determine_comm_pattern(lm_range, nlm)
     
-    # Allocate work arrays
-    coeffs_full = zeros(ComplexF64, nlm)
-    coeffs_work = zeros(ComplexF64, nlm)
-    phys_work = zeros(ComplexF64, nlat, nlon)
-    phys_real = zeros(T, nlat, nlon)
-    vt_work = zeros(ComplexF64, nlat, nlon)
-    vp_work = zeros(ComplexF64, nlat, nlon)
+    # Allocate work arrays using SHTnsKit allocation functions
+    spectral_work = SHTnsKit.allocate_spectral(config.sht, T=T)
+    spectral_complex = SHTnsKit.allocate_complex_spectral(config.sht)
+    physical_work = SHTnsKit.allocate_spatial(config.sht, T=T)
+    physical_complex = SHTnsKit.allocate_complex_spatial(config.sht)
+    
+    # Vector work arrays
+    vector_tor = SHTnsKit.allocate_spectral(config.sht, T=T)
+    vector_pol = SHTnsKit.allocate_spectral(config.sht, T=T)
+    vector_u = SHTnsKit.allocate_spatial(config.sht, T=T)
+    vector_v = SHTnsKit.allocate_spatial(config.sht, T=T)
     
     # Communication buffers sized appropriately
     buffer_size = compute_buffer_size(config)
@@ -201,7 +207,7 @@ end
             SHTnsKit.synthesis!(phys_work, sht, coeffs)
             
             # Copy to output
-            copy_physical_data_vectorized!(phys_data, phys_work, local_r)
+            copy_physical_data!(phys_data, phys_work, local_r)
         end
     end
 end
@@ -556,7 +562,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
             tor_coeffs, pol_coeffs = SHTnsKit.vector_analysis(sht, vt_work, vp_work)
             
             # Store with reality constraints
-            store_vector_spectral_enhanced!(tor_real, tor_imag, pol_real, pol_imag,
+            store_vector_spectral!(tor_real, tor_imag, pol_real, pol_imag,
                                             tor_coeffs, pol_coeffs, 
                                             local_r, lm_range, config)
         end
@@ -675,7 +681,7 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
-            fill_coefficients_enhanced!(manager.coeffs_full, spec_real, spec_imag,
+            fill_coefficients!(manager.coeffs_full, spec_real, spec_imag,
                                         local_r, lm_range)
             
             # Communication

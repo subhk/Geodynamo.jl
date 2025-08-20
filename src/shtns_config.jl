@@ -2,9 +2,9 @@
 # SHTns Configuration with Pencil Integration
 # =======================================================
 #
-# SHTns configuration structure
+# SHTns configuration structure using SHTnsKit
 struct SHTnsConfig
-    sht::SHTnsKit.SHTnsSphere
+    sht::SHTnsKit.SHTnsConfig               # SHTnsKit configuration handle
     nlat::Int
     nlon::Int
     lmax::Int
@@ -44,16 +44,13 @@ function create_shtns_config(; optimize_decomp::Bool=true,
     lmax = i_L
     mmax = min(i_M, lmax)
     
-    # Initialize SHTns sphere with SHTnsKit
-    sht = SHTnsKit.SHTnsSphere(lmax, mmax, 
-                              grid_type = SHTnsKit.gaussian,
-                              nlat = nlat,
-                              nlon = nlon)
+    # Initialize SHTns configuration with SHTnsKit
+    sht = SHTnsKit.create_gauss_config(lmax, mmax; nlat=nlat, nlon=nlon)
     
     # Get grid information
-    theta_grid    = SHTnsKit.get_theta_array(sht)
-    phi_grid      = SHTnsKit.get_phi_array(sht) 
-    gauss_weights = SHTnsKit.get_weights(sht)
+    theta_grid    = SHTnsKit.grid_latitudes(sht)
+    phi_grid      = SHTnsKit.grid_longitudes(sht) 
+    gauss_weights = SHTnsKit.get_gauss_weights(sht)
     
     # Compute (l,m) mode information with index mapping
     nlm = SHTnsKit.get_nlm(sht)
@@ -61,16 +58,12 @@ function create_shtns_config(; optimize_decomp::Bool=true,
     m_values = zeros(Int, nlm)
     lm_index = Dict{Tuple{Int,Int}, Int}()
     
-    idx = 1
-    for l in 0:lmax
-        for m in 0:min(l, mmax)
-            if idx <= nlm
-                l_values[idx] = l
-                m_values[idx] = m
-                lm_index[(l, m)] = idx
-                idx += 1
-            end
-        end
+    # Use SHTnsKit's index mapping functions
+    for idx in 1:nlm
+        l, m = SHTnsKit.index_to_lm(sht, idx)
+        l_values[idx] = l
+        m_values[idx] = m
+        lm_index[(l, m)] = idx
     end
     
     # Create enhanced pencil decomposition
@@ -324,7 +317,11 @@ end
 Get linear index for (l,m) mode.
 """
 function get_mode_index(config::SHTnsConfig, l::Int, m::Int)
-    return get(config.lm_index, (l, m), 0)
+    try
+        return SHTnsKit.lm_to_index(config.sht, l, m)
+    catch
+        return get(config.lm_index, (l, m), 0)
+    end
 end
 
 """

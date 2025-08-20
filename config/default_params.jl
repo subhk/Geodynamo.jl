@@ -3,8 +3,8 @@ const i_N   = 64        # Number of radial points
 const i_Nic = 16        # Number of inner core radial points
 const i_L   = 32        # Maximum spherical harmonic degree
 const i_M   = 32        # Maximum azimuthal wavenumber
-const i_Th  = 64        # Number of theta points (must be compatible with SHTnsSpheres)
-const i_Ph  = 128       # Number of phi points (must be compatible with SHTnsSpheres)
+const i_Th  = 64        # Number of theta points (must be compatible with SHTnsKit)
+const i_Ph  = 128       # Number of phi points (must be compatible with SHTnsKit)
 const i_KL  = 4         # Bandwidth for finite differences
 
 # Derived parameters
