@@ -1317,6 +1317,247 @@ function set_internal_heating!(temp_field::SHTnsTemperatureField{T},
 end
 
 # ============================================================================
+# NetCDF Boundary Condition Integration for Temperature
+# ============================================================================
+
+"""
+    apply_netcdf_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                        boundary_set::BoundaryConditionSet{T},
+                                        current_time::T=T(0)) where T
+
+Apply temperature boundary conditions loaded from NetCDF files to the temperature field.
+
+# Arguments
+- `temp_field`: SHTns temperature field to apply boundaries to
+- `boundary_set`: Boundary condition set loaded from NetCDF files
+- `current_time`: Current simulation time (for time-dependent boundaries)
+
+# Example
+```julia
+# Load boundaries from NetCDF files
+temp_boundaries = load_temperature_boundaries("cmb_temp.nc", "surface_temp.nc")
+
+# Apply to temperature field
+apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
+```
+"""
+function apply_netcdf_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                            boundary_set::BoundaryConditionSet{T},
+                                            current_time::T=T(0)) where T
+    
+    if boundary_set.field_name != "temperature"
+        throw(ArgumentError("Boundary set field name '$(boundary_set.field_name)' != 'temperature'"))
+    end
+    
+    config = temp_field.config
+    
+    # Determine time indices for time-dependent boundaries
+    inner_time_idx = get_boundary_time_index(boundary_set.inner_boundary, current_time)
+    outer_time_idx = get_boundary_time_index(boundary_set.outer_boundary, current_time)
+    
+    # Create target coordinate grids from SHTns configuration
+    target_theta, target_phi = create_shtns_coordinate_grids(config)
+    
+    # Interpolate boundary data to SHTns grid
+    inner_values = interpolate_boundary_to_grid(boundary_set.inner_boundary, 
+                                               target_theta, target_phi, inner_time_idx)
+    outer_values = interpolate_boundary_to_grid(boundary_set.outer_boundary, 
+                                               target_theta, target_phi, outer_time_idx)
+    
+    # Convert to spectral space and apply
+    apply_physical_boundaries_to_spectral!(temp_field, inner_values, outer_values, config)
+    
+    @info "✓ Applied NetCDF temperature boundaries (time=$(current_time))"
+end
+
+"""
+    get_boundary_time_index(boundary_data::BoundaryData{T}, target_time::T) -> Int
+
+Get the appropriate time index for time-dependent boundary data.
+"""
+function get_boundary_time_index(boundary_data::BoundaryData{T}, target_time::T) where T
+    if !boundary_data.is_time_dependent
+        return 1
+    end
+    
+    if boundary_data.time === nothing
+        # Use time index based on simulation time (simple linear mapping)
+        return max(1, min(boundary_data.ntime, round(Int, target_time) + 1))
+    end
+    
+    # Find closest time index
+    time_diffs = abs.(boundary_data.time .- target_time)
+    _, time_idx = findmin(time_diffs)
+    
+    return time_idx
+end
+
+"""
+    create_shtns_coordinate_grids(config::SHTnsConfig) -> (Vector{T}, Vector{T})
+
+Create theta and phi coordinate grids matching SHTns configuration.
+"""
+function create_shtns_coordinate_grids(config::SHTnsConfig)
+    nlat, nlon = config.nlat, config.nlon
+    
+    # Create standard Gaussian latitude grid (colatitude)
+    theta = Vector{Float64}(undef, nlat)
+    for i in 1:nlat
+        # Gaussian quadrature points for colatitude [0, π]
+        theta[i] = acos(SHTnsKit.get_gauss_nodes(config.sht)[i])
+    end
+    
+    # Create uniform longitude grid
+    phi = collect(range(0, 2π, length=nlon+1))[1:end-1]  # [0, 2π)
+    
+    return theta, phi
+end
+
+"""
+    apply_physical_boundaries_to_spectral!(temp_field, inner_values, outer_values, config)
+
+Convert physical boundary values to spectral coefficients and apply them.
+"""
+function apply_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureField{T},
+                                               inner_values::Matrix{T}, 
+                                               outer_values::Matrix{T},
+                                               config::SHTnsConfig) where T
+    
+    # Use work arrays for physical to spectral transforms
+    phys_work = temp_field.work_physical
+    spec_work = temp_field.work_spectral
+    
+    # Transform inner boundary to spectral space
+    phys_data = parent(phys_work.data)
+    nlat, nlon = size(inner_values)
+    
+    # Copy inner boundary data to work array (assumes matching grid)
+    if size(phys_data, 1) >= nlat && size(phys_data, 2) >= nlon
+        phys_data[1:nlat, 1:nlon, 1] .= inner_values
+        
+        # Transform to spectral space
+        shtns_physical_to_spectral!(phys_work, spec_work)
+        
+        # Extract and apply inner boundary coefficients
+        apply_spectral_boundary_coefficients!(temp_field, spec_work, :inner)
+    else
+        @warn "Grid size mismatch for inner boundary: expected $(nlat)×$(nlon), got $(size(phys_data)[1:2])"
+    end
+    
+    # Transform outer boundary to spectral space
+    if size(phys_data, 1) >= nlat && size(phys_data, 2) >= nlon
+        phys_data[1:nlat, 1:nlon, 1] .= outer_values
+        
+        # Transform to spectral space  
+        shtns_physical_to_spectral!(phys_work, spec_work)
+        
+        # Extract and apply outer boundary coefficients
+        apply_spectral_boundary_coefficients!(temp_field, spec_work, :outer)
+    else
+        @warn "Grid size mismatch for outer boundary: expected $(nlat)×$(nlon), got $(size(phys_data)[1:2])"
+    end
+end
+
+"""
+    apply_spectral_boundary_coefficients!(temp_field, spec_work, boundary::Symbol)
+
+Apply spectral coefficients from boundary data to the temperature field.
+"""
+function apply_spectral_boundary_coefficients!(temp_field::SHTnsTemperatureField{T},
+                                              spec_work::SHTnsSpectralField{T},
+                                              boundary::Symbol) where T
+    
+    spec_real_work = parent(spec_work.data_real)
+    spec_imag_work = parent(spec_work.data_imag)
+    
+    lm_range = range_local(temp_field.config.pencils.spec, 1)
+    boundary_idx = (boundary == :inner) ? 1 : 2
+    
+    # Copy spectral coefficients to boundary values array
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= temp_field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            if local_lm <= size(spec_real_work, 1) && size(spec_real_work, 3) >= 1
+                temp_field.boundary_values[boundary_idx, lm_idx] = spec_real_work[local_lm, 1, 1]
+                
+                # Set boundary condition type to Dirichlet (fixed temperature)
+                if boundary == :inner
+                    temp_field.bc_type_inner[lm_idx] = 1
+                else
+                    temp_field.bc_type_outer[lm_idx] = 1
+                end
+            end
+        end
+    end
+end
+
+"""
+    update_temperature_boundaries_from_netcdf!(temp_field::SHTnsTemperatureField{T},
+                                              boundary_set::BoundaryConditionSet{T},
+                                              timestep::Int, dt::T) where T
+
+Update temperature boundary conditions during time evolution.
+
+# Arguments
+- `temp_field`: Temperature field to update
+- `boundary_set`: NetCDF boundary condition set
+- `timestep`: Current timestep number
+- `dt`: Time step size
+
+# Example
+```julia
+# During time stepping loop
+for timestep in 1:nsteps
+    current_time = timestep * dt
+    update_temperature_boundaries_from_netcdf!(temp_field, temp_boundaries, timestep, dt)
+    # ... perform time step
+end
+```
+"""
+function update_temperature_boundaries_from_netcdf!(temp_field::SHTnsTemperatureField{T},
+                                                   boundary_set::BoundaryConditionSet{T},
+                                                   timestep::Int, dt::T) where T
+    
+    current_time = timestep * dt
+    apply_netcdf_temperature_boundaries!(temp_field, boundary_set, current_time)
+end
+
+"""
+    validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsConfig)
+
+Validate that NetCDF temperature boundaries are compatible with the SHTns configuration.
+"""
+function validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditionSet, 
+                                                  config::SHTnsConfig)
+    errors = String[]
+    
+    # Check grid compatibility
+    if boundary_set.inner_boundary.nlat != config.nlat
+        push!(errors, "Inner boundary nlat ($(boundary_set.inner_boundary.nlat)) != config nlat ($(config.nlat))")
+    end
+    
+    if boundary_set.inner_boundary.nlon != config.nlon
+        push!(errors, "Inner boundary nlon ($(boundary_set.inner_boundary.nlon)) != config nlon ($(config.nlon))")
+    end
+    
+    if boundary_set.outer_boundary.nlat != config.nlat
+        push!(errors, "Outer boundary nlat ($(boundary_set.outer_boundary.nlat)) != config nlat ($(config.nlat))")
+    end
+    
+    if boundary_set.outer_boundary.nlon != config.nlon
+        push!(errors, "Outer boundary nlon ($(boundary_set.outer_boundary.nlon)) != config nlon ($(config.nlon))")
+    end
+    
+    if !isempty(errors)
+        error_msg = "NetCDF temperature boundary validation failed:\n" * join(errors, "\n")
+        throw(ArgumentError(error_msg))
+    end
+    
+    @info "✓ NetCDF temperature boundaries are compatible with SHTns configuration"
+end
+
+# ============================================================================
 # Export functions
 # ============================================================================
 # export SHTnsTemperatureField, create_shtns_temperature_field
