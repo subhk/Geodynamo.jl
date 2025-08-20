@@ -291,14 +291,14 @@ end
     
 Analyze and report load balance for a given pencil decomposition.
 """
-function analyze_load_balance(pencil::Pencil)
+function analyze_load_balance(pencil::Pencil)::Float64
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
     
-    # Get local size
-    local_size = size_local(pencil)
-    local_elements = prod(local_size)
+    # Get local size with explicit types
+    local_size::Tuple{Int,Int,Int} = size_local(pencil)
+    local_elements::Int = prod(local_size)
     
     # Gather all sizes
     all_sizes = MPI.Gather(local_elements, comm; root=0)
