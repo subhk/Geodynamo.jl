@@ -347,7 +347,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
     rank = get_rank()
     
     if rank == 0
-        println("Starting geodynamo simulation with SHTnsSpheres...")
+        println("Starting geodynamo simulation with SHTnsKit...")
         println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm)")
         println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")

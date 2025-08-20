@@ -3,6 +3,16 @@ uuid = "27fcf419-203c-433d-a4a9-3db2199420d8"
 authors = ["Subhajit Kar <subhajitkar19@gmail.com>"]
 version = "1.0.0-DEV"
 
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
+PencilArrays = "062a5362-cb4d-4eca-b05c-82ce5e4eb7fc"
+PencilFFTs = "4a48f351-57a6-4f7f-8d90-db2b2dbd238b"
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+SHTnsKit = "67b7f79d-3a80-42e4-bc74-f7c9a1b0b8db"
+
 [compat]
 julia = "1.6"
 

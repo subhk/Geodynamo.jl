@@ -16,7 +16,7 @@
 
 using MPI
 using PencilArrays
-using SHTnsSpheres
+using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 

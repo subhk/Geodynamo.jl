@@ -4,7 +4,7 @@
 #
 # SHTns configuration structure
 struct SHTnsConfig
-    sht::SHTnsSphere
+    sht::SHTnsKit.SHTnsSphere
     nlat::Int
     nlon::Int
     lmax::Int
@@ -44,19 +44,19 @@ function create_shtns_config(; optimize_decomp::Bool=true,
     lmax = i_L
     mmax = min(i_M, lmax)
     
-    # Initialize SHTns sphere
-    sht = SHTnsSphere(lmax, mmax, 
-                    grid_type = SHTnsSpheres.gaussian,
-                    nlat = nlat,
-                    nlon = nlon)
+    # Initialize SHTns sphere with SHTnsKit
+    sht = SHTnsKit.SHTnsSphere(lmax, mmax, 
+                              grid_type = SHTnsKit.gaussian,
+                              nlat = nlat,
+                              nlon = nlon)
     
     # Get grid information
-    theta_grid    = get_theta_array(sht)
-    phi_grid      = get_phi_array(sht) 
-    gauss_weights = get_weights(sht)
+    theta_grid    = SHTnsKit.get_theta_array(sht)
+    phi_grid      = SHTnsKit.get_phi_array(sht) 
+    gauss_weights = SHTnsKit.get_weights(sht)
     
     # Compute (l,m) mode information with index mapping
-    nlm = get_nlm(sht)
+    nlm = SHTnsKit.get_nlm(sht)
     l_values = zeros(Int, nlm)
     m_values = zeros(Int, nlm)
     lm_index = Dict{Tuple{Int,Int}, Int}()

@@ -198,7 +198,7 @@ end
             MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
             
             # Synthesis
-            synthesis!(phys_work, sht, coeffs)
+            SHTnsKit.synthesis!(phys_work, sht, coeffs)
             
             # Copy to output
             copy_physical_data_vectorized!(phys_data, phys_work, local_r)
@@ -232,7 +232,7 @@ end
             unpack_alltoall_buffer!(coeffs, manager.recv_buffer, chunk_size)
             
             # Synthesis and copy
-            synthesis!(phys_work, sht, coeffs)
+            SHTnsKit.synthesis!(phys_work, sht, coeffs)
             copy_physical_data!(phys_data, phys_work, local_r)
         end
     end
@@ -338,7 +338,7 @@ end
             end
             
             # Analysis
-            analysis!(coeffs, sht, phys_work)
+            SHTnsKit.analysis!(coeffs, sht, phys_work)
             
             # Store local portion with m=0 reality constraint
             store_spectral_coefficients!(spec_real, spec_imag, coeffs,
@@ -435,7 +435,7 @@ end
             end
             
             # Vector synthesis
-            vt_work, vp_work = vector_synthesis(sht, tor_coeffs, pol_coeffs)
+            vt_work, vp_work = SHTnsKit.vector_synthesis(sht, tor_coeffs, pol_coeffs)
             
             # Store results with vectorization
             store_vector_components!(v_theta, v_phi, vt_work, vp_work, local_r)
@@ -553,7 +553,7 @@ function process_vector_analysis!(sht, v_theta, v_phi,
             end
             
             # Vector analysis
-            tor_coeffs, pol_coeffs = vector_analysis(sht, vt_work, vp_work)
+            tor_coeffs, pol_coeffs = SHTnsKit.vector_analysis(sht, vt_work, vp_work)
             
             # Store with reality constraints
             store_vector_spectral_enhanced!(tor_real, tor_imag, pol_real, pol_imag,
@@ -641,7 +641,7 @@ end
             MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
         end
         
-        synthesis!(manager.phys_work, sht, manager.coeffs_full)
+        SHTnsKit.synthesis!(manager.phys_work, sht, manager.coeffs_full)
         copy_physical_data!(phys_data, manager.phys_work, local_r)
     end
 end
@@ -684,8 +684,8 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
             end
             
             # Compute derivatives
-            dtheta = synthesis_dtheta(sht, manager.coeffs_full)
-            dphi   = synthesis_dphi(sht, manager.coeffs_full)
+            dtheta = SHTnsKit.synthesis_dtheta(sht, manager.coeffs_full)
+            dphi   = SHTnsKit.synthesis_dphi(sht, manager.coeffs_full)
             
             # Store results
             n = length(dtheta)
@@ -751,15 +751,15 @@ end
 # In-place SHTns wrappers for better performance
 # ================================================
 function synthesis!(output::Matrix{ComplexF64}, 
-                   sht::SHTnsSphere, coeffs::Vector{ComplexF64})
-    result = synthesis(sht, coeffs)
+                   sht::SHTnsKit.SHTnsSphere, coeffs::Vector{ComplexF64})
+    result = SHTnsKit.synthesis(sht, coeffs)
     output .= result
     return nothing
 end
 
 function analysis!(output::Vector{ComplexF64}, 
-                  sht::SHTnsSphere, input::Matrix{ComplexF64})
-    result = analysis(sht, input)
+                  sht::SHTnsKit.SHTnsSphere, input::Matrix{ComplexF64})
+    result = SHTnsKit.analysis(sht, input)
     output .= result
     return nothing
 end

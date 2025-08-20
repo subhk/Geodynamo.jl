@@ -7,7 +7,7 @@ module Geodynamo
     using PencilFFTs
     using HDF5
     using StaticArrays
-    using SHTnsSpheres
+    using SHTnsKit
 
     # exports shtns_config.jl
     export SHTnsConfig, create_shtns_config
