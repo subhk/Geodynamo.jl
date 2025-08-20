@@ -954,7 +954,123 @@ export get_transform_statistics, print_transform_statistics
 export clear_transform_cache!
 export SHTnsTransformManager, get_transform_manager
 
+# ======================================================
+# Performance Monitoring and Instrumentation
+# ======================================================
+
+"""
+Performance statistics structure for monitoring transform operations.
+"""
+mutable struct TransformStats
+    total_transforms::Int
+    total_time_ns::Int
+    gpu_transforms::Int
+    cpu_transforms::Int
+    allocation_bytes::Int
+    communication_time_ns::Int
+    
+    TransformStats() = new(0, 0, 0, 0, 0, 0)
+end
+
+# Thread-local performance statistics
+const THREAD_LOCAL_STATS = [TransformStats() for _ in 1:Threads.nthreads()]
+
+"""
+    reset_performance_stats!()
+    
+Reset all performance statistics across all threads.
+"""
+function reset_performance_stats!()
+    for stats in THREAD_LOCAL_STATS
+        stats.total_transforms = 0
+        stats.total_time_ns = 0
+        stats.gpu_transforms = 0
+        stats.cpu_transforms = 0
+        stats.allocation_bytes = 0
+        stats.communication_time_ns = 0
+    end
+end
+
+"""
+    get_performance_summary()
+    
+Get aggregated performance statistics from all threads.
+"""
+function get_performance_summary()
+    total_stats = TransformStats()
+    for stats in THREAD_LOCAL_STATS
+        total_stats.total_transforms += stats.total_transforms
+        total_stats.total_time_ns += stats.total_time_ns
+        total_stats.gpu_transforms += stats.gpu_transforms
+        total_stats.cpu_transforms += stats.cpu_transforms
+        total_stats.allocation_bytes += stats.allocation_bytes
+        total_stats.communication_time_ns += stats.communication_time_ns
+    end
+    return total_stats
+end
+
+"""
+    @timed_transform expr
+    
+Macro to automatically time and track transform operations.
+"""
+macro timed_transform(expr)
+    return quote
+        thread_id = Threads.threadid()
+        stats = THREAD_LOCAL_STATS[thread_id]
+        
+        gc_start = Base.gc_bytes()
+        t_start = time_ns()
+        
+        result = $(esc(expr))
+        
+        t_end = time_ns()
+        gc_end = Base.gc_bytes()
+        
+        stats.total_transforms += 1
+        stats.total_time_ns += (t_end - t_start)
+        stats.allocation_bytes += (gc_end - gc_start)
+        
+        result
+    end
+end
+
+"""
+    print_performance_report()
+    
+Print a detailed performance report.
+"""
+function print_performance_report()
+    stats = get_performance_summary()
+    
+    if stats.total_transforms == 0
+        println("No transform operations recorded.")
+        return
+    end
+    
+    avg_time_ms = stats.total_time_ns / (1_000_000 * stats.total_transforms)
+    total_time_s = stats.total_time_ns / 1_000_000_000
+    alloc_mb = stats.allocation_bytes / (1024^2)
+    comm_fraction = stats.communication_time_ns / stats.total_time_ns
+    
+    println("\n╔══════════════════════════════════════════════════════════════╗")
+    println("║                    Transform Performance Report              ║")
+    println("╠══════════════════════════════════════════════════════════════╣")
+    println("║ Total Transforms:    $(lpad(stats.total_transforms, 8))                      ║")
+    println("║ Total Time:          $(lpad(round(total_time_s, digits=3), 8)) s                   ║")
+    println("║ Average Time:        $(lpad(round(avg_time_ms, digits=3), 8)) ms                  ║")
+    println("║ GPU Transforms:      $(lpad(stats.gpu_transforms, 8))                      ║")
+    println("║ CPU Transforms:      $(lpad(stats.cpu_transforms, 8))                      ║")
+    println("║ Memory Allocated:    $(lpad(round(alloc_mb, digits=1), 8)) MB                  ║")
+    println("║ Communication Time:  $(lpad(round(comm_fraction*100, digits=1), 8))%                   ║")
+    println("╚══════════════════════════════════════════════════════════════╝")
+end
+
 # Export new advanced functions
 export create_optimized_config, accelerated_transform!
 export compute_power_spectrum, evaluate_field_at_coordinates
 export rotate_spherical_field
+
+# Export performance monitoring functions
+export reset_performance_stats!, get_performance_summary
+export print_performance_report, @timed_transform

@@ -44,6 +44,10 @@ module Geodynamo
     export create_optimized_config, accelerated_transform!
     export compute_power_spectrum, evaluate_field_at_coordinates
     export rotate_spherical_field
+    
+    # Export performance monitoring
+    export reset_performance_stats!, get_performance_summary
+    export print_performance_report, @timed_transform
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
