@@ -16,8 +16,8 @@ Base.@kwdef mutable struct GeodynamoParameters
     i_Nic::Int = 16      # Number of inner core radial points
     i_L::Int = 32        # Maximum spherical harmonic degree
     i_M::Int = 32        # Maximum azimuthal wavenumber
-    i_Th::Int = 64       # Number of theta points (must be compatible with SHTnsSpheres)
-    i_Ph::Int = 128      # Number of phi points (must be compatible with SHTnsSpheres)
+    i_Th::Int = 64       # Number of theta points (must be compatible with SHTnsKit)
+    i_Ph::Int = 128      # Number of phi points (must be compatible with SHTnsKit)
     i_KL::Int = 4        # Bandwidth for finite differences
     
     # Derived parameters (computed automatically)
