@@ -781,7 +781,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
         memory_bandwidth = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
         
-        println("\n📊 PERFORMANCE METRICS:")
+        println("\nPERFORMANCE METRICS:")
         println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
         println("  CPU thread efficiency: $(round(cpu_efficiency*100, digits=1))%")
         println("  Cache hit rate: $(round(cache_efficiency*100, digits=1))%")
