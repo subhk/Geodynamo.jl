@@ -466,7 +466,7 @@ function apply_netcdf_composition_boundaries!(comp_field::SHTnsCompositionField{
     # Convert to spectral space and apply
     apply_composition_physical_boundaries_to_spectral!(comp_field, inner_values, outer_values, config)
     
-    @info "✓ Applied NetCDF composition boundaries (time=$(current_time))"
+    @info "Applied NetCDF composition boundaries (time=$(current_time))"
 end
 
 """
@@ -610,7 +610,7 @@ function validate_netcdf_composition_compatibility(boundary_set::BoundaryConditi
         throw(ArgumentError(error_msg))
     end
     
-    @info "✓ NetCDF composition boundaries are compatible with SHTns configuration"
+    @info "NetCDF composition boundaries are compatible with SHTns configuration"
 end
 
 # Note: Helper functions like get_boundary_time_index and create_shtns_coordinate_grids

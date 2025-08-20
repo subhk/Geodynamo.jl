@@ -10,7 +10,7 @@ High-performance geodynamo modeling with spherical harmonic transforms and flexi
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -46,16 +46,16 @@ println("✓ Your first geodynamo simulation is ready!")
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
 | **🌊 Spherical Harmonic Transforms** | Efficient spectral methods using SHTns for spherical geometry |
-| **🎯 Flexible Boundary Conditions** | NetCDF files, programmatic patterns, and hybrid approaches |
-| **⚡ High Performance** | CPU-optimized with SIMD vectorization and MPI parallelization |
-| **💾 NetCDF Integration** | Read observational data and numerical model outputs |
-| **📊 Performance Monitoring** | Built-in profiling and optimization tools |
-| **⏰ Time-Dependent Boundaries** | Evolving boundary conditions during simulation |
+| **Flexible Boundary Conditions** | NetCDF files, programmatic patterns, and hybrid approaches |
+| **High Performance** | CPU-optimized with SIMD vectorization and MPI parallelization |
+| **NetCDF Integration** | Read observational data and numerical model outputs |
+| **Performance Monitoring** | Built-in profiling and optimization tools |
+| **Time-Dependent Boundaries** | Evolving boundary conditions during simulation |
 
 ---
 
@@ -72,7 +72,7 @@ println("✓ Your first geodynamo simulation is ready!")
 
 ---
 
-## 🧠 Core Concepts
+## Core Concepts
 
 ### What is Geodynamo.jl?
 
@@ -100,7 +100,7 @@ Geodynamo.jl simulates Earth's magnetic field generation through the geodynamo p
 
 ---
 
-## ⚙️ Setting Up Simulations
+## Setting Up Simulations
 
 ### Step 1: Configuration
 
@@ -159,7 +159,7 @@ mag_field = create_shtns_magnetic_fields(Float64, config, domain)
 
 ---
 
-## 🎯 Boundary Conditions
+## Boundary Conditions
 
 Geodynamo.jl offers **five different approaches** to specify boundary conditions:
 
@@ -275,7 +275,7 @@ temp_boundaries = create_hybrid_temperature_boundaries(
 
 ---
 
-## 🏃 Running Simulations
+## Running Simulations
 
 ### Basic Time Stepping
 
@@ -341,7 +341,7 @@ print_performance_report()
 
 ---
 
-## 💡 Examples
+## Examples
 
 ### Example 1: Basic Thermal Convection
 
@@ -349,7 +349,7 @@ print_performance_report()
 using Geodynamo
 
 function basic_thermal_convection()
-    println("🌡️  Basic Thermal Convection Example")
+    println("Basic Thermal Convection Example")
     
     # Setup
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
@@ -382,7 +382,7 @@ basic_thermal_convection()
 
 ```julia
 function plume_convection()
-    println("🌋 Plume-Driven Convection Example")
+    println("Plume-Driven Convection Example")
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -416,7 +416,7 @@ plume_convection()
 
 ```julia
 function realistic_boundaries()
-    println("🌍 Realistic Boundary Conditions Example")
+    println("Realistic Boundary Conditions Example")
     
     # Create sample NetCDF files if needed
     if !isfile("cmb_temp.nc")
@@ -451,7 +451,7 @@ realistic_boundaries()
 
 ```julia
 function time_dependent_example()
-    println("⏰ Time-Dependent Boundaries Example")
+    println("Time-Dependent Boundaries Example")
     
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -495,7 +495,7 @@ time_dependent_example()
 
 ```julia
 function hybrid_boundaries_example()
-    println("🔀 Hybrid Boundaries Example")
+    println("Hybrid Boundaries Example")
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -534,7 +534,7 @@ hybrid_boundaries_example()
 
 ---
 
-## ⚡ Performance & Optimization
+## Performance & Optimization
 
 ### CPU Optimizations
 
@@ -594,7 +594,7 @@ print_performance_report()
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -636,22 +636,22 @@ temp_field = create_shtns_temperature_field(Float64, config, domain)  # Explicit
 
 ### Debugging Tips
 
-1. **🎯 Start Simple**: Begin with low resolution and uniform boundaries
-2. **📊 Check Boundaries**: Use `print_boundary_info()` to inspect loaded data
-3. **⚡ Monitor Performance**: Use `@timed_transform` and `print_performance_report()`
+1. **Start Simple**: Begin with low resolution and uniform boundaries
+2. **Check Boundaries**: Use `print_boundary_info()` to inspect loaded data
+3. **Monitor Performance**: Use `@timed_transform` and `print_performance_report()`
 4. **✅ Validate Data**: Use `get_boundary_statistics()` to check loaded values
 5. **📝 Check Logs**: Look for warning messages during simulation setup
 
 ### Getting Help
 
-- **📖 Documentation**: Check the `docs/` directory for detailed guides
-- **💡 Examples**: Run `examples/` scripts to see working code
+- **Documentation**: Check the `docs/` directory for detailed guides
+- **Examples**: Run `examples/` scripts to see working code
 - **🐛 Issues**: Report bugs on the [GitHub repository](https://github.com/subhk/Geodynamo.jl)
 - **💬 Community**: Ask questions in [GitHub Discussions](https://github.com/subhk/Geodynamo.jl/discussions)
 
 ---
 
-## 📖 API Reference
+## API Reference
 
 ### Main Configuration Functions
 
@@ -730,7 +730,7 @@ SHTnsCompositionField{T}           # Composition field structure
 
 ---
 
-## 🌍 Advanced Topics
+## Advanced Topics
 
 ### Creating Custom NetCDF Files
 
@@ -789,7 +789,7 @@ config = create_optimized_config(256, 256, nlat=512, nlon=1024)
 
 ---
 
-## 🎓 Learning Path
+## Learning Path
 
 ### Beginner (Learning the Basics)
 1. **Start simple**: Use uniform boundaries and low resolution (lmax=16-32)
@@ -817,7 +817,7 @@ config = create_optimized_config(256, 256, nlat=512, nlon=1024)
 
 ---
 
-## 📋 Quick Reference
+## Quick Reference
 
 ### Essential Command Cheat Sheet
 
@@ -870,7 +870,7 @@ print_performance_report()
 
 ---
 
-## 🔗 Related Resources
+## Related Resources
 
 - **[SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl)**: Spherical harmonic transform library
 - **[Julia Language](https://julialang.org/)**: High-performance programming language
@@ -879,7 +879,7 @@ print_performance_report()
 
 ---
 
-## 📄 Citation
+## Citation
 
 If you use Geodynamo.jl in your research, please cite:
 
@@ -895,13 +895,13 @@ If you use Geodynamo.jl in your research, please cite:
 
 ---
 
-## 📜 License
+## License
 
 Geodynamo.jl is licensed under the [MIT License](LICENSE).
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to:
 
@@ -912,6 +912,6 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ---
 
-**Happy geodynamo modeling! 🌍⚡🧲**
+**Happy geodynamo modeling!**
 
 *For questions, issues, or collaboration opportunities, please visit our [GitHub repository](https://github.com/subhk/Geodynamo.jl).*

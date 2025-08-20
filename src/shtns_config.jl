@@ -254,7 +254,7 @@ function analyze_pencil_balance(pencil::Pencil, name::Symbol)
         max_size = maximum(all_sizes)
         imbalance = (max_size - min_size) / max_size * 100
         
-        status = imbalance < 5 ? "✓" : imbalance < 15 ? "○" : "✗"
+        status = imbalance < 5 ? "GOOD" : imbalance < 15 ? "OK" : "BAD"
         println("  $name pencil: $status $(round(imbalance, digits=1))% imbalance")
     end
 end

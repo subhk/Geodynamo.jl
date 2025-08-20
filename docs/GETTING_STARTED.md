@@ -2,7 +2,7 @@
 
 Welcome to Geodynamo.jl! This guide will help you get up and running with geodynamo simulations using spherical harmonic transforms and flexible boundary conditions.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -34,10 +34,10 @@ apply_netcdf_temperature_boundaries!(temp_field,
     )
 )
 
-println("✓ Your first geodynamo simulation is ready!")
+println("Your first geodynamo simulation is ready!")
 ```
 
-## 📖 Table of Contents
+## Table of Contents
 
 1. [Core Concepts](#core-concepts)
 2. [Setting Up Simulations](#setting-up-simulations)
@@ -285,7 +285,7 @@ print_performance_report()
 using Geodynamo
 
 function basic_thermal_convection()
-    println("🌡️  Basic Thermal Convection Example")
+    println("Basic Thermal Convection Example")
     
     # Setup
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
@@ -307,7 +307,7 @@ function basic_thermal_convection()
     # Add small perturbation to initiate convection
     set_temperature_ic!(temp_field, :random_perturbation, domain)
     
-    println("✓ Basic thermal convection setup complete")
+    println("Basic thermal convection setup complete")
     print_boundary_info(temp_boundaries)
 end
 
@@ -318,7 +318,7 @@ basic_thermal_convection()
 
 ```julia
 function plume_convection()
-    println("🌋 Plume-Driven Convection Example")
+    println("Plume-Driven Convection Example")
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -338,7 +338,7 @@ function plume_convection()
     
     apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
     
-    println("✓ Plume convection setup complete")
+    println("Plume convection setup complete")
     
     # Show boundary statistics
     inner_stats = get_boundary_statistics(temp_boundaries.inner_boundary)
@@ -352,7 +352,7 @@ plume_convection()
 
 ```julia
 function realistic_boundaries()
-    println("🌍 Realistic Boundary Conditions Example")
+    println("Realistic Boundary Conditions Example")
     
     # Create sample NetCDF files if needed
     if !isfile("cmb_temp.nc")
@@ -376,7 +376,7 @@ function realistic_boundaries()
     apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
     apply_netcdf_composition_boundaries!(comp_field, comp_boundaries)
     
-    println("✓ Realistic boundaries loaded")
+    println("Realistic boundaries loaded")
     print_boundary_info(temp_boundaries)
     print_boundary_info(comp_boundaries)
 end
@@ -388,7 +388,7 @@ realistic_boundaries()
 
 ```julia
 function time_dependent_example()
-    println("⏰ Time-Dependent Boundaries Example")
+    println("Time-Dependent Boundaries Example")
     
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -422,7 +422,7 @@ function time_dependent_example()
         println("Step $step: Applied boundaries at time $current_time")
     end
     
-    println("✓ Time-dependent boundary example complete")
+    println("Time-dependent boundary example complete")
 end
 
 time_dependent_example()
@@ -621,4 +621,4 @@ print_performance_report()
 | `:plume` | `(:plume, 4200.0, Dict("width"=>π/6))` | Gaussian plume |
 | `:dipole` | `(:dipole, 1000.0)` | Dipolar pattern |
 
-Welcome to geodynamo modeling! 🌍⚡🧲
+Welcome to geodynamo modeling!

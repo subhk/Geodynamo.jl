@@ -1054,7 +1054,7 @@ function validate_flux_bc(temp_field, domain)
     if get_rank() == 0
         println("Maximum flux BC error: $(global_max_error)")
         if global_max_error > 1e-6
-            println("⚠ Warning: Flux BC error exceeds tolerance")
+            println("Warning: Flux BC error exceeds tolerance")
         end
     end
     
@@ -1367,7 +1367,7 @@ function apply_netcdf_temperature_boundaries!(temp_field::SHTnsTemperatureField{
     # Convert to spectral space and apply
     apply_physical_boundaries_to_spectral!(temp_field, inner_values, outer_values, config)
     
-    @info "✓ Applied NetCDF temperature boundaries (time=$(current_time))"
+    @info "Applied NetCDF temperature boundaries (time=$(current_time))"
 end
 
 """
@@ -1554,7 +1554,7 @@ function validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditi
         throw(ArgumentError(error_msg))
     end
     
-    @info "✓ NetCDF temperature boundaries are compatible with SHTns configuration"
+    @info "NetCDF temperature boundaries are compatible with SHTns configuration"
 end
 
 # ============================================================================

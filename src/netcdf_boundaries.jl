@@ -337,7 +337,7 @@ function validate_boundary_compatibility(inner::BoundaryData, outer::BoundaryDat
         throw(ArgumentError(error_msg))
     end
     
-    @info "✓ $field_name boundary files are compatible ($(inner.nlat)×$(inner.nlon), time_dep=$(inner.is_time_dependent))"
+    @info "$field_name boundary files are compatible ($(inner.nlat)×$(inner.nlon), time_dep=$(inner.is_time_dependent))"
 end
 
 # ============================================================================
