@@ -189,8 +189,8 @@ end
 # ====================================
 @inline function process_radial_levels_allreduce!(sht, spec_real, spec_imag, phys_data,
                                                  r_range, lm_range, manager)
-    coeffs = manager.coeffs_full
-    phys_work = manager.phys_work
+    coeffs = manager.spectral_work
+    phys_work = manager.physical_work
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -216,8 +216,8 @@ end
 @inline function process_radial_levels_alltoall!(sht, spec_real, spec_imag, phys_data,
                                                 r_range, lm_range, manager)
     # Use MPI_Alltoall for better scaling with moderate distribution
-    coeffs = manager.coeffs_full
-    phys_work = manager.phys_work
+    coeffs = manager.spectral_work
+    phys_work = manager.physical_work
     
     nprocs = get_nprocs()
     chunk_size = manager.nlm ÷ nprocs
@@ -328,8 +328,8 @@ end
 
 @inline function process_radial_levels_p2s!(sht, phys_data, spec_real, spec_imag,
                                                      r_range, lm_range, manager, config)
-    phys_work = manager.phys_work
-    coeffs    = manager.coeffs_full
+    phys_work = manager.physical_work
+    coeffs    = manager.spectral_work
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -416,10 +416,10 @@ end
                                                     pol_real, pol_imag,
                                                     v_theta, v_phi, 
                                                     r_range, lm_range, manager)
-    tor_coeffs = manager.coeffs_full
-    pol_coeffs = manager.coeffs_work
-    vt_work = manager.vt_work
-    vp_work = manager.vp_work
+    tor_coeffs = manager.vector_tor
+    pol_coeffs = manager.vector_pol
+    vt_work = manager.vector_u
+    vp_work = manager.vector_v
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -542,8 +542,8 @@ function process_vector_analysis!(sht, v_theta, v_phi,
                                            pol_real, pol_imag,
                                            r_range, lm_range, 
                                            manager, config)
-    vt_work = manager.vt_work
-    vp_work = manager.vp_work
+    vt_work = manager.vector_u
+    vp_work = manager.vector_v
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -639,16 +639,16 @@ end
     phys_data = parent(phys.data)
     
     if local_r <= size(spec_real, 3)
-        fill_coefficients!(manager.coeffs_full, spec_real, spec_imag, 
+        fill_coefficients!(manager.spectral_work, spec_real, spec_imag, 
                                     local_r, lm_range)
         
         # Use cached communication pattern
         if manager.comm_pattern == :allreduce
-            MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
+            MPI.Allreduce!(manager.spectral_work, MPI.SUM, get_comm())
         end
         
         SHTnsKit.synthesize!(sht, manager.spectral_work, manager.physical_work)
-        copy_physical_data!(phys_data, manager.phys_work, local_r)
+        copy_physical_data!(phys_data, manager.physical_work, local_r)
     end
 end
 
@@ -681,12 +681,12 @@ function shtns_compute_gradient!(input::SHTnsSpectralField{T},
         
         if local_r <= size(spec_real, 3)
             # Fill coefficients
-            fill_coefficients!(manager.coeffs_full, spec_real, spec_imag,
+            fill_coefficients!(manager.spectral_work, spec_real, spec_imag,
                                         local_r, lm_range)
             
             # Communication
             if manager.comm_pattern == :allreduce
-                MPI.Allreduce!(manager.coeffs_full, MPI.SUM, get_comm())
+                MPI.Allreduce!(manager.spectral_work, MPI.SUM, get_comm())
             end
             
             # Compute derivatives using SHTnsKit gradient computation
