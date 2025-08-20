@@ -25,7 +25,7 @@ function demo_shtnskit_integration()
                                        use_simd=true,
                                        nlat=nlat, 
                                        nlon=nlon)
-        println("   ✓ Configuration created successfully")
+        println("   Configuration created successfully")
         println("   Grid: $(nlat) × $(nlon)")
         println("   Modes: lmax=$lmax, mmax=$mmax, nlm=$(SHTnsKit.get_nlm(config.sht))")
     catch e
@@ -42,7 +42,7 @@ function demo_shtnskit_integration()
         
         # Perform CPU-optimized transform
         cpu_optimized_transform!(config, spectral_data, physical_data, use_simd=true)
-        println("   ✓ CPU transform completed with SIMD optimizations")
+        println("   CPU transform completed with SIMD optimizations")
         println("   Physical data range: [$(minimum(physical_data)), $(maximum(physical_data))]")
     catch e
         println("   ✗ Transform failed: $e")
@@ -53,7 +53,7 @@ function demo_shtnskit_integration()
         nlm = SHTnsKit.get_nlm(config.sht)
         test_coeffs = randn(Float64, nlm)
         power = compute_power_spectrum(config, test_coeffs)
-        println("   ✓ Power spectrum computed")
+        println("   Power spectrum computed")
         println("   Total power: $(sum(power))")
         println("   Power at l=0: $(power[1]), l=1: $(power[2])")
     catch e
@@ -68,7 +68,7 @@ function demo_shtnskit_integration()
         # Evaluate at equator, longitude 0
         theta, phi = π/2, 0.0
         value = evaluate_field_at_coordinates(config, test_coeffs, theta, phi)
-        println("   ✓ Point evaluation successful")
+        println("   Point evaluation successful")
         println("   Value at (θ=$(theta), φ=$(phi)): $value")
     catch e
         println("   ✗ Point evaluation failed: $e")
@@ -82,7 +82,7 @@ function demo_shtnskit_integration()
         # Rotate by 45 degrees around z-axis
         alpha, beta, gamma = 0.0, 0.0, π/4
         rotated_coeffs = rotate_spherical_field(config, test_coeffs, alpha, beta, gamma)
-        println("   ✓ Field rotation successful")
+        println("   Field rotation successful")
         println("   Rotation preserves norm: $(isapprox(norm(test_coeffs), norm(rotated_coeffs)))")
     catch e
         println("   ✗ Field rotation failed: $e")
@@ -96,7 +96,7 @@ function demo_shtnskit_integration()
         
         # Vector synthesis
         u_field, v_field = SHTnsKit.synthesize_vector(config.sht, tor_coeffs, pol_coeffs)
-        println("   ✓ Vector synthesis successful")
+        println("   Vector synthesis successful")
         println("   U field range: [$(minimum(u_field)), $(maximum(u_field))]")
         println("   V field range: [$(minimum(v_field)), $(maximum(v_field))]")
         
@@ -115,7 +115,7 @@ function demo_shtnskit_integration()
         test_coeffs = randn(Float64, nlm)
         
         grad_theta, grad_phi = SHTnsKit.compute_gradient(config.sht, test_coeffs)
-        println("   ✓ Gradient computation successful")
+        println("   Gradient computation successful")
         println("   ∇θ range: [$(minimum(grad_theta)), $(maximum(grad_theta))]")
         println("   ∇φ range: [$(minimum(grad_phi)), $(maximum(grad_phi))]")
     catch e
@@ -157,7 +157,7 @@ function demo_shtnskit_integration()
         # Print performance report
         print_performance_report()
         
-        println("   ✓ Performance monitoring successful")
+        println("   Performance monitoring successful")
     catch e
         println("   ✗ Performance monitoring failed: $e")
     end
@@ -188,7 +188,7 @@ function demo_shtnskit_integration()
         println("   Memory allocated: $(round(allocated_mb, digits=2)) MB for 100 transforms")
         println("   Average per transform: $(round(allocated_mb/100, digits=3)) MB")
         
-        println("   ✓ Memory efficiency demonstration successful")
+        println("   Memory efficiency demonstration successful")
     catch e
         println("   ✗ Memory efficiency test failed: $e")
     end
@@ -218,7 +218,7 @@ function demo_geodynamo_shtnskit_workflow()
     try
         # Create enhanced SHTns configuration
         config = create_shtns_config(optimize_decomp=true, enable_timing=true)
-        println("✓ Enhanced Geodynamo SHTns configuration created")
+        println("Enhanced Geodynamo SHTns configuration created")
         
         # Use the configuration for typical Geodynamo operations
         println("Grid configuration:")
@@ -231,7 +231,7 @@ function demo_geodynamo_shtnskit_workflow()
         rank = get_rank()
         
         if rank == 0
-            println("✓ MPI integration functional")
+            println("MPI integration functional")
             println("  - Total processes: $(get_nprocs())")
             println("  - Memory estimate: $(config.memory_estimate)")
         end

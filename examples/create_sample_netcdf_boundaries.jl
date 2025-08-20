@@ -52,7 +52,7 @@ function create_sample_temperature_boundaries(; nlat=64, nlon=128, time_dependen
         create_temperature_outer_bc("surface_temp.nc", theta, phi, nlat, nlon)
     end
     
-    println("  ✓ Temperature boundary files created successfully")
+    println("  Temperature boundary files created successfully")
 end
 
 """
@@ -296,7 +296,7 @@ function create_sample_composition_boundaries(; nlat=64, nlon=128)
     # Outer boundary (surface) - uniform composition
     create_composition_outer_bc("surface_composition.nc", theta, phi, nlat, nlon)
     
-    println("  ✓ Composition boundary files created successfully")
+    println("  Composition boundary files created successfully")
 end
 
 """

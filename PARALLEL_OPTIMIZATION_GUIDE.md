@@ -1,10 +1,10 @@
-# 🚀 Geodynamo.jl Parallel Optimization Guide
+# Geodynamo.jl Parallel Optimization Guide
 
 ## Overview
 
 Geodynamo.jl now includes comprehensive parallelization optimizations that can dramatically improve performance and scalability. This guide covers all the new parallel features and how to use them effectively.
 
-## 🎯 Key Performance Improvements
+## Key Performance Improvements
 
 ### **Before vs After Optimizations:**
 
@@ -17,7 +17,7 @@ Geodynamo.jl now includes comprehensive parallelization optimizations that can d
 | **Memory Usage** | Standard arrays | Optimized buffers | ~30% reduction |
 | **Scaling** | Good to 64 cores | Excellent to 1000+ cores | 10x+ scalability |
 
-## 🔧 Using the Optimized Parallelization
+## Using the Optimized Parallelization
 
 ### **1. Basic Optimized Simulation**
 
@@ -100,7 +100,7 @@ mpirun -n 8 julia --project=. -e '
 '
 ```
 
-## ⚡ Performance Features
+## Performance Features
 
 ### **1. Asynchronous Communication**
 - **Non-blocking MPI operations**: Overlap communication with computation
@@ -156,7 +156,7 @@ println("I/O throughput: $(io_optimizer.throughput_history[end]) MB/s")
 println("I/O latency: $(io_optimizer.latency_history[end]) ms")
 ```
 
-## 📊 Performance Monitoring
+## Performance Monitoring
 
 ### **Real-time Performance Analysis**
 
@@ -186,7 +186,7 @@ weak_scaling = monitor.weak_scaling_data
 println("Weak scaling efficiency: $(weak_scaling[end,2]/weak_scaling[1,2])")
 ```
 
-## 🎛️ Optimization Strategies
+## Optimization Strategies
 
 ### **For Maximum Speed:**
 ```julia
@@ -265,7 +265,7 @@ println("Communication pattern: $(async_comm.comm_pattern)")
 - **Threading scaling**: Near-linear with thread count
 - **I/O scaling**: Logarithmic improvement with process count
 
-## 🎯 Best Practices
+## Best Practices
 
 1. **Always enable auto-optimization** for automatic tuning
 2. **Use multi-threading** for 4-8x speedup on modern CPUs
@@ -275,7 +275,7 @@ println("Communication pattern: $(async_comm.comm_pattern)")
 6. **Balance MPI processes and threads** based on your hardware
 7. **Enable asynchronous I/O** for large output files
 
-## 🚀 Next Steps
+## Next Steps
 
 The optimized parallelization system is designed to:
 - **Automatically adapt** to your hardware configuration

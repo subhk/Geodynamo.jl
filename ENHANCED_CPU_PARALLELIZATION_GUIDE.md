@@ -1,10 +1,10 @@
-# 🚀 Enhanced CPU Parallelization Guide for Geodynamo.jl
+# Enhanced CPU Parallelization Guide for Geodynamo.jl
 
 ## Overview
 
 Geodynamo.jl now includes **ultra-advanced CPU parallelization** that can achieve dramatic performance improvements through sophisticated multi-threading, SIMD vectorization, and memory optimization strategies.
 
-## 🎯 CPU Performance Improvements
+## CPU Performance Improvements
 
 ### **Before vs After Ultra-Optimizations:**
 
@@ -17,7 +17,7 @@ Geodynamo.jl now includes **ultra-advanced CPU parallelization** that can achiev
 | **CPU Topology** | Unaware | NUMA + core affinity | ~20-40% efficiency |
 | **Memory Layout** | Standard arrays | Cache-aligned + Morton order | ~30-50% cache hits |
 
-## 🔧 Using Ultra-Optimized CPU Parallelization
+## Using Ultra-Optimized CPU Parallelization
 
 ### **1. Ultra-Optimized Simulation (Maximum Performance)**
 
@@ -88,7 +88,7 @@ thread_manager = create_advanced_thread_manager()
 execute_task_graph!(task_graph, thread_manager)
 ```
 
-## ⚡ Advanced CPU Features
+## Advanced CPU Features
 
 ### **1. NUMA-Aware Threading**
 
@@ -149,7 +149,7 @@ println("Work queues per thread: $(length(thread_mgr.work_queues))")
 println("Load balance efficiency: $(mean(thread_mgr.load_balance))")
 ```
 
-## 📊 Performance Monitoring
+## Performance Monitoring
 
 ### **Real-time CPU Performance Analysis**
 
@@ -206,7 +206,7 @@ else
 end
 ```
 
-## 🎛️ Optimization Strategies
+## Optimization Strategies
 
 ### **For Maximum Single-Node Performance:**
 ```julia
@@ -310,7 +310,7 @@ end
 | **+ Task-based scheduling** | 4-8x | +20-30% | Irregular workloads |
 | **+ Adaptive threading** | 4-8x | +10-20% | Variable workloads |
 
-## 🚀 Advanced Usage Patterns
+## Advanced Usage Patterns
 
 ### **1. Hybrid MPI + Ultra-CPU**
 
@@ -380,7 +380,7 @@ deallocate_aligned_array(memory_opt, node1_array, 1)
 deallocate_aligned_array(memory_opt, node2_array, 2)
 ```
 
-## 🎯 Best Practices
+## Best Practices
 
 1. **Always use ultra-optimization** for maximum performance on modern CPUs
 2. **Enable adaptive threading** for automatic performance tuning
@@ -390,7 +390,7 @@ deallocate_aligned_array(memory_opt, node2_array, 2)
 6. **Profile memory access patterns** to optimize cache utilization
 7. **Use task-based parallelism** for irregular computational patterns
 
-## 🚀 Next Steps
+## Next Steps
 
 The ultra-optimized CPU parallelization system provides:
 

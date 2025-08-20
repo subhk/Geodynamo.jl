@@ -32,7 +32,7 @@ function demo_netcdf_boundary_loading()
     try
         # Load temperature boundaries from NetCDF files
         temp_boundaries = load_temperature_boundaries("cmb_temp.nc", "surface_temp.nc")
-        println("   ✓ Temperature boundaries loaded successfully")
+        println("   Temperature boundaries loaded successfully")
         
         # Display detailed information
         print_boundary_info(temp_boundaries)
@@ -59,7 +59,7 @@ function demo_netcdf_boundary_loading()
     try
         # Load composition boundaries from NetCDF files
         comp_boundaries = load_composition_boundaries("cmb_composition.nc", "surface_composition.nc")
-        println("   ✓ Compositional boundaries loaded successfully")
+        println("   Compositional boundaries loaded successfully")
         
         # Display information
         print_boundary_info(comp_boundaries)
@@ -91,7 +91,7 @@ function demo_boundary_compatibility()
                                        use_simd=true,
                                        nlat=nlat, 
                                        nlon=nlon)
-        println("  ✓ SHTns configuration created")
+        println("  SHTns configuration created")
         
         # Load boundaries
         temp_boundaries = load_temperature_boundaries("cmb_temp.nc", "surface_temp.nc")
@@ -128,7 +128,7 @@ function demo_boundary_application(config, temp_boundaries, comp_boundaries)
         temp_field = create_shtns_temperature_field(Float64, config, domain)
         comp_field = create_shtns_composition_field(Float64, config, domain)
         
-        println("  ✓ Fields created successfully")
+        println("  Fields created successfully")
         
         # Apply boundary conditions at t=0
         println("\nApplying NetCDF boundary conditions...")
@@ -235,7 +235,7 @@ function demo_advanced_interpolation()
         println("  Interpolating to: $(target_nlat) × $(target_nlon)")
         interpolated = interpolate_boundary_to_grid(orig_data, target_theta, target_phi)
         
-        println("  ✓ Interpolation successful")
+        println("  Interpolation successful")
         println("  Interpolated data range: [$(round(minimum(interpolated), digits=1)), $(round(maximum(interpolated), digits=1))] K")
         
         # Compare statistics
@@ -255,14 +255,14 @@ function main()
     # Demo 1: Loading boundary conditions
     success = demo_netcdf_boundary_loading()
     if !success
-        println("\n⚠️  Could not proceed - boundary loading failed")
+        println("\nWarning: Could not proceed - boundary loading failed")
         return
     end
     
     # Demo 2: Compatibility validation
     result = demo_boundary_compatibility()
     if result === nothing
-        println("\n⚠️  Could not proceed - compatibility validation failed")
+        println("\nWarning: Could not proceed - compatibility validation failed")
         return
     end
     config, temp_boundaries, comp_boundaries = result
