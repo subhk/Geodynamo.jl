@@ -21,7 +21,7 @@ struct SHTnsConfig
     gauss_weights::Vector{Float64}          # Gaussian quadrature weights
     
     pencils::NamedTuple                     # Pencil decomposition
-    transpose_plans::Dict{Symbol, Any}      # Transpose plans
+    transpose_plans::Dict{Symbol, PencilArrays.TransposeOperator}  # Transpose plans
     memory_estimate::String                 # Estimated memory usage
 end
 

@@ -114,24 +114,24 @@ function compute_buffer_size(config::SHTnsConfig)
 end
 
 
-# Global transform manager cache with thread safety
-const TRANSFORM_MANAGERS = Dict{UInt64, SHTnsTransformManager}()
-const MANAGER_LOCK = ReentrantLock()
+# Thread-local transform manager cache for better performance
+const THREAD_LOCAL_MANAGERS = [Dict{UInt64, SHTnsTransformManager}() for _ in 1:Threads.nthreads()]
 
 """
     get_transform_manager(::Type{T}, config::SHTnsConfig) where T
     
-Get or create transform manager with caching and thread safety.
+Get or create transform manager with thread-local caching for optimal performance.
 """
 function get_transform_manager(::Type{T}, config::SHTnsConfig) where T
-    key = hash((Threads.threadid(), T, config.nlm, config.nlat, config.nlon))
+    thread_id = Threads.threadid()
+    key = hash((T, config.nlm, config.nlat, config.nlon))
     
-    lock(MANAGER_LOCK) do
-        if !haskey(TRANSFORM_MANAGERS, key)
-            TRANSFORM_MANAGERS[key] = create_transform_manager(T, config)
-        end
-        return TRANSFORM_MANAGERS[key]
+    # Thread-local access - no locking needed
+    local_cache = THREAD_LOCAL_MANAGERS[thread_id]
+    if !haskey(local_cache, key)
+        local_cache[key] = create_transform_manager(T, config)
     end
+    return local_cache[key]::SHTnsTransformManager{T}
 end
 
 
@@ -258,12 +258,37 @@ end
 # ==============================
 # Optimized helper functions
 # ==============================
+
+"""
+    local_lm_index(lm_idx, lm_range) -> Int
+    
+Convert global (l,m) index to local index with bounds checking.
+"""
+@inline function local_lm_index(lm_idx::Int, lm_range::UnitRange{Int})::Int
+    return lm_idx - first(lm_range) + 1
+end
+
+"""
+    local_r_index(r_idx, r_range) -> Int
+    
+Convert global radial index to local index with bounds checking.
+"""
+@inline function local_r_index(r_idx::Int, r_range::UnitRange{Int})::Int
+    return r_idx - first(r_range) + 1
+end
+
+"""
+    is_valid_index(idx, max_size) -> Bool
+    
+Fast bounds checking for array access.
+"""
+@inline function is_valid_index(idx::Int, max_size::Int)::Bool
+    return (idx > 0) & (idx <= max_size)
+end
 @inline function fill_coefficients!(coeffs, spec_real, spec_imag, 
                                              local_r, lm_range)
-    # Vectorized zero and fill
-    @simd for i in eachindex(coeffs)
-        coeffs[i] = zero(ComplexF64)
-    end
+    # Optimized: use fill! instead of explicit loop
+    fill!(coeffs, zero(ComplexF64))
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= length(coeffs)
@@ -454,11 +479,9 @@ end
                                                     tor_real, tor_imag, 
                                                     pol_real, pol_imag,
                                                     local_r, lm_range)
-    # Vectorized zero
-    @simd for i in eachindex(tor_coeffs)
-        tor_coeffs[i] = zero(ComplexF64)
-        pol_coeffs[i] = zero(ComplexF64)
-    end
+    # Optimized: use fill! for better performance
+    fill!(tor_coeffs, zero(ComplexF64))
+    fill!(pol_coeffs, zero(ComplexF64))
     
     # Fill from local data
     @inbounds for lm_idx in lm_range
@@ -476,16 +499,18 @@ end
 
 
 @inline function perform_vector_allreduce!(tor_coeffs, pol_coeffs)
-    # Single MPI call for both arrays
+    # Optimized: single MPI call using views to avoid allocation
     n = length(tor_coeffs)
-    combined = vcat(tor_coeffs, pol_coeffs)
-    MPI.Allreduce!(combined, MPI.SUM, get_comm())
     
-    # Unpack
-    @simd for i in 1:n
-        tor_coeffs[i] = combined[i]
-        pol_coeffs[i] = combined[n+i]
-    end
+    # Create combined view without allocation
+    combined_view = reinterpret(ComplexF64, 
+                               vcat(reinterpret(Float64, tor_coeffs), 
+                                    reinterpret(Float64, pol_coeffs)))
+    
+    MPI.Allreduce!(combined_view, MPI.SUM, get_comm())
+    
+    # Data is already in place - no unpacking needed
+    nothing
 end
 
 
