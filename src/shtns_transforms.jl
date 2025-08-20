@@ -215,7 +215,7 @@ function shtns_spectral_to_physical!(spec::SHTnsSpectralField{T},
     if transpose_plan !== nothing && haskey(config.transpose_plans, transpose_plan)
         transpose_with_timer!(phys.data, phys.data, 
                             config.transpose_plans[transpose_plan],
-                            "s2p_transpose")
+                            :s2p_transpose)
     end
     
     # Update performance tracking
@@ -364,7 +364,7 @@ function shtns_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     if transpose_plan !== nothing && haskey(config.transpose_plans, transpose_plan)
         transpose_with_timer!(phys.data, phys.data,
                             config.transpose_plans[transpose_plan],
-                            "p2s_transpose")
+                            :p2s_transpose)
     end
     
     sht = config.sht
@@ -873,22 +873,28 @@ function accelerated_transform!(config::SHTnsConfig,
                                spectral_data::AbstractVector{T},
                                physical_data::AbstractMatrix{T};
                                use_gpu::Bool=false) where T
-    sht = config.sht
-    
-    if use_gpu && SHTnsKit.has_shtns_symbols()
-        try
-            # Try GPU-accelerated transform
-            result = SHTnsKit.synthesize_gpu(sht, spectral_data)
-            physical_data .= result
-            return true
-        catch e
-            @debug "GPU transform failed, falling back to CPU: $e"
+    @timed_transform begin
+        sht = config.sht
+        thread_id = Threads.threadid()
+        stats = THREAD_LOCAL_STATS[thread_id]
+        
+        if use_gpu && SHTnsKit.has_shtns_symbols()
+            try
+                # Try GPU-accelerated transform
+                result = SHTnsKit.synthesize_gpu(sht, spectral_data)
+                physical_data .= result
+                stats.gpu_transforms += 1
+                return true
+            catch e
+                @debug "GPU transform failed, falling back to CPU: $e"
+            end
         end
+        
+        # CPU transform with threading
+        SHTnsKit.synthesize!(sht, spectral_data, physical_data)
+        stats.cpu_transforms += 1
+        return false  # Indicates CPU was used
     end
-    
-    # CPU transform with threading
-    SHTnsKit.synthesize!(sht, spectral_data, physical_data)
-    return false  # Indicates CPU was used
 end
 
 """
