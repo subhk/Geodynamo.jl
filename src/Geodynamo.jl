@@ -40,8 +40,8 @@ module Geodynamo
     export clear_transform_cache!
     export SHTnsTransformManager, get_transform_manager
     
-    # Export advanced SHTnsKit features
-    export create_optimized_config, accelerated_transform!
+    # Export advanced CPU-optimized SHTnsKit features
+    export create_optimized_config, cpu_optimized_transform!, cpu_intensive_batch_transform!
     export compute_power_spectrum, evaluate_field_at_coordinates
     export rotate_spherical_field
     

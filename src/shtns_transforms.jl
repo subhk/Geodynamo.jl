@@ -285,6 +285,36 @@ end
     end
 end
 
+# Helper functions for alltoall communication
+@inline function prepare_alltoall_buffer!(send_buffer, spec_real, spec_imag,
+                                         local_r, lm_range, chunk_size)
+    fill!(send_buffer, zero(ComplexF64))
+    
+    @inbounds for (i, lm_idx) in enumerate(lm_range)
+        if i <= length(send_buffer)
+            local_lm = local_lm_index(lm_idx, lm_range)
+            if local_lm <= size(spec_real, 1)
+                send_buffer[i] = complex(spec_real[local_lm, 1, local_r],
+                                        spec_imag[local_lm, 1, local_r])
+            end
+        end
+    end
+end
+
+@inline function unpack_alltoall_buffer!(coeffs, recv_buffer, chunk_size)
+    nprocs = get_nprocs()
+    rank = get_rank()
+    
+    @inbounds for p in 0:(nprocs-1)
+        offset = p * chunk_size
+        for i in 1:chunk_size
+            if offset + i <= length(coeffs) && offset + i <= length(recv_buffer)
+                coeffs[offset + i] = recv_buffer[offset + i]
+            end
+        end
+    end
+end
+
 
 @inline function process_radial_levels_p2p!(sht, spec_real, spec_imag, phys_data,
                                           r_range, lm_range, manager)
@@ -1260,8 +1290,8 @@ function print_performance_report()
     println("╚══════════════════════════════════════════════════════════════╝")
 end
 
-# Export new advanced functions
-export create_optimized_config, accelerated_transform!
+# Export new CPU-optimized functions
+export create_optimized_config, cpu_optimized_transform!, cpu_intensive_batch_transform!
 export compute_power_spectrum, evaluate_field_at_coordinates
 export rotate_spherical_field
 
