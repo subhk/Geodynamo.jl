@@ -238,7 +238,7 @@ end
 Perform transpose with optional timing and statistics.
 """
 function transpose_with_timer!(dest::PencilArray, src::PencilArray, 
-                               plan::Transpositions.Plan, label::String="")
+                               plan::Transpositions.Plan, label::Symbol=:default)
     if ENABLE_TIMING[]
         t_start = MPI.Wtime()
         transpose!(dest, src, plan)
@@ -255,8 +255,8 @@ end
 
 # Global timing controls
 const ENABLE_TIMING = Ref(false)
-const TRANSPOSE_TIMES = Dict{String, Float64}()
-const TRANSPOSE_COUNTS = Dict{String, Int}()
+const TRANSPOSE_TIMES = Dict{Symbol, Float64}()
+const TRANSPOSE_COUNTS = Dict{Symbol, Int}()
 
 
 """
@@ -291,14 +291,14 @@ end
     
 Analyze and report load balance for a given pencil decomposition.
 """
-function analyze_load_balance(pencil::Pencil)
+function analyze_load_balance(pencil::Pencil)::Float64
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
     
-    # Get local size
-    local_size = size_local(pencil)
-    local_elements = prod(local_size)
+    # Get local size with explicit types
+    local_size::Tuple{Int,Int,Int} = size_local(pencil)
+    local_elements::Int = prod(local_size)
     
     # Gather all sizes
     all_sizes = MPI.Gather(local_elements, comm; root=0)

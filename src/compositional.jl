@@ -4,7 +4,7 @@
 
 using MPI
 using PencilArrays
-using SHTnsSpheres
+using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
@@ -415,5 +415,203 @@ function set_composition_boundary_conditions!(comp_field::SHTnsCompositionField{
     end
 end
 
-# Note: These functions are shared with thermal.jl - they should be the same implementation
-# They are defined in thermal.jl and will be available through the main module exports
+# ============================================================================
+# NetCDF Boundary Condition Integration for Composition
+# ============================================================================
+
+"""
+    apply_netcdf_composition_boundaries!(comp_field::SHTnsCompositionField{T}, 
+                                        boundary_set::BoundaryConditionSet{T},
+                                        current_time::T=T(0)) where T
+
+Apply compositional boundary conditions loaded from NetCDF files to the composition field.
+
+# Arguments
+- `comp_field`: SHTns composition field to apply boundaries to
+- `boundary_set`: Boundary condition set loaded from NetCDF files
+- `current_time`: Current simulation time (for time-dependent boundaries)
+
+# Example
+```julia
+# Load boundaries from NetCDF files
+comp_boundaries = load_composition_boundaries("cmb_composition.nc", "surface_composition.nc")
+
+# Apply to composition field
+apply_netcdf_composition_boundaries!(comp_field, comp_boundaries)
+```
+"""
+function apply_netcdf_composition_boundaries!(comp_field::SHTnsCompositionField{T}, 
+                                            boundary_set::BoundaryConditionSet{T},
+                                            current_time::T=T(0)) where T
+    
+    if boundary_set.field_name != "composition"
+        throw(ArgumentError("Boundary set field name '$(boundary_set.field_name)' != 'composition'"))
+    end
+    
+    config = comp_field.config
+    
+    # Determine time indices for time-dependent boundaries
+    inner_time_idx = get_boundary_time_index(boundary_set.inner_boundary, current_time)
+    outer_time_idx = get_boundary_time_index(boundary_set.outer_boundary, current_time)
+    
+    # Create target coordinate grids from SHTns configuration
+    target_theta, target_phi = create_shtns_coordinate_grids(config)
+    
+    # Interpolate boundary data to SHTns grid
+    inner_values = interpolate_boundary_to_grid(boundary_set.inner_boundary, 
+                                               target_theta, target_phi, inner_time_idx)
+    outer_values = interpolate_boundary_to_grid(boundary_set.outer_boundary, 
+                                               target_theta, target_phi, outer_time_idx)
+    
+    # Convert to spectral space and apply
+    apply_composition_physical_boundaries_to_spectral!(comp_field, inner_values, outer_values, config)
+    
+    @info "Applied NetCDF composition boundaries (time=$(current_time))"
+end
+
+"""
+    apply_composition_physical_boundaries_to_spectral!(comp_field, inner_values, outer_values, config)
+
+Convert physical compositional boundary values to spectral coefficients and apply them.
+"""
+function apply_composition_physical_boundaries_to_spectral!(comp_field::SHTnsCompositionField{T},
+                                                           inner_values::Matrix{T}, 
+                                                           outer_values::Matrix{T},
+                                                           config::SHTnsConfig) where T
+    
+    # Use work arrays for physical to spectral transforms
+    phys_work = comp_field.work_physical
+    spec_work = comp_field.work_spectral
+    
+    # Transform inner boundary to spectral space
+    phys_data = parent(phys_work.data)
+    nlat, nlon = size(inner_values)
+    
+    # Copy inner boundary data to work array (assumes matching grid)
+    if size(phys_data, 1) >= nlat && size(phys_data, 2) >= nlon
+        phys_data[1:nlat, 1:nlon, 1] .= inner_values
+        
+        # Transform to spectral space
+        shtns_physical_to_spectral!(phys_work, spec_work)
+        
+        # Extract and apply inner boundary coefficients
+        apply_composition_spectral_boundary_coefficients!(comp_field, spec_work, :inner)
+    else
+        @warn "Grid size mismatch for inner boundary: expected $(nlat)×$(nlon), got $(size(phys_data)[1:2])"
+    end
+    
+    # Transform outer boundary to spectral space
+    if size(phys_data, 1) >= nlat && size(phys_data, 2) >= nlon
+        phys_data[1:nlat, 1:nlon, 1] .= outer_values
+        
+        # Transform to spectral space  
+        shtns_physical_to_spectral!(phys_work, spec_work)
+        
+        # Extract and apply outer boundary coefficients
+        apply_composition_spectral_boundary_coefficients!(comp_field, spec_work, :outer)
+    else
+        @warn "Grid size mismatch for outer boundary: expected $(nlat)×$(nlon), got $(size(phys_data)[1:2])"
+    end
+end
+
+"""
+    apply_composition_spectral_boundary_coefficients!(comp_field, spec_work, boundary::Symbol)
+
+Apply spectral coefficients from boundary data to the composition field.
+"""
+function apply_composition_spectral_boundary_coefficients!(comp_field::SHTnsCompositionField{T},
+                                                          spec_work::SHTnsSpectralField{T},
+                                                          boundary::Symbol) where T
+    
+    spec_real_work = parent(spec_work.data_real)
+    spec_imag_work = parent(spec_work.data_imag)
+    
+    lm_range = range_local(comp_field.config.pencils.spec, 1)
+    boundary_idx = (boundary == :inner) ? 1 : 2
+    
+    # Copy spectral coefficients to boundary values array
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= comp_field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            if local_lm <= size(spec_real_work, 1) && size(spec_real_work, 3) >= 1
+                comp_field.boundary_values[boundary_idx, lm_idx] = spec_real_work[local_lm, 1, 1]
+                
+                # Set boundary condition type to Dirichlet (fixed composition)
+                if boundary == :inner
+                    comp_field.bc_type_inner[lm_idx] = 1
+                else
+                    comp_field.bc_type_outer[lm_idx] = 1
+                end
+            end
+        end
+    end
+end
+
+"""
+    update_composition_boundaries_from_netcdf!(comp_field::SHTnsCompositionField{T},
+                                              boundary_set::BoundaryConditionSet{T},
+                                              timestep::Int, dt::T) where T
+
+Update compositional boundary conditions during time evolution.
+
+# Arguments
+- `comp_field`: Composition field to update
+- `boundary_set`: NetCDF boundary condition set
+- `timestep`: Current timestep number
+- `dt`: Time step size
+
+# Example
+```julia
+# During time stepping loop
+for timestep in 1:nsteps
+    current_time = timestep * dt
+    update_composition_boundaries_from_netcdf!(comp_field, comp_boundaries, timestep, dt)
+    # ... perform time step
+end
+```
+"""
+function update_composition_boundaries_from_netcdf!(comp_field::SHTnsCompositionField{T},
+                                                   boundary_set::BoundaryConditionSet{T},
+                                                   timestep::Int, dt::T) where T
+    
+    current_time = timestep * dt
+    apply_netcdf_composition_boundaries!(comp_field, boundary_set, current_time)
+end
+
+"""
+    validate_netcdf_composition_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsConfig)
+
+Validate that NetCDF composition boundaries are compatible with the SHTns configuration.
+"""
+function validate_netcdf_composition_compatibility(boundary_set::BoundaryConditionSet, 
+                                                  config::SHTnsConfig)
+    errors = String[]
+    
+    # Check grid compatibility
+    if boundary_set.inner_boundary.nlat != config.nlat
+        push!(errors, "Inner boundary nlat ($(boundary_set.inner_boundary.nlat)) != config nlat ($(config.nlat))")
+    end
+    
+    if boundary_set.inner_boundary.nlon != config.nlon
+        push!(errors, "Inner boundary nlon ($(boundary_set.inner_boundary.nlon)) != config nlon ($(config.nlon))")
+    end
+    
+    if boundary_set.outer_boundary.nlat != config.nlat
+        push!(errors, "Outer boundary nlat ($(boundary_set.outer_boundary.nlat)) != config nlat ($(config.nlat))")
+    end
+    
+    if boundary_set.outer_boundary.nlon != config.nlon
+        push!(errors, "Outer boundary nlon ($(boundary_set.outer_boundary.nlon)) != config nlon ($(config.nlon))")
+    end
+    
+    if !isempty(errors)
+        error_msg = "NetCDF composition boundary validation failed:\n" * join(errors, "\n")
+        throw(ArgumentError(error_msg))
+    end
+    
+    @info "NetCDF composition boundaries are compatible with SHTns configuration"
+end
+
+# Note: Helper functions like get_boundary_time_index and create_shtns_coordinate_grids
+# are defined in thermal.jl and will be available through the main module exports

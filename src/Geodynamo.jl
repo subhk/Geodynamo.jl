@@ -7,7 +7,8 @@ module Geodynamo
     using PencilFFTs
     using HDF5
     using StaticArrays
-    using SHTnsSpheres
+    using SHTnsKit
+    using NCDatasets
 
     # exports shtns_config.jl
     export SHTnsConfig, create_shtns_config
@@ -39,6 +40,15 @@ module Geodynamo
     export get_transform_statistics, print_transform_statistics
     export clear_transform_cache!
     export SHTnsTransformManager, get_transform_manager
+    
+    # Export advanced CPU-optimized SHTnsKit features
+    export create_optimized_config, cpu_optimized_transform!, cpu_intensive_batch_transform!
+    export compute_power_spectrum, evaluate_field_at_coordinates
+    export rotate_spherical_field
+    
+    # Export performance monitoring
+    export reset_performance_stats!, get_performance_summary
+    export print_performance_report, @timed_transform
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
@@ -76,6 +86,22 @@ module Geodynamo
     export get_composition_statistics, zero_composition_work_arrays!
     export set_composition_ic!, set_composition_boundary_conditions!
     export apply_composition_boundary_conditions_spectral!
+    
+    # exports netcdf_boundaries.jl
+    export BoundaryData, BoundaryConditionSet
+    export read_netcdf_boundary_data, load_temperature_boundaries, load_composition_boundaries
+    export interpolate_boundary_to_grid, get_boundary_statistics, print_boundary_info
+    export validate_boundary_compatibility
+    
+    # NetCDF boundary integration exports
+    export apply_netcdf_temperature_boundaries!, update_temperature_boundaries_from_netcdf!
+    export apply_netcdf_composition_boundaries!, update_composition_boundaries_from_netcdf!
+    export validate_netcdf_temperature_compatibility, validate_netcdf_composition_compatibility
+    
+    # Hybrid boundary exports (mix NetCDF + programmatic)
+    export load_single_temperature_boundary, load_single_composition_boundary
+    export create_programmatic_boundary, create_hybrid_temperature_boundaries, create_hybrid_composition_boundaries
+    export create_time_dependent_programmatic_boundary
 
     # exports simulation.jl
     export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
@@ -126,6 +152,7 @@ module Geodynamo
     include("fields.jl")
     include("linear_algebra.jl")
     include("shtns_transforms.jl")
+    include("netcdf_boundaries.jl")
     include("timestep.jl")
     include("velocity.jl")
     include("magnetic.jl")

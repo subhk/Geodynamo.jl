@@ -347,7 +347,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
     rank = get_rank()
     
     if rank == 0
-        println("Starting geodynamo simulation with SHTnsSpheres...")
+        println("Starting geodynamo simulation with SHTnsKit...")
         println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm)")
         println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")
@@ -781,7 +781,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
         memory_bandwidth = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
         
-        println("\n📊 PERFORMANCE METRICS:")
+        println("\nPERFORMANCE METRICS:")
         println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
         println("  CPU thread efficiency: $(round(cpu_efficiency*100, digits=1))%")
         println("  Cache hit rate: $(round(cache_efficiency*100, digits=1))%")
