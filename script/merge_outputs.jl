@@ -23,6 +23,7 @@ using Geodynamo
 using Printf
 using Dates
 using Random
+using MPI
 
 # Load combiner utilities
 include(joinpath(@__DIR__, "..", "extras", "combine_file.jl"))
@@ -87,29 +88,51 @@ function merge_time(output_dir::String, t::Float64; delete_old::Bool=false, pref
 end
 
 function main()
+    if !MPI.Initialized(); MPI.Init(); end
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
     output_dir, time_val, merge_all, delete_old, prefix, outdir, basename = parse_args(copy(ARGS))
     isdir(outdir) || mkpath(outdir)
 
     if merge_all
-        times = Geodynamo.list_available_times(output_dir, prefix)
+        times = rank == 0 ? Geodynamo.list_available_times(output_dir, prefix) : Float64[]
+        # Broadcast count then values for robustness
+        nt = MPI.bcast(length(times), 0, comm)
+        if rank != 0
+            times = Vector{Float64}(undef, nt)
+        end
+        if nt > 0
+            MPI.Bcast!(times, 0, comm)
+        end
         if isempty(times)
-            @warn "No times found in $output_dir"
+            if rank == 0
+                @warn "No times found in $output_dir"
+            end
             return
         end
-        @info "Merging $(length(times)) time points"
-        for t in times
-            try
-                merge_time(output_dir, t; delete_old=delete_old, prefix=prefix, outdir=outdir, basename=basename)
-            catch e
-                @error "Failed merging time $t" exception=e
+        if rank == 0
+            @info "MPI ranks: $nprocs — merging $(length(times)) time points in parallel"
+        end
+        # Distribute times across ranks in round-robin
+        for (idx, t) in enumerate(times)
+            if (idx - 1) % nprocs == rank
+                try
+                    merge_time(output_dir, t; delete_old=delete_old, prefix=prefix, outdir=outdir, basename=basename)
+                catch e
+                    @error "Rank $rank failed merging time $t" exception=e
+                end
             end
         end
+        MPI.Barrier(comm)
     elseif time_val !== nothing
-        merge_time(output_dir, time_val; delete_old=delete_old, prefix=prefix, outdir=outdir, basename=basename)
+        if rank == 0
+            merge_time(output_dir, time_val; delete_old=delete_old, prefix=prefix, outdir=outdir, basename=basename)
+        end
+        MPI.Barrier(comm)
     else
         error("Specify either --time=<float> or --all")
     end
 end
 
 isinteractive() || main()
-
