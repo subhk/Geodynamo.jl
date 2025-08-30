@@ -50,9 +50,8 @@ struct SHTnsTemperatureField{T}
     # Pre-computed coefficients
     l_factors::Vector{Float64}         # l(l+1) values
     
-    # Configuration and transform manager
-    config::SHTnsConfig
-    transform_manager::SHTnsTransformManager{T}
+    # Configuration (SHTnsKit)
+    config::SHTnsKitConfig
     
     # Radial derivative matrices
     dr_matrix::BandedMatrix{T}
@@ -70,7 +69,7 @@ struct SHTnsTemperatureField{T}
 end
 
 
-function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig, 
+function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig, 
                                         oc_domain::RadialDomain) where T
     # Use config's pencils directly
     pencils = config.pencils
@@ -107,8 +106,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
-    # Get transform manager from config
-    transform_manager = get_transform_manager(T, config)
+    # Transform manager removed in SHTnsKit migration
     
     # Create radial derivative matrices
     dr_matrix  = create_derivative_matrix(1, oc_domain)
@@ -124,7 +122,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsConfig,
         grad_theta_spec, grad_phi_spec, grad_r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
-        l_factors, config, transform_manager,
+        l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0)
@@ -134,7 +132,7 @@ end
 # =======================================================
 # Pre-computation of spectral derivative operators
 # =======================================================
-function build_theta_derivative_matrix(::Type{T}, config::SHTnsConfig) where T
+function build_theta_derivative_matrix(::Type{T}, config::SHTnsKitConfig) where T
     """
     Build sparse matrix for θ-derivatives in spectral space.
     This matrix couples different l modes with the same m.
@@ -179,7 +177,7 @@ function build_theta_derivative_matrix(::Type{T}, config::SHTnsConfig) where T
     return sparse(I, J, V, nlm, nlm)
 end
 
-function compute_theta_recurrence_coefficients(::Type{T}, config::SHTnsConfig) where T
+function compute_theta_recurrence_coefficients(::Type{T}, config::SHTnsKitConfig) where T
     """
     Pre-compute recurrence coefficients for θ-derivatives.
     Store as [nlm, 2] matrix: [:, 1] for l-1 coupling, [:, 2] for l+1 coupling
@@ -237,7 +235,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
-    shtns_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+    shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
@@ -1436,7 +1434,7 @@ function apply_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureFiel
         phys_data[1:nlat, 1:nlon, 1] .= inner_values
         
         # Transform to spectral space
-        shtns_physical_to_spectral!(phys_work, spec_work)
+        shtnskit_physical_to_spectral!(phys_work, spec_work)
         
         # Extract and apply inner boundary coefficients
         apply_spectral_boundary_coefficients!(temp_field, spec_work, :inner)
@@ -1449,7 +1447,7 @@ function apply_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureFiel
         phys_data[1:nlat, 1:nlon, 1] .= outer_values
         
         # Transform to spectral space  
-        shtns_physical_to_spectral!(phys_work, spec_work)
+        shtnskit_physical_to_spectral!(phys_work, spec_work)
         
         # Extract and apply outer boundary coefficients
         apply_spectral_boundary_coefficients!(temp_field, spec_work, :outer)

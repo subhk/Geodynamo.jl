@@ -36,12 +36,11 @@ struct SHTnsVelocityFields{T}
     d2r_matrix::BandedMatrix{T}         # Second derivative
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
-    # Transform manager for efficient transforms
-    transform_manager::SHTnsTransformManager{T}
+    # Transform manager removed; SHTnsKit transforms are used directly
 end
 
 
-function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig, 
+function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig, 
                                       oc_domain::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
     # Use enhanced pencil topology from config if not provided
@@ -88,9 +87,6 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
     d2r_matrix = create_derivative_matrix(2, oc_domain)
     laplacian_matrix = create_radial_laplacian(oc_domain)
     
-    # Create enhanced transform manager with full config integration
-    transform_manager = get_transform_manager(T, config)
-    
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
     
@@ -100,8 +96,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsConfig,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   l_factors, coriolis_factors,
-                                  dr_matrix, d2r_matrix, laplacian_matrix,
-                                  transform_manager)
+                                  dr_matrix, d2r_matrix, laplacian_matrix)
 end
 
 
@@ -115,19 +110,19 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     zero_velocity_work_arrays!(fields)
     
     # Step 1: Use enhanced vector synthesis with automatic transpose handling
-    shtns_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+    shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
     
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
     compute_vorticity_spectral_full!(fields, oc_domain)
     
     # Step 3: Transform vorticity to physical space with batched operations
-    shtns_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+    shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
     
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
     compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)
     
     # Step 5: Use enhanced vector analysis with efficient data layout
-    shtns_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+    shtnskit_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
 end
 
 
@@ -830,4 +825,3 @@ function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config:
     
     return true
 end
-

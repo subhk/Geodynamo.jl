@@ -42,15 +42,14 @@ struct SHTnsMagneticFields{T}
     # Pre-computed coefficients
     l_factors::Vector{Float64}  # l(l+1) values
     
-    # Transform manager
-    transform_manager::SHTnsTransformManager{T}
+    # Transform manager removed; SHTnsKit transforms are used directly
     
     # Imposed field (if any)
     imposed_field::Union{SHTnsVectorField{T}, Nothing}
 end
 
 
-function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig, 
+function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig, 
                                       domain_oc::RadialDomain, 
                                       domain_ic::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
@@ -91,9 +90,6 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
-    # Create enhanced transform manager with full config integration
-    transform_manager = get_transform_manager(T, config)
-    
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
     
@@ -105,7 +101,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsConfig,
                                 nl_toroidal, nl_poloidal,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
-                                l_factors, transform_manager,
+                                l_factors,
                                 imposed_field)
 end
 
@@ -119,15 +115,15 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
     zero_magnetic_work_arrays!(mag_fields)
     
     # Step 1: Convert spectral B to physical space using enhanced transforms
-    shtns_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal, 
-                            mag_fields.magnetic)
+    shtnskit_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal, 
+                               mag_fields.magnetic)
     
     # Step 2: Compute current density j = ∇ × B in spectral space
     compute_current_density_spectral!(mag_fields)
     
     # Step 3: Transform current to physical space
-    shtns_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol, 
-                            mag_fields.current)
+    shtnskit_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol, 
+                               mag_fields.current)
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
     if vel_fields !== nothing
@@ -251,8 +247,8 @@ function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields)
     compute_velocity_cross_magnetic!(mag_fields, vel_fields)
     
     # Step 2: Transform u × B to spectral space
-    shtns_vector_analysis!(mag_fields.induction_physical, 
-                          mag_fields.work_tor, mag_fields.work_pol)
+    shtnskit_vector_analysis!(mag_fields.induction_physical, 
+                              mag_fields.work_tor, mag_fields.work_pol)
     
     # Step 3: Compute curl of (u × B) in spectral space
     compute_curl_of_induction!(mag_fields)
@@ -693,6 +689,4 @@ function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T},
         end
     end
 end
-
-
 

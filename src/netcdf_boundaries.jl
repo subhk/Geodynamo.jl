@@ -545,7 +545,7 @@ function load_single_composition_boundary(file_path::String, boundary_type::Symb
 end
 
 """
-    create_programmatic_boundary(pattern::Symbol, config::SHTnsConfig;
+    create_programmatic_boundary(pattern::Symbol, config::SHTnsKitConfig;
                                 amplitude::T=T(1.0), parameters::Dict=Dict()) -> BoundaryData{T}
 
 Create boundary conditions programmatically using predefined patterns.
@@ -578,7 +578,7 @@ outer_boundary = create_programmatic_boundary(:custom, config,
                                             parameters=Dict("function" => custom_func))
 ```
 """
-function create_programmatic_boundary(pattern::Symbol, config::SHTnsConfig;
+function create_programmatic_boundary(pattern::Symbol, config::SHTnsKitConfig;
                                     amplitude::T=T(1.0),
                                     parameters::Dict=Dict(),
                                     units::String="dimensionless",
@@ -710,7 +710,7 @@ function generate_boundary_pattern(pattern::Symbol, theta::T, phi::T, amplitude:
 end
 
 """
-    create_hybrid_temperature_boundaries(inner_spec, outer_spec, config::SHTnsConfig; precision::Type{T}=Float64)
+    create_hybrid_temperature_boundaries(inner_spec, outer_spec, config::SHTnsKitConfig; precision::Type{T}=Float64)
 
 Create temperature boundary set with mix of NetCDF and programmatic boundaries.
 
@@ -735,7 +735,7 @@ temp_bc = create_hybrid_temperature_boundaries((:plume, 4200.0, Dict("width" => 
                                               (:uniform, 300.0), config)
 ```
 """
-function create_hybrid_temperature_boundaries(inner_spec, outer_spec, config::SHTnsConfig; 
+function create_hybrid_temperature_boundaries(inner_spec, outer_spec, config::SHTnsKitConfig; 
                                             precision::Type{T}=Float64) where T<:AbstractFloat
     
     # Load/create inner boundary
@@ -781,7 +781,7 @@ function create_hybrid_temperature_boundaries(inner_spec, outer_spec, config::SH
 end
 
 """
-    create_hybrid_composition_boundaries(inner_spec, outer_spec, config::SHTnsConfig; precision::Type{T}=Float64)
+    create_hybrid_composition_boundaries(inner_spec, outer_spec, config::SHTnsKitConfig; precision::Type{T}=Float64)
 
 Create compositional boundary set with mix of NetCDF and programmatic boundaries.
 
@@ -802,7 +802,7 @@ comp_bc = create_hybrid_composition_boundaries((:plume, 0.8, Dict("width" => π/
                                               "surface_composition.nc", config)
 ```
 """
-function create_hybrid_composition_boundaries(inner_spec, outer_spec, config::SHTnsConfig;
+function create_hybrid_composition_boundaries(inner_spec, outer_spec, config::SHTnsKitConfig;
                                             precision::Type{T}=Float64) where T<:AbstractFloat
     
     # Load/create inner boundary
@@ -844,7 +844,7 @@ function create_hybrid_composition_boundaries(inner_spec, outer_spec, config::SH
 end
 
 """
-    create_time_dependent_programmatic_boundary(pattern::Symbol, config::SHTnsConfig, 
+    create_time_dependent_programmatic_boundary(pattern::Symbol, config::SHTnsKitConfig, 
                                                time_span::Tuple{T,T}, ntime::Int;
                                                amplitude::T=T(1.0), parameters::Dict=Dict()) where T
 
@@ -878,7 +878,7 @@ rotating_plume = create_time_dependent_programmatic_boundary(
 )
 ```
 """
-function create_time_dependent_programmatic_boundary(pattern::Symbol, config::SHTnsConfig,
+function create_time_dependent_programmatic_boundary(pattern::Symbol, config::SHTnsKitConfig,
                                                    time_span::Tuple{T,T}, ntime::Int;
                                                    amplitude::T=T(1.0), 
                                                    parameters::Dict=Dict(),

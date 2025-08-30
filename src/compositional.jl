@@ -37,8 +37,7 @@ struct SHTnsCompositionField{T}
     
     # Pre-computed coefficients
     l_factors::Vector{Float64}         # l(l+1) values for diffusion
-    config::SHTnsConfig               # SHTns configuration
-    transform_manager                  # Pre-configured transforms
+    config::SHTnsKitConfig             # SHTnsKit configuration
     
     # Radial derivative matrices
     dr_matrix::BandedMatrix{T}        # First derivative d/dr
@@ -53,7 +52,7 @@ struct SHTnsCompositionField{T}
     transform_time::Ref{Float64}
 end
 
-function create_shtns_composition_field(::Type{T}, config::SHTnsConfig, 
+function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig, 
                                         oc_domain::RadialDomain) where T
     # Use config's pencils directly
     pencils = config.pencils
@@ -95,8 +94,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsConfig,
         l_factors[lm_idx] = Float64(l * (l + 1))
     end
     
-    # Get transform manager from config
-    transform_manager = get_transform_manager(T, config)
+    # Transform manager removed in SHTnsKit migration
     
     # Create radial derivative matrices
     dr_matrix  = create_derivative_matrix(1, oc_domain)
@@ -112,7 +110,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsConfig,
         grad_theta_spec, grad_phi_spec, grad_r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
-        l_factors, config, transform_manager,
+        l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref{Float64}(0.0), Ref{Float64}(0.0)
@@ -128,7 +126,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     
     # Step 1: Transform composition to physical space for advection
     t_transform = MPI.Wtime()
-    shtns_spectral_to_physical!(comp_field.spectral, comp_field.composition)
+    shtnskit_spectral_to_physical!(comp_field.spectral, comp_field.composition)
     comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 2: Compute gradient in physical space if needed for diffusion
@@ -144,7 +142,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
-    shtns_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+    shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
@@ -321,7 +319,7 @@ function compute_composition_energy(comp_field::SHTnsCompositionField{T}, oc_dom
     # Compute compositional energy ∫ C² dV
     
     # Transform to physical space first
-    shtns_spectral_to_physical!(comp_field.spectral, comp_field.work_physical)
+    shtnskit_spectral_to_physical!(comp_field.spectral, comp_field.work_physical)
     
     comp_data = parent(comp_field.work_physical.data)
     local_energy = zero(T)

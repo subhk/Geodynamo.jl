@@ -142,7 +142,7 @@ struct FieldInfo
     
     # Pencil decomposition information
     pencils::Union{NamedTuple, Nothing}
-    config::Union{SHTnsConfig, Nothing}
+    config::Union{SHTnsKitConfig, Nothing}
     
     # Local range information
     local_ranges::Dict{Symbol, UnitRange{Int}}
@@ -154,7 +154,7 @@ function FieldInfo()
                      Int[], Int[], nothing, nothing, Dict{Symbol, UnitRange{Int}}())
 end
 
-function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsConfig,Nothing}=nothing, 
+function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConfig,Nothing}=nothing, 
                            pencils::Union{NamedTuple,Nothing}=nothing)
     # Extract dimensions from available fields with enhanced config integration
     nlat = 0
@@ -809,7 +809,7 @@ end
 
 function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker, 
                         metadata::Dict{String,Any}, config::OutputConfig = default_config(),
-                        shtns_config::Union{SHTnsConfig,Nothing} = nothing,
+                        shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
                         pencils::Union{NamedTuple,Nothing} = nothing)
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
@@ -1225,12 +1225,12 @@ end
 # ============================================================================
 
 """
-    create_shtns_aware_output_config(shtns_config::SHTnsConfig, pencils::NamedTuple; 
+    create_shtns_aware_output_config(shtns_config::SHTnsKitConfig, pencils::NamedTuple; 
                                     base_config::OutputConfig = default_config())
     
 Create output configuration that integrates with SHTns configuration and pencil decomposition
 """
-function create_shtns_aware_output_config(shtns_config::SHTnsConfig, pencils::NamedTuple; 
+function create_shtns_aware_output_config(shtns_config::SHTnsKitConfig, pencils::NamedTuple; 
                                          base_config::OutputConfig = default_config())
     # Create enhanced config that uses SHTns-specific optimizations
     enhanced_config = OutputConfig(
@@ -1256,11 +1256,11 @@ end
 
 
 """
-    validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsConfig)
+    validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsKitConfig)
     
 Validate that output field information is compatible with SHTns configuration
 """
-function validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsConfig)
+function validate_output_compatibility(field_info::FieldInfo, shtns_config::SHTnsKitConfig)
     errors = String[]
     
     # Check spectral dimensions match
@@ -1296,11 +1296,11 @@ end
 
 
 """
-    setup_shtns_metadata!(nc_file, shtns_config::SHTnsConfig, pencils::NamedTuple)
+    setup_shtns_metadata!(nc_file, shtns_config::SHTnsKitConfig, pencils::NamedTuple)
     
 Add SHTns-specific metadata to NetCDF file
 """
-function setup_shtns_metadata!(nc_file, shtns_config::SHTnsConfig, pencils::NamedTuple)
+function setup_shtns_metadata!(nc_file, shtns_config::SHTnsKitConfig, pencils::NamedTuple)
     # Add SHTns configuration metadata
     NetCDF.putatt(nc_file, "shtns_lmax", shtns_config.lmax)
     NetCDF.putatt(nc_file, "shtns_mmax", shtns_config.mmax)
