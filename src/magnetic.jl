@@ -533,11 +533,11 @@ end
 
 
 """
-    validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsConfig) where T
+    validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsKitConfig) where T
     
 Validate magnetic field configuration consistency with SHTns setup
 """
-function validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsConfig) where T
+function validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, config::SHTnsKitConfig) where T
     errors = String[]
     
     # Check field dimensions match config
@@ -689,4 +689,3 @@ function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T},
         end
     end
 end
-

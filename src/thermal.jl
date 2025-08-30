@@ -1391,11 +1391,11 @@ function get_boundary_time_index(boundary_data::BoundaryData{T}, target_time::T)
 end
 
 """
-    create_shtns_coordinate_grids(config::SHTnsConfig) -> (Vector{T}, Vector{T})
+    create_shtns_coordinate_grids(config::SHTnsKitConfig) -> (Vector{T}, Vector{T})
 
 Create theta and phi coordinate grids matching SHTns configuration.
 """
-function create_shtns_coordinate_grids(config::SHTnsConfig)
+function create_shtns_coordinate_grids(config::SHTnsKitConfig)
     nlat, nlon = config.nlat, config.nlon
     
     # Create standard Gaussian latitude grid (colatitude)
@@ -1419,7 +1419,7 @@ Convert physical boundary values to spectral coefficients and apply them.
 function apply_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureField{T},
                                                inner_values::Matrix{T}, 
                                                outer_values::Matrix{T},
-                                               config::SHTnsConfig) where T
+                                               config::SHTnsKitConfig) where T
     
     # Use work arrays for physical to spectral transforms
     phys_work = temp_field.work_physical
@@ -1522,12 +1522,12 @@ function update_temperature_boundaries_from_netcdf!(temp_field::SHTnsTemperature
 end
 
 """
-    validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsConfig)
+    validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsKitConfig)
 
 Validate that NetCDF temperature boundaries are compatible with the SHTns configuration.
 """
 function validate_netcdf_temperature_compatibility(boundary_set::BoundaryConditionSet, 
-                                                  config::SHTnsConfig)
+                                                  config::SHTnsKitConfig)
     errors = String[]
     
     # Check grid compatibility
