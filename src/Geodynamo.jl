@@ -148,6 +148,10 @@ module Geodynamo
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
 
+    # Geometry-specific convenience layers
+    include("Shell/Shell.jl")
+    include("Ball/Ball.jl")
+
     # Initialize parameters when module is loaded
     function __init__()
         try
