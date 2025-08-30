@@ -57,6 +57,9 @@ Base.@kwdef mutable struct GeodynamoParameters
     i_B::Int = 0                  # Magnetic field flag
     d_Ra_C::Float64 = 1e6         # Compositional Rayleigh number
     d_Sc::Float64 = 1.0           # Schmidt number
+    
+    # Geometry selection (:shell or :ball)
+    geometry::Symbol = :shell
 end
 
 """
@@ -250,6 +253,10 @@ function save_parameters(params::GeodynamoParameters, filename::String)
         
         println(io, "# Boolean flags")
         println(io, "const b_mag_impose = $(params.b_mag_impose)    # Imposed magnetic field")
+        println(io)
+        
+        println(io, "# Geometry selection")
+        println(io, "const geometry = :$(params.geometry)   # :shell or :ball")
     end
     
     @info "Parameters saved to $filename"
