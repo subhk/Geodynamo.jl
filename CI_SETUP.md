@@ -1,20 +1,13 @@
 Continuous Integration (CI) notes for Geodynamo.jl with SHTnsKit
 
 Summary
-- Tests require SHTnsKit.jl available locally (path source).
+- Uses registered SHTnsKit.jl from the Julia registry.
 - Basic, single-rank smoke tests can run without mpirun; multi-rank testing needs MPI runner.
 
 GitHub Actions (suggested)
-1) Check out this repo and SHTnsKit.jl side-by-side, so the path source `../SHTnsKit.jl` resolves:
+1) Check out this repo:
 
   - uses: actions/checkout@v4
-  - name: Checkout SHTnsKit
-    uses: actions/checkout@v4
-    with:
-      repository: <your-org-or-user>/SHTnsKit.jl
-      path: SHTnsKit.jl
-  - name: Create path alias
-    run: ln -s "$GITHUB_WORKSPACE/SHTnsKit.jl" "$GITHUB_WORKSPACE/../SHTnsKit.jl"
 
 2) Set up Julia and run tests:
 
@@ -38,4 +31,3 @@ Wiring tests
 - The repository contains an extras test script: extras/test_shtnskit_roundtrip.jl
 - To run it under Pkg.test, add this line to test/runtests.jl:
   include("../extras/test_shtnskit_roundtrip.jl")
-
