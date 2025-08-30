@@ -1,7 +1,7 @@
 name = "Geodynamo"
 uuid = "27fcf419-203c-433d-a4a9-3db2199420d8"
 authors = ["Subhajit Kar <subhajitkar19@gmail.com>"]
-version = "1.0.0-DEV"
+version = "1.0.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -15,7 +15,7 @@ SHTnsKit = "1b9d0af0-2e90-4fb0-9eae-4a2e2cdf5320"
 NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
 
 [compat]
-julia = "1.6"
+julia = "1.10, 1.11"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
