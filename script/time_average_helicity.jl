@@ -283,8 +283,6 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
 
     sum_h = nothing
     sum_hr = nothing
-    sum_hθ = nothing
-    sum_hφ = nothing
     count = 0
     coords = Dict{String,Any}()
     meta = Dict{String,Any}()
@@ -307,40 +305,35 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
 
             vr, vt, vp = vector_components(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), r)
             last_cfg[] = cfg
-            ωr = compute_omega_r_from_Tlm(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), r)
-            # Compute ωθ, ωφ via finite differences on grid
-            # Reuse helicity_field to get full h (includes FD-computed ωr), then replace ωr term with accurate ωr
-            # Alternatively, compute ωθ/ωφ directly:
-            nlat, nlon, nr = size(vr)
-            sinθ = θ === nothing ? ones(nlat) : sin.(θ)
-            sinθ_clamped = clamp.(sinθ, 1e-8, Inf)
-            dφ_vθ = central_diff_φ(vt, φ)
-            dφ_vr = central_diff_φ(vr, φ)
-            dθ_vφ = central_diff_θ(vp, θ)
-            dθ_vr = central_diff_θ(vr, θ)
-            dr_vθ = central_diff_r(vt, r)
-            dr_vφ = central_diff_r(vp, r)
-            ωθ = similar(vt); ωφ = similar(vp)
-            @inbounds for k2 in 1:nr
-                rr2 = (r === nothing || k2 > length(r)) ? 1.0 : r[k2]
-                for i2 in 1:nlat, j2 in 1:nlon
-                    sθ = sinθ_clamped[i2]
-                    ωθ[i2,j2,k2] = (1/rr2) * ( (1/sθ)*dφ_vr[i2,j2,k2] - (dr_vφ[i2,j2,k2] + vp[i2,j2,k2]/rr2) )
-                    ωφ[i2,j2,k2] = (1/rr2) * ( dr_vθ[i2,j2,k2] + vt[i2,j2,k2]/rr2 - dθ_vr[i2,j2,k2] )
+            # Build Slm/Tlm for each radius and compute spectral vorticity components via SHTnsKit helper
+            lmax = cfg.lmax; mmax = cfg.mmax; nlm = size(vtor_r, 1)
+            Slm = zeros(ComplexF64, lmax+1, mmax+1)
+            Tlm = zeros(ComplexF64, lmax+1, mmax+1)
+            # Optionally estimate dSlm_dr via 1D radial FD on spectral coefficients (not used by helper yet)
+            for k2 in 1:nr
+                fill!(Slm, 0); fill!(Tlm, 0)
+                for i2 in 1:nlm
+                    l = lvals[i2]; m = mvals[i2]
+                    if l <= lmax && m <= mmax
+                        Slm[l+1, m+1] = complex(vpol_r[i2,k2], vpol_i[i2,k2])
+                        Tlm[l+1, m+1] = complex(vtor_r[i2,k2], vtor_i[i2,k2])
+                    end
                 end
+                rr = (r === nothing || k2 > length(r)) ? 1.0 : r[k2]
+                ωr_slice, ωθ_slice, ωφ_slice = SHTnsKit.SHsphtor_curl_to_spat(cfg, Slm, Tlm; r=rr)
+                # Compose helicity at this radius
+                hr_slice = vr[:,:,k2] .* ωr_slice
+                h_slice = hr_slice .+ vt[:,:,k2] .* ωθ_slice .+ vp[:,:,k2] .* ωφ_slice
+                if sum_h === nothing
+                    sum_h = zero(h_slice); sum_hr = zero(hr_slice)
+                end
+                sum_h .+= h_slice
+                sum_hr .+= hr_slice
             end
-            # Component-wise helicity contributions
-            hr = vr .* ωr
-            hθ = vt .* ωθ
-            hφ = vp .* ωφ
-            h = hr .+ hθ .+ hφ
             if sum_h === nothing
-                sum_h = zero(h); sum_hr = zero(hr); sum_hθ = zero(hθ); sum_hφ = zero(hφ)
+                # In case there were no radii
+                sum_h = zeros(size(vr,1), size(vr,2)); sum_hr = similar(sum_h)
             end
-            sum_h .+= h
-            sum_hr .+= hr
-            sum_hθ .+= hθ
-            sum_hφ .+= hφ
             count += 1
         finally
             NetCDF.close(nc)
@@ -348,12 +341,12 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
     end
 
     count == 0 && error("No samples accumulated in range [$t0,$t1]")
-    return (sum_h ./ count, sum_hr ./ count, sum_hθ ./ count, sum_hφ ./ count), count, sel, coords, meta, last_cfg[]
+    return (sum_h ./ count, sum_hr ./ count), count, sel, coords, meta, last_cfg[]
 end
 
 function main()
     outdir, t0, t1, prefix, outpath = parse_args(copy(ARGS))
-    (h_avg, hr_avg, hθ_avg, hφ_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix)
+    (h_avg, hr_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix)
     if isempty(outpath)
         ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
         outpath = joinpath(outdir, "timeavg_helicity_$(prefix)_$(ttag).jld2")
@@ -364,8 +357,6 @@ function main()
     jldopen(outpath, "w"; compress=true) do f
         write(f, "helicity", h_avg)
         write(f, "helicity_r", hr_avg)
-        write(f, "helicity_theta", hθ_avg)
-        write(f, "helicity_phi", hφ_avg)
         write(f, "count", count)
         write(f, "times", times_used)
         write(f, "coords", coords)
