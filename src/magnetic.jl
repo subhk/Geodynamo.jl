@@ -240,7 +240,7 @@ end
 # ==============================
 # Induction term computation
 # ==============================
-function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields; geometry::Symbol = :shell) where T
+function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields; geometry::Symbol = get_parameters().geometry) where T
     # Compute ∇ × (u × B) for the induction equation
     
     # Step 1: Compute u × B in physical space
