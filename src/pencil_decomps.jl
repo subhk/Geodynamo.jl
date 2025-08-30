@@ -8,14 +8,14 @@ using PencilArrays.Transpositions
 # Global MPI state management
 mutable struct MPIState
     initialized::Bool
-    comm::MPI.Comm
+    comm::Any       # defer concrete MPI type to runtime to avoid loading MPI during precompile
     rank::Int
     nprocs::Int
 end
 
 
 # Global MPI state (initialized lazily)
-const MPI_STATE = MPIState(false, MPI.COMM_NULL, -1, -1)
+const MPI_STATE = MPIState(false, nothing, -1, -1)
 
 """
     get_comm()
