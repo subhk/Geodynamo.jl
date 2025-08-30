@@ -552,6 +552,12 @@ end
 function write_time_data!(nc_file, time::Float64, step::Int, output_num::Int, config::OutputConfig)
     NetCDF.putvar(nc_file, "time", [config.output_precision(time)])
     NetCDF.putvar(nc_file, "step", [Int32(step)])
+    # Also write geometry metadata field if present
+    try
+        NetCDF.putvar(nc_file, "geometry", [string(get_parameters().geometry)])
+    catch
+        # Ignore if variable not defined or NetCDF backend does not support String variables
+    end
 end
 
 function write_diagnostics!(nc_file, diagnostics::Dict{String,Float64}, config::OutputConfig)
