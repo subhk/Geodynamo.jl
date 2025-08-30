@@ -34,6 +34,7 @@ struct SHTnsSimulationState{T}
     
     # I/O
     output_counter::Int
+    geometry::Symbol
 end
 
 # ============================================================================
@@ -68,6 +69,7 @@ struct EnhancedSimulationState{T}
     # Enhanced I/O
     output_counter::Int
     auto_optimization::Bool
+    geometry::Symbol
 end
 
 """
@@ -98,6 +100,7 @@ struct MasterSimulationState{T}
     output_counter::Int
     auto_optimization::Bool
     adaptive_threading::Bool
+    geometry::Symbol
 end
 
 # ============================================================================
@@ -110,8 +113,8 @@ function initialize_shtns_simulation(::Type{T} = Float64; include_composition::B
         MPI.Init()
     end
     
-    # Create SHTns configuration  
-    shtns_config = create_shtns_config()
+    # Create SHTnsKit configuration  
+    shtns_config = create_shtnskit_config(lmax=i_L, mmax=i_M, nlat=i_Th, nlon=i_Ph)
     
     # Initialize pencil decomposition with SHTns grid
     pencils = create_pencil_topology(shtns_config)
@@ -123,19 +126,26 @@ function initialize_shtns_simulation(::Type{T} = Float64; include_composition::B
     # Create transform operations (placeholder - transforms handled by SHTns config)
     transforms = ()
     
-    # Initialize geometric data
-    oc_domain = create_radial_domain(i_N)
-    ic_domain = create_radial_domain(i_Nic)  # Inner core domain
-    
-    # Create field variables
+    # Geometry-aware domains and fields
+    geom = get_parameters().geometry
     pencils = (pencil_θ, pencil_φ, pencil_r)
-    velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils, pencil_spec)
-    magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, 
-                                            ic_domain, pencils, pencil_spec)
-    temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
-    
-    # Create compositional field if requested
-    composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
+    if geom === :ball
+        using .GeodynamoBall
+        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
+        ic_domain = oc_domain
+        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+    else
+        using .GeodynamoShell
+        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
+        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
+        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+    end
     
     # Initialize timestepping
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
@@ -158,7 +168,7 @@ function initialize_shtns_simulation(::Type{T} = Float64; include_composition::B
     return SHTnsSimulationState{T}(velocity, magnetic, temperature, composition,
                                     shtns_config, oc_domain, ic_domain,
                                     pencils, pencil_spec, transforms, timestep_state,
-                                    implicit_matrices, 0)
+                                    implicit_matrices, 0, geom)
 end
 
 # ============================================================================
@@ -194,24 +204,30 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     end
     
     # Create SHTns configuration with enhanced topology
-    shtns_config = create_shtns_config(optimize_decomp=true, enable_timing=true)
+    shtns_config = create_shtnskit_config(lmax=i_L, mmax=i_M, nlat=i_Th, nlon=i_Ph, optimize_decomp=true)
     
     # Initialize enhanced pencil decomposition
     pencils = create_pencil_topology(shtns_config, optimize=true)
     pencil_spec = pencils.spec
     
-    # Initialize geometric domains
-    oc_domain = create_radial_domain(i_N)
-    ic_domain = create_radial_domain(i_Nic)
-    
-    # Create field variables with enhanced memory layout
-    pencils_tuple = (pencils.θ, pencils.φ, pencils.r)
-    velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils_tuple, pencil_spec)
-    magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, ic_domain, pencils_tuple, pencil_spec)
-    temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
-    
-    # Create compositional field if requested
-    composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
+    geom = get_parameters().geometry
+    if geom === :ball
+        using .GeodynamoBall
+        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
+        ic_domain = oc_domain
+        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+    else
+        using .GeodynamoShell
+        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
+        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
+        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+    end
     
     # Initialize hybrid parallelization system
     hybrid_parallelizer = create_hybrid_parallelizer(T, shtns_config)
@@ -235,7 +251,7 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
         shtns_config, oc_domain, ic_domain,
         hybrid_parallelizer, performance_monitor,
         timestep_state, implicit_matrices,
-        0, auto_optimize
+        0, auto_optimize, geom
     )
 end
 
@@ -275,24 +291,30 @@ function initialize_master_simulation(::Type{T}=Float64;
     end
     
     # Create SHTns configuration with advanced topology
-    shtns_config = create_shtns_config(optimize_decomp=true, enable_timing=true)
+    shtns_config = create_shtnskit_config(lmax=i_L, mmax=i_M, nlat=i_Th, nlon=i_Ph, optimize_decomp=true)
     
     # Initialize advanced pencil decomposition
     pencils = create_pencil_topology(shtns_config, optimize=true)
     pencil_spec = pencils.spec
     
-    # Initialize geometric domains
-    oc_domain = create_radial_domain(i_N)
-    ic_domain = create_radial_domain(i_Nic)
-    
-    # Create field variables with advanced memory layout
-    pencils_tuple = (pencils.θ, pencils.φ, pencils.r)
-    velocity = create_shtns_velocity_fields(T, shtns_config, oc_domain, pencils_tuple, pencil_spec)
-    magnetic = create_shtns_magnetic_fields(T, shtns_config, oc_domain, ic_domain, pencils_tuple, pencil_spec)
-    temperature = create_shtns_temperature_field(T, shtns_config, oc_domain)
-    
-    # Create compositional field if requested
-    composition = include_composition ? create_shtns_composition_field(T, shtns_config, oc_domain) : nothing
+    geom = get_parameters().geometry
+    if geom === :ball
+        using .GeodynamoBall
+        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
+        ic_domain = oc_domain
+        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+    else
+        using .GeodynamoShell
+        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
+        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
+        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+    end
     
     # Initialize unified master parallelization system
     master_parallelizer = create_master_parallelizer(T, shtns_config)
@@ -334,7 +356,7 @@ function initialize_master_simulation(::Type{T}=Float64;
         shtns_config, oc_domain, ic_domain,
         master_parallelizer,
         timestep_state, implicit_matrices,
-        0, auto_optimize, adaptive_threading
+        0, auto_optimize, adaptive_threading, geom
     )
 end
 
@@ -351,6 +373,7 @@ function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
         println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm)")
         println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")
+        println("Geometry: $(state.geometry)")
     end
     
     # Initialize fields with some perturbation
