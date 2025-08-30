@@ -14,7 +14,6 @@
 # Temperature/Thermal field components with full spectral optimization
 # ============================================================================
 
-using MPI
 using PencilArrays
 using SHTnsKit
 using LinearAlgebra
