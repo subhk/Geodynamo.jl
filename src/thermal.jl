@@ -208,7 +208,8 @@ end
 # Main nonlinear computation with full spectral optimization
 # ============================================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields, oc_domain::RadialDomain) where T
+                                        vel_fields, oc_domain::RadialDomain; 
+                                        geometry::Symbol = :shell) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
@@ -234,7 +235,11 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
-    shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+    if geometry === :ball
+        GeodynamoBall.ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+    else
+        shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+    end
     temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space

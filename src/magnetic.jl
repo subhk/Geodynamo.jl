@@ -110,7 +110,7 @@ end
 # Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T}, 
-                                    vel_fields, rotation_rate) where T
+                                    vel_fields, rotation_rate; geometry::Symbol = :shell) where T
     # Zero work arrays
     zero_magnetic_work_arrays!(mag_fields)
     
@@ -127,7 +127,7 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
     if vel_fields !== nothing
-        compute_induction_term!(mag_fields, vel_fields)
+        compute_induction_term!(mag_fields, vel_fields; geometry)
     end
     
     # Step 5: Inner core rotation effects
@@ -240,15 +240,20 @@ end
 # ==============================
 # Induction term computation
 # ==============================
-function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields) where T
+function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields; geometry::Symbol = :shell) where T
     # Compute ∇ × (u × B) for the induction equation
     
     # Step 1: Compute u × B in physical space
     compute_velocity_cross_magnetic!(mag_fields, vel_fields)
     
     # Step 2: Transform u × B to spectral space
-    shtnskit_vector_analysis!(mag_fields.induction_physical, 
-                              mag_fields.work_tor, mag_fields.work_pol)
+    if geometry === :ball
+        GeodynamoBall.ball_vector_analysis!(mag_fields.induction_physical, 
+                                            mag_fields.work_tor, mag_fields.work_pol)
+    else
+        shtnskit_vector_analysis!(mag_fields.induction_physical, 
+                                  mag_fields.work_tor, mag_fields.work_pol)
+    end
     
     # Step 3: Compute curl of (u × B) in spectral space
     compute_curl_of_induction!(mag_fields)

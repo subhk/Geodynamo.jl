@@ -21,6 +21,7 @@ export create_ball_composition_field, create_ball_magnetic_fields
 export create_ball_hybrid_temperature_boundaries, create_ball_hybrid_composition_boundaries
 export enforce_ball_scalar_regularity!, enforce_ball_vector_regularity!
 export apply_ball_temperature_regularity!, apply_ball_composition_regularity!
+export ball_physical_to_spectral!, ball_vector_analysis!
 
 """
     create_ball_radial_domain(nr=i_N) -> RadialDomain
@@ -198,6 +199,36 @@ end
 """
 function apply_ball_composition_regularity!(comp_field)
     return enforce_ball_scalar_regularity!(comp_field.spectral)
+end
+
+"""
+    ball_physical_to_spectral!(phys::Geodynamo.SHTnsPhysicalField,
+                               spec::Geodynamo.SHTnsSpectralField)
+
+Wrapper for transforms in a solid sphere that enforces scalar regularity at r=0
+after analysis. Use this for scalar fields (temperature, composition, etc.).
+"""
+function ball_physical_to_spectral!(phys::Geodynamo.SHTnsPhysicalField{T},
+                                    spec::Geodynamo.SHTnsSpectralField{T}) where {T}
+    Geodynamo.shtnskit_physical_to_spectral!(phys, spec)
+    enforce_ball_scalar_regularity!(spec)
+    return spec
+end
+
+"""
+    ball_vector_analysis!(vec::Geodynamo.SHTnsVectorField,
+                          tor::Geodynamo.SHTnsSpectralField,
+                          pol::Geodynamo.SHTnsSpectralField)
+
+Wrapper for vector analysis in a solid sphere; enforces vector regularity at r=0
+after transforming to spectral toroidal/poloidal.
+"""
+function ball_vector_analysis!(vec::Geodynamo.SHTnsVectorField{T},
+                               tor::Geodynamo.SHTnsSpectralField{T},
+                               pol::Geodynamo.SHTnsSpectralField{T}) where {T}
+    Geodynamo.shtnskit_vector_analysis!(vec, tor, pol)
+    enforce_ball_vector_regularity!(tor, pol)
+    return tor, pol
 end
 
 end # module

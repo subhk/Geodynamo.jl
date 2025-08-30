@@ -117,7 +117,8 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
 end
 
 function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T}, 
-                                        vel_fields, oc_domain::RadialDomain) where T
+                                        vel_fields, oc_domain::RadialDomain; 
+                                        geometry::Symbol = :shell) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
@@ -141,7 +142,11 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
-    shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+    if geometry === :ball
+        GeodynamoBall.ball_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+    else
+        shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+    end
     comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
