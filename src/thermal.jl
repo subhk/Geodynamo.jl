@@ -209,7 +209,7 @@ end
 # ============================================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
-                                        geometry::Symbol = :shell) where T
+                                        geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays

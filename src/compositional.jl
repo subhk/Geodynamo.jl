@@ -118,7 +118,7 @@ end
 
 function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
-                                        geometry::Symbol = :shell) where T
+                                        geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
