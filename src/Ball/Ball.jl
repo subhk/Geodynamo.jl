@@ -19,6 +19,8 @@ export create_ball_spectral_field, create_ball_physical_field, create_ball_vecto
 export create_ball_velocity_fields, create_ball_temperature_field
 export create_ball_composition_field, create_ball_magnetic_fields
 export create_ball_hybrid_temperature_boundaries, create_ball_hybrid_composition_boundaries
+export enforce_ball_scalar_regularity!, enforce_ball_vector_regularity!
+export apply_ball_temperature_regularity!, apply_ball_composition_regularity!
 
 """
     create_ball_radial_domain(nr=i_N) -> RadialDomain
@@ -126,5 +128,76 @@ create_ball_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg::BallConfi
 """
 create_ball_hybrid_composition_boundaries(inner_spec, outer_spec, cfg::BallConfig; precision::Type{T}=Float64) where {T} =
     Geodynamo.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; precision)
+
+"""
+    enforce_ball_scalar_regularity!(spec::Geodynamo.SHTnsSpectralField)
+
+Enforce scalar regularity at r=0 for solid sphere: for l>0, the scalar
+amplitude must vanish at r=0. Sets inner radial plane to zero for all
+nonzero l modes (both real and imaginary parts).
+"""
+function enforce_ball_scalar_regularity!(spec::Geodynamo.SHTnsSpectralField)
+    cfg = spec.config
+    spec_real = parent(spec.data_real)
+    spec_imag = parent(spec.data_imag)
+    lm_range = Geodynamo.range_local(cfg.pencils.spec, 1)
+    r_local_idx = 1  # inner radial index in local r-pencil for spec arrays
+    @inbounds for (k, lm_idx) in enumerate(lm_range)
+        if lm_idx <= cfg.nlm
+            l = cfg.l_values[lm_idx]
+            if l > 0 && r_local_idx <= size(spec_real, 3)
+                spec_real[k, 1, r_local_idx] = 0.0
+                spec_imag[k, 1, r_local_idx] = 0.0
+            end
+        end
+    end
+    return spec
+end
+
+"""
+    enforce_ball_vector_regularity!(tor_spec::Geodynamo.SHTnsSpectralField,
+                                    pol_spec::Geodynamo.SHTnsSpectralField)
+
+Enforce vector-field regularity at r=0 for solid sphere. For smooth
+fields, both toroidal and poloidal potentials behave like r^{l+1}, so
+they vanish at r=0 for all l ≥ 1. Zeros the inner radial plane for l≥1.
+"""
+function enforce_ball_vector_regularity!(tor_spec::Geodynamo.SHTnsSpectralField,
+                                         pol_spec::Geodynamo.SHTnsSpectralField)
+    cfg = tor_spec.config
+    for sp in (tor_spec, pol_spec)
+        sreal = parent(sp.data_real)
+        simag = parent(sp.data_imag)
+        lm_range = Geodynamo.range_local(cfg.pencils.spec, 1)
+        r_local_idx = 1
+        @inbounds for (k, lm_idx) in enumerate(lm_range)
+            if lm_idx <= cfg.nlm
+                l = cfg.l_values[lm_idx]
+                if l >= 1 && r_local_idx <= size(sreal, 3)
+                    sreal[k, 1, r_local_idx] = 0.0
+                    simag[k, 1, r_local_idx] = 0.0
+                end
+            end
+        end
+    end
+    return tor_spec, pol_spec
+end
+
+"""
+    apply_ball_temperature_regularity!(temp_field)
+
+Convenience to enforce scalar regularity on the temperature spectral field.
+Call after assembling or updating temp_field.spectral.
+"""
+function apply_ball_temperature_regularity!(temp_field)
+    return enforce_ball_scalar_regularity!(temp_field.spectral)
+end
+
+"""
+    apply_ball_composition_regularity!(comp_field)
+"""
+function apply_ball_composition_regularity!(comp_field)
+    return enforce_ball_scalar_regularity!(comp_field.spectral)
+end
 
 end # module
