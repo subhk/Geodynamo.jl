@@ -258,11 +258,18 @@ function generate_filename(config::OutputConfig, time::Float64, step::Int,
                             rank::Int, file_type::String = "output")
     time_str = @sprintf("%.6f", time)
     time_str = replace(time_str, "." => "p")
+    # Add geometry tag from global parameters for clarity
+    geom = try
+        string(get_parameters().geometry)
+    catch
+        "shell"
+    end
+    geom_tag = "geom_" * geom
     
     filename = if config.naming_scheme == RANK_TIME
-        "$(config.filename_prefix)_$(file_type)_rank_$(lpad(rank, 4, '0'))_time_$(time_str).nc"
+        "$(config.filename_prefix)_$(file_type)_$(geom_tag)_rank_$(lpad(rank, 4, '0'))_time_$(time_str).nc"
     else  # TIME_RANK
-        "$(config.filename_prefix)_$(file_type)_time_$(time_str)_rank_$(lpad(rank, 4, '0')).nc"
+        "$(config.filename_prefix)_$(file_type)_$(geom_tag)_time_$(time_str)_rank_$(lpad(rank, 4, '0')).nc"
     end
     
     return joinpath(config.output_dir, filename)
@@ -293,6 +300,14 @@ function create_netcdf_file(filename::String, config::OutputConfig,
     
     # Add simulation metadata
     if config.include_metadata
+        # Ensure geometry attribute exists
+        if !haskey(metadata, "geometry")
+            try
+                metadata["geometry"] = string(get_parameters().geometry)
+            catch
+                metadata["geometry"] = "shell"
+            end
+        end
         for (key, value) in metadata
             try
                 NetCDF.putatt(nc_file, key, value)
@@ -301,6 +316,12 @@ function create_netcdf_file(filename::String, config::OutputConfig,
             end
         end
     end
+
+    # Define metadata record variables (as dataset fields)
+    # Create a dedicated scalar dimension for metadata
+    meta_dim = NetCDF.defDim(nc_file, "meta", 1)
+    # Geometry recorded as a scalar string variable
+    NetCDF.defVar(nc_file, "geometry", String, (meta_dim,))
     
     return nc_file
 end
