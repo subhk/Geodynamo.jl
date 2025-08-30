@@ -19,7 +19,7 @@ struct SHTnsSimulationState{T}
     composition::Union{SHTnsCompositionField{T}, Nothing}
     
     # Geometric data
-    shtns_config::SHTnsConfig
+    shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     ic_domain::RadialDomain
     
@@ -53,7 +53,7 @@ struct EnhancedSimulationState{T}
     composition::Union{SHTnsCompositionField{T}, Nothing}
     
     # Geometric data
-    shtns_config::SHTnsConfig
+    shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     ic_domain::RadialDomain
     
@@ -83,7 +83,7 @@ struct MasterSimulationState{T}
     composition::Union{SHTnsCompositionField{T}, Nothing}
     
     # Geometric data
-    shtns_config::SHTnsConfig
+    shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     ic_domain::RadialDomain
     
@@ -976,7 +976,7 @@ function compute_cfl_timestep!(state::SHTnsSimulationState{T}) where T
     # Compute CFL-limited timestep based on velocity magnitudes
     
     # Convert velocity to physical space for analysis
-    shtns_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity)
+    shtnskit_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity)
     
     max_velocity = zero(Float64)
     

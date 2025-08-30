@@ -149,7 +149,7 @@ consistent field structures and parameter system.
 """
 struct FieldCombiner{T}
     # Configuration
-    shtns_config::SHTnsConfig
+    shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     
     # Input file information
@@ -261,8 +261,8 @@ function create_field_combiner(output_dir::String, time::Float64;
     # Load parameters (use global parameters or defaults)
     params = get_parameters()
     
-    # Create SHTns configuration based on file data
-    shtns_config = create_shtns_config(
+    # Create SHTnsKit configuration based on file data
+    shtns_config = create_shtnskit_config(
         lmax = get(metadata, "lmax", params.i_L),
         mmax = get(metadata, "mmax", params.i_M),
         nlat = get(metadata, "nlat_global", params.i_Th),

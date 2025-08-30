@@ -97,7 +97,7 @@ function create_advanced_thread_manager()
     )
 end
 
-function create_threading_accelerator(::Type{T}, config::SHTnsConfig) where T
+function create_threading_accelerator(::Type{T}, config::SHTnsKitConfig) where T
     thread_count = Threads.nthreads()
     
     # Allocate thread-local work arrays
@@ -709,7 +709,7 @@ mutable struct DynamicLoadBalancer
     communication_history::Vector{Float64}
 end
 
-function create_dynamic_load_balancer(config::SHTnsConfig)
+function create_dynamic_load_balancer(config::SHTnsKitConfig)
     nlm = config.nlm
     nr = length(range_local(config.pencils.r, 3))
     
@@ -787,7 +787,7 @@ struct ParallelIOOptimizer{T}
     latency_history::Vector{Float64}
 end
 
-function create_parallel_io_optimizer(::Type{T}, config::SHTnsConfig) where T
+function create_parallel_io_optimizer(::Type{T}, config::SHTnsKitConfig) where T
     nprocs = get_nprocs()
     
     # Determine optimal I/O configuration
@@ -984,7 +984,7 @@ struct MasterParallelizer{T}
     performance_monitor::PerformanceMonitor
 end
 
-function create_hybrid_parallelizer(::Type{T}, config::SHTnsConfig) where T
+function create_hybrid_parallelizer(::Type{T}, config::SHTnsKitConfig) where T
     # MPI setup
     mpi_comm = get_comm()
     mpi_rank = get_rank()
@@ -1020,7 +1020,7 @@ function create_cpu_parallelizer(::Type{T}) where T
     )
 end
 
-function create_master_parallelizer(::Type{T}, config::SHTnsConfig) where T
+function create_master_parallelizer(::Type{T}, config::SHTnsKitConfig) where T
     # MPI setup
     mpi_comm = get_comm()
     mpi_rank = get_rank()

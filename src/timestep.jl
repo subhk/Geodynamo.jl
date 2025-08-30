@@ -22,7 +22,7 @@ struct SHTnsImplicitMatrices{T}
     l_values::Vector{Int}             # l values for indexing
 end
 
-function create_shtns_timestepping_matrices(config::SHTnsConfig, 
+function create_shtns_timestepping_matrices(config::SHTnsKitConfig, 
                                             domain::RadialDomain, 
                                             diffusivity::Float64, 
                                             dt::Float64)
@@ -192,4 +192,3 @@ end
 
 
 # Exports are handled by main module
-
