@@ -153,7 +153,9 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     end
     
     # Create PencilArrays topology
-    topology = PencilArrays.Topology(comm, proc_dims)
+    # Construct MPI-aware topology via dynamic lookup (MPITopology in recent versions)
+    TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))
+    topology = TopoCtor(comm, proc_dims)
     
     # Physical space pencils for theta-phi parallelization
     dims = (nlat, nlon, nr)

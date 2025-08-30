@@ -140,7 +140,9 @@ function create_pencil_topology(shtns_config; optimize::Bool=true)
     end
     
     # Create PencilArrays topology
-    topology = PencilArrays.Topology(comm, proc_dims)
+    # Construct MPI-aware topology (modern PencilArrays exports MPITopology)
+    TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))
+    topology = TopoCtor(comm, proc_dims)
     
     if rank == 0
         println("═══════════════════════════════════════════════════════")
@@ -167,9 +169,7 @@ end
     
 Create specialized pencils for different stages of computation.
 """
-function create_computation_pencils(topology::PencilArrays.Topology, 
-                                   dims::Tuple{Int,Int,Int}, 
-                                   config)
+function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
     nlat, nlon, nr = dims
     
     # Physical space pencils (for different operations)
