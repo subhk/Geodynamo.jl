@@ -788,11 +788,11 @@ end
 
 
 """
-    validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsConfig) where T
+    validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
     
 Validate velocity field configuration consistency with SHTns setup
 """
-function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsConfig) where T
+function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
     errors = String[]
     
     # Check field dimensions match config
