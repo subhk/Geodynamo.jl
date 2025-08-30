@@ -213,46 +213,24 @@ function helicity_field(vr, vt, vp, θ, φ, r)
     return h
 end
 
-function vorticity_components_builtin(cfg::SHTnsKit.SHTConfig, lvals, mvals,
-                                      tor_r, tor_i, pol_r, pol_i, rvec)
-    # Attempt to use SHTnsKit built-in curl for toroidal/poloidal fields.
-    # Returns ωr, ωθ, ωφ or throws if not available.
+function compute_omega_r_from_Tlm(cfg::SHTnsKit.SHTConfig, lvals, mvals, tor_r, tor_i, rvec)
     lmax=cfg.lmax; mmax=cfg.mmax; nlat=cfg.nlat; nlon=cfg.nlon
     nlm, nr = size(tor_r)
     ωr = Array{Float64}(undef, nlat, nlon, nr)
-    ωθ = Array{Float64}(undef, nlat, nlon, nr)
-    ωφ = Array{Float64}(undef, nlat, nlon, nr)
-    tor = zeros(ComplexF64, lmax+1, mmax+1)
-    pol = zeros(ComplexF64, lmax+1, mmax+1)
-    has_fun = hasproperty(SHTnsKit, Symbol("SHsphtor_curl_to_spat"))
-    if !has_fun
-        error("SHTnsKit.SHsphtor_curl_to_spat not available")
-    end
-    curlfun = getproperty(SHTnsKit, Symbol("SHsphtor_curl_to_spat"))
+    Tlm = zeros(ComplexF64, lmax+1, mmax+1)
     for k in 1:nr
-        fill!(tor, 0); fill!(pol, 0)
+        fill!(Tlm, 0)
         for i in 1:nlm
             l=lvals[i]; m=mvals[i]
             if l<=lmax && m<=mmax
-                tor[l+1,m+1]=complex(tor_r[i,k], tor_i[i,k])
-                pol[l+1,m+1]=complex(pol_r[i,k], pol_i[i,k])
+                Tlm[l+1,m+1]=complex(tor_r[i,k], tor_i[i,k])
             end
         end
-        # Expect (ωθ, ωφ, ωr) or similar; try to accommodate order via named return
-        res = curlfun(cfg, pol, tor; real_output=true)
-        # Try common tuple orders
-        if isa(res, Tuple) && length(res) == 3
-            a,b,c = res
-            # Heuristic: choose the one matching array sizes
-            # Assume all are nlat×nlon
-            # Try mapping to (θ, φ, r) first
-            A = (a,b,c)
-            ωθ[:,:,k] = A[1]; ωφ[:,:,k] = A[2]; ωr[:,:,k] = A[3]
-        else
-            error("Unexpected return from SHsphtor_curl_to_spat")
-        end
+        ζ = SHTnsKit.vorticity_grid(cfg, Tlm)  # unit-sphere normal vorticity
+        rr = (rvec === nothing || k > length(rvec)) ? 1.0 : rvec[k]
+        ωr[:,:,k] = rr > eps() ? (ζ ./ rr) : zeros(nlat, nlon)
     end
-    return ωr, ωθ, ωφ
+    return ωr
 end
 
 function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::String)
@@ -281,22 +259,28 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
 
             vr, vt, vp = vector_components(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), r)
-            # Compute vorticity via SHTnsKit built-in if available; otherwise finite differences
-            ωr = ωθ = ωφ = nothing
-            try
-                ωr, ωθ, ωφ = vorticity_components_builtin(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), r)
-            catch
-                # Fallback: compute from finite differences
-                # Compose helicity directly from FD path
-                h = helicity_field(vr, vt, vp, θ, φ, r)
-                if sum_h === nothing
-                    sum_h = zero(h)
+            ωr = compute_omega_r_from_Tlm(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), r)
+            # Compute ωθ, ωφ via finite differences on grid
+            # Reuse helicity_field to get full h (includes FD-computed ωr), then replace ωr term with accurate ωr
+            # Alternatively, compute ωθ/ωφ directly:
+            nlat, nlon, nr = size(vr)
+            sinθ = θ === nothing ? ones(nlat) : sin.(θ)
+            sinθ_clamped = clamp.(sinθ, 1e-8, Inf)
+            dφ_vθ = central_diff_φ(vt, φ)
+            dφ_vr = central_diff_φ(vr, φ)
+            dθ_vφ = central_diff_θ(vp, θ)
+            dθ_vr = central_diff_θ(vr, θ)
+            dr_vθ = central_diff_r(vt, r)
+            dr_vφ = central_diff_r(vp, r)
+            ωθ = similar(vt); ωφ = similar(vp)
+            @inbounds for k2 in 1:nr
+                rr2 = (r === nothing || k2 > length(r)) ? 1.0 : r[k2]
+                for i2 in 1:nlat, j2 in 1:nlon
+                    sθ = sinθ_clamped[i2]
+                    ωθ[i2,j2,k2] = (1/rr2) * ( (1/sθ)*dφ_vr[i2,j2,k2] - (dr_vφ[i2,j2,k2] + vp[i2,j2,k2]/rr2) )
+                    ωφ[i2,j2,k2] = (1/rr2) * ( dr_vθ[i2,j2,k2] + vt[i2,j2,k2]/rr2 - dθ_vr[i2,j2,k2] )
                 end
-                sum_h .+= h
-                count += 1
-                continue
             end
-            # Helicity from built-in vorticity
             h = vr .* ωr .+ vt .* ωθ .+ vp .* ωφ
             if sum_h === nothing
                 sum_h = zero(h)
