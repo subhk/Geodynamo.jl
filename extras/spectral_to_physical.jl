@@ -134,15 +134,12 @@ Geodynamo.jl infrastructure (PencilArrays + SHTns).
 """
 struct SpectralToPhysicalConverter{T}
     # Configuration
-    shtns_config::SHTnsConfig
+    shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     
     # Pencil decomposition  
     pencils::Tuple{Pencil{3}, Pencil{3}, Pencil{3}}  # θ, φ, r pencils
     pencil_spec::Pencil{3}                            # spectral pencil
-    
-    # Transform manager
-    transform_manager::SHTnsTransformManager{T}
     
     # Field containers
     velocity_fields::Union{SHTnsVelocityFields{T}, Nothing}
@@ -178,16 +175,13 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     # Load parameters (use global parameters or defaults)
     params = get_parameters()
     
-    # Create SHTns configuration based on file data
-    shtns_config = create_shtns_config(
+    # Create SHTnsKit configuration based on file data
+    shtns_config = create_shtnskit_config(
         lmax = get(metadata, "lmax", params.i_L),
         mmax = get(metadata, "mmax", params.i_M),
         nlat = get(metadata, "nlat_global", params.i_Th),
         nlon = get(metadata, "nlon_global", params.i_Ph)
     )
-    
-    # Validate configuration
-    validate_config(shtns_config)
     
     # Create pencil decomposition optimized for the grid
     pencils_nt = create_pencil_topology(shtns_config)
@@ -200,9 +194,6 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     # Create radial domain
     nr = get(metadata, "nr_global", params.i_N)
     oc_domain = create_radial_domain(nr)
-    
-    # Create transform manager
-    transform_manager = get_transform_manager(T, shtns_config)
     
     # Initialize field containers (will be populated during conversion)
     velocity_fields = nothing
@@ -220,8 +211,9 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     end
     
     return SpectralToPhysicalConverter{T}(
-        shtns_config, oc_domain, pencils, pencil_spec,
-        transform_manager, velocity_fields, magnetic_fields, temperature_field,
+        shtns_config, oc_domain,
+        pencils, pencil_spec,
+        velocity_fields, magnetic_fields, temperature_field,
         time, step, metadata
     )
 end
@@ -486,8 +478,8 @@ function convert_to_physical!(converter::SpectralToPhysicalConverter{T}) where T
             @info "Converting velocity field..."
         end
         
-        # Use SHTns vector synthesis to convert toroidal/poloidal to (v_r, v_θ, v_φ)
-        shtns_vector_synthesis!(
+        # Use SHTnsKit vector synthesis to convert toroidal/poloidal to (v_r, v_θ, v_φ)
+        shtnskit_vector_synthesis!(
             converter.velocity_fields.toroidal,
             converter.velocity_fields.poloidal, 
             converter.velocity_fields.velocity
@@ -504,10 +496,10 @@ function convert_to_physical!(converter::SpectralToPhysicalConverter{T}) where T
             @info "Converting magnetic field..."
         end
         
-        # Use SHTns vector synthesis to convert toroidal/poloidal to (B_r, B_θ, B_φ)
-        shtns_vector_synthesis!(
+        # Use SHTnsKit vector synthesis to convert toroidal/poloidal to (B_r, B_θ, B_φ)
+        shtnskit_vector_synthesis!(
             converter.magnetic_fields.toroidal,
-            converter.magnetic_fields.poloidal,
+            converter.magnetic_fields.poloidal, 
             converter.magnetic_fields.magnetic
         )
         
