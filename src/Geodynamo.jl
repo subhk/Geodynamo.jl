@@ -140,6 +140,7 @@ module Geodynamo
     # Include base modules in dependency order
     include("pencil_decomps.jl")
     include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms
+    include("shtns_compat.jl")          # Compatibility shims for legacy API
     include("fields.jl")
     include("linear_algebra.jl")
     # include("shtns_transforms.jl")  # Legacy - replaced by shtnskit_transforms.jl

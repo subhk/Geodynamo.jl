@@ -16,6 +16,9 @@ using FFTW
 using LinearAlgebra
 using Base.Threads
 
+# Simple heuristic for number of simultaneously allocated fields (for memory estimate)
+estimate_field_count() = 6
+
 # ============================================================================
 # SHTnsKit Configuration Structure
 # ============================================================================
