@@ -44,8 +44,8 @@ struct RadialDomain
     integration_weights::Vector{Float64}
 end
 
-# Constructor functions compatible with PencilArrays
-function create_shtns_spectral_field(::Type{T}, config::SHTnsConfig, 
+# Constructor functions compatible with PencilArrays using SHTnsKit
+function create_shtns_spectral_field(::Type{T}, config::SHTnsKitConfig, 
                                     oc_domain::RadialDomain,
                                     pencil_spec::Pencil{3}) where T
     nlm = config.nlm
@@ -63,7 +63,7 @@ function create_shtns_spectral_field(::Type{T}, config::SHTnsConfig,
 end
 
 
-function create_shtns_physical_field(::Type{T}, config::SHTnsConfig,
+function create_shtns_physical_field(::Type{T}, config::SHTnsKitConfig,
                                     oc_domain::RadialDomain,
                                     pencil::Pencil{3}) where T
     nlat = config.nlat
@@ -77,7 +77,7 @@ function create_shtns_physical_field(::Type{T}, config::SHTnsConfig,
 end
 
 
-function create_shtns_vector_field(::Type{T}, config::SHTnsConfig,
+function create_shtns_vector_field(::Type{T}, config::SHTnsKitConfig,
                                     oc_domain::RadialDomain,
                                     pencils) where T
     pencil_θ, pencil_φ, pencil_r = pencils

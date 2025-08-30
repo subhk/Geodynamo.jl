@@ -10,11 +10,11 @@ module Geodynamo
     using SHTnsKit
     using NCDatasets
 
-    # exports shtns_config.jl
-    export SHTnsConfig, create_shtns_config
-    export get_mode_index, is_mode_local, get_local_modes
-    export validate_config, print_shtns_config_summary
-    export create_pencil_topology_shtns, create_shtns_pencils
+    # exports shtnskit_transforms.jl (new SHTnsKit-based implementation)
+    export SHTnsKitConfig, create_shtnskit_config
+    export shtnskit_spectral_to_physical!, shtnskit_physical_to_spectral!
+    export shtnskit_vector_synthesis!, shtnskit_vector_analysis!
+    export batch_shtnskit_transforms!, get_shtnskit_performance_stats
 
     # exports pencil_decomps.jl
     export get_comm, get_rank, get_nprocs
@@ -32,23 +32,14 @@ module Geodynamo
     export create_shtns_vector_field, create_radial_domain
     export get_local_range, get_local_indices, local_data_size, get_local_data
 
-    # export shtns_transforms.jl
-    export shtns_spectral_to_physical!, shtns_physical_to_spectral!
-    export shtns_vector_synthesis!, shtns_vector_analysis!
-    export batch_spectral_to_physical!
-    export shtns_compute_gradient!
-    export get_transform_statistics, print_transform_statistics
-    export clear_transform_cache!
-    export SHTnsTransformManager, get_transform_manager
-    
-    # Export advanced CPU-optimized SHTnsKit features
-    export create_optimized_config, cpu_optimized_transform!, cpu_intensive_batch_transform!
-    export compute_power_spectrum, evaluate_field_at_coordinates
-    export rotate_spherical_field
-    
-    # Export performance monitoring
-    export reset_performance_stats!, get_performance_summary
-    export print_performance_report, @timed_transform
+    # Legacy shtns_transforms.jl (deprecated - use SHTnsKit instead)
+    # export shtns_spectral_to_physical!, shtns_physical_to_spectral!
+    # export shtns_vector_synthesis!, shtns_vector_analysis!
+    # export batch_spectral_to_physical!
+    # export shtns_compute_gradient!
+    # export get_transform_statistics, print_transform_statistics
+    # export clear_transform_cache!
+    # export SHTnsTransformManager, get_transform_manager
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
@@ -148,10 +139,11 @@ module Geodynamo
 
     # Include base modules in dependency order
     include("pencil_decomps.jl")
-    include("shtns_config.jl")
+    include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms
     include("fields.jl")
     include("linear_algebra.jl")
-    include("shtns_transforms.jl")
+    # include("shtns_transforms.jl")  # Legacy - replaced by shtnskit_transforms.jl
+    # include("shtns_config.jl")      # Legacy - replaced by SHTnsKit configurations
     include("netcdf_boundaries.jl")
     include("timestep.jl")
     include("velocity.jl")
