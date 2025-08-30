@@ -114,12 +114,13 @@ end
 
 
 """
-    create_pencil_topology(shtns_config::SHTnsConfig; optimize=true)
+    create_pencil_topology(shtns_config; optimize=true)
     
 Create enhanced pencil decomposition for SHTns grids.
 Supports both 1D and 2D decompositions with automatic optimization.
+Accepts an object with fields `nlat`, `nlon`, and `nlm` (e.g., `SHTnsKitConfig`).
 """
-function create_pencil_topology(shtns_config::SHTnsConfig; optimize::Bool=true)
+function create_pencil_topology(shtns_config; optimize::Bool=true)
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -168,7 +169,7 @@ Create specialized pencils for different stages of computation.
 """
 function create_computation_pencils(topology::PencilArrays.Topology, 
                                    dims::Tuple{Int,Int,Int}, 
-                                   config::SHTnsConfig)
+                                   config)
     nlat, nlon, nr = dims
     
     # Physical space pencils (for different operations)

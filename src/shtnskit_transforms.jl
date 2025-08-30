@@ -70,7 +70,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     nprocs = get_nprocs()
     
     # Create pencil decomposition for parallel theta-phi transforms
-    pencils = create_pencil_decomposition_shtnskit(nlat, nlon, i_N, comm, optimize_decomp)
+    pencils = create_pencil_decomposition_shtnskit(nlat, nlon, i_N, sht_config, comm, optimize_decomp)
     
     # Create PencilFFTs plans for efficient phi-direction transforms
     fft_plans = create_pencil_fft_plans(pencils, (nlat, nlon, i_N))
@@ -94,11 +94,12 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
 end
 
 """
-    create_pencil_decomposition_shtnskit(nlat, nlon, nr, comm, optimize)
+    create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize)
 
 Create PencilArrays decomposition optimized for theta-phi parallelization.
 """
-function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int, 
+function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
+                                             sht_config::SHTnsKit.SHTConfig,
                                              comm, optimize::Bool=true)
     nprocs = MPI.Comm_size(comm)
     
@@ -119,8 +120,8 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     pencil_r = Pencil(topology, dims, (1, 2))      # Radial-contiguous
     
     # Spectral space pencil (for (l,m) modes)
-    # Use SHTnsKit's nlm calculation
-    nlm = SHTnsKit.nlm_calc(lmax, mmax, 1)
+    # Use SHTnsKit configuration's nlm
+    nlm = sht_config.nlm
     spec_dims = (nlm, 1, nr)
     pencil_spec = Pencil(topology, spec_dims, (2, 3))
     
@@ -686,7 +687,7 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     coeffs = zeros(ComplexF64, lmax+1, mmax+1)
     
     # Fill from local spectral data
-    for lm_idx in 1:size(spec_real, 1)
+    Threads.@threads for lm_idx in 1:size(spec_real, 1)
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if l <= lmax && m <= mmax && r_local <= size(spec_real, 3)
             real_part = spec_real[lm_idx, 1, r_local]
@@ -709,7 +710,7 @@ Store coefficients from SHTnsKit format back to spectral field.
 function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, r_local, config)
     lmax, mmax = config.lmax, config.mmax
     
-    for lm_idx in 1:size(spec_real, 1)
+    Threads.@threads for lm_idx in 1:size(spec_real, 1)
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if l <= lmax && m <= mmax && r_local <= size(spec_real, 3)
             coeff = coeffs_matrix[l+1, m+1]
@@ -752,7 +753,7 @@ function store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
     nlat, nlon = config.nlat, config.nlon
     
     # Store respecting the phi-local layout
-    for i in 1:min(size(phys_data, 1), nlat)
+    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
         for j in 1:min(size(phys_data, 2), nlon)
             if r_local <= size(phys_data, 3) && i <= size(phys_slice, 1) && j <= size(phys_slice, 2)
                 phys_data[i, j, r_local] = phys_slice[i, j]
@@ -768,7 +769,7 @@ Generic storage for any pencil orientation.
 """
 function store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
     # This is a generic fallback - may not be optimal for all pencil orientations
-    for i in 1:min(size(phys_data, 1), size(phys_slice, 1))
+    Threads.@threads for i in 1:min(size(phys_data, 1), size(phys_slice, 1))
         for j in 1:min(size(phys_data, 2), size(phys_slice, 2))
             if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]
@@ -786,7 +787,7 @@ function extract_physical_slice_phi_local(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
     slice = zeros(eltype(phys_data), nlat, nlon)
     
-    for i in 1:min(size(phys_data, 1), nlat)
+    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
         for j in 1:min(size(phys_data, 2), nlon)
             if r_local <= size(phys_data, 3)
                 slice[i, j] = phys_data[i, j, r_local]
@@ -807,7 +808,7 @@ function extract_physical_slice_generic(phys_data, r_local, config)
     slice = zeros(eltype(phys_data), nlat, nlon)
     
     # Generic extraction - may need MPI communication for distributed dimensions
-    for i in 1:min(size(phys_data, 1), nlat)
+    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
         for j in 1:min(size(phys_data, 2), nlon)
             if r_local <= size(phys_data, 3)
                 slice[i, j] = phys_data[i, j, r_local]
