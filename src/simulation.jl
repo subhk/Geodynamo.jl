@@ -1126,7 +1126,11 @@ initialize_enhanced_fields!(state) = initialize_fields!(state)
 initialize_master_fields!(state) = initialize_fields!(state)
 extract_all_fields(state) = Dict("temperature" => rand(32, 64, 20))
 extract_all_fields_enhanced(state) = extract_all_fields(state)
-create_enhanced_metadata(state, time, step) = Dict("current_time" => time, "current_step" => step)
+create_enhanced_metadata(state, time, step) = Dict(
+    "current_time" => time,
+    "current_step" => step,
+    "geometry" => state.geometry,
+)
 update_performance_metrics!(monitor, step, compute_time, integrate_time, io_time) = nothing
 auto_tune_parameters!(state) = nothing
 auto_tune_parameters_master!(state) = auto_tune_parameters!(state)
