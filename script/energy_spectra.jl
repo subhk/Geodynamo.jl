@@ -1,10 +1,11 @@
 #!/usr/bin/env julia
 
 """
-Compute kinetic and magnetic energy spectra E_k(l,m) and E_b(l,m) from a NetCDF output file.
+Compute kinetic and magnetic energy spectra E_k(l,m) and E_b(l,m) from a NetCDF output file,
+and save results to a single JLD2 file.
 
 Usage:
-  julia --project=. script/energy_spectra.jl <input.nc> [output_dir]
+  julia --project=. script/energy_spectra.jl <input.nc> [output.jld2]
 
 Inputs are expected to follow Geodynamo.jl output structure with spectral variables:
   - velocity_toroidal_real/imag[spectral_mode, r]
@@ -13,14 +14,21 @@ Inputs are expected to follow Geodynamo.jl output structure with spectral variab
   - magnetic_poloidal_real/imag[spectral_mode, r]
   - l_values[spectral_mode], m_values[spectral_mode]
 
-Outputs:
-  - energy_lm.csv: columns l, m, Ek_lm, Eb_lm
-  - energy_l.csv:  columns l, Ek_l, Eb_l
-  - energy_m.csv:  columns m, Ek_m, Eb_m
+Output (JLD2):
+  - l_values::Vector{Int}
+  - m_values::Vector{Int}
+  - Ek_lm::Vector{Float64}
+  - Eb_lm::Vector{Float64}
+  - Ek_l::Vector{Float64}
+  - Eb_l::Vector{Float64}
+  - Ek_m::Vector{Float64}
+  - Eb_m::Vector{Float64}
+  - metadata::Dict (if available): geometry, time, step
 """
 
 using NetCDF
 using Printf
+using JLD2
 using Statistics
 
 function read_var(nc, name)
@@ -113,22 +121,14 @@ function compute_spectra(data)
     return (Ek_lm=Ek_lm, Eb_lm=Eb_lm, Ek_l=Ek_l, Eb_l=Eb_l, Ek_m=Ek_m, Eb_m=Eb_m)
 end
 
-function write_csv(path, header::Vector{String}, rows)
-    open(path, "w") do io
-        println(io, join(header, ","))
-        for row in rows
-            println(io, join(row, ","))
-        end
-    end
-end
-
 function main()
     if length(ARGS) < 1
-        println("Usage: julia --project=. script/energy_spectra.jl <input.nc> [output_dir]")
+        println("Usage: julia --project=. script/energy_spectra.jl <input.nc> [output.jld2]")
         return
     end
     input = ARGS[1]
-    outdir = length(ARGS) >= 2 ? ARGS[2] : dirname(input)
+    outpath = length(ARGS) >= 2 ? ARGS[2] : joinpath(dirname(input), "energy_spectra.jld2")
+    outdir = dirname(outpath)
     isdir(outdir) || mkpath(outdir)
 
     nc = NetCDF.open(input, NC_NOWRITE)
@@ -136,35 +136,31 @@ function main()
         data = load_spectral_data(nc)
         spectra = compute_spectra(data)
 
-        # Prepare rows
-        l = data.l_values
-        m = data.m_values
-        nlm = length(l)
-        rows_lm = Vector{String}[]
-        for i in 1:nlm
-            push!(rows_lm, [string(l[i]), string(m[i]), @sprintf("%.8e", spectra.Ek_lm[i]), @sprintf("%.8e", spectra.Eb_lm[i])])
+        # Try to collect basic metadata
+        meta = Dict{String,Any}()
+        try
+            if NetCDF.varid(nc, "time") != -1
+                meta["time"] = NetCDF.readvar(nc, "time")[1]
+            end
+            if NetCDF.varid(nc, "step") != -1
+                meta["step"] = NetCDF.readvar(nc, "step")[1]
+            end
+            # Global attribute "geometry" if present
+            try
+                meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry")
+            catch
+                # Ignore if missing
+            end
+        catch
+            # Ignore metadata failures
         end
 
-        rows_l = Vector{String}[]
-        for ℓ in 0:length(spectra.Ek_l)-1
-            push!(rows_l, [string(ℓ), @sprintf("%.8e", spectra.Ek_l[ℓ+1]), @sprintf("%.8e", spectra.Eb_l[ℓ+1])])
-        end
-
-        rows_m = Vector{String}[]
-        for 𝓶 in 0:length(spectra.Ek_m)-1
-            push!(rows_m, [string(𝓶), @sprintf("%.8e", spectra.Ek_m[𝓶+1]), @sprintf("%.8e", spectra.Eb_m[𝓶+1])])
-        end
-
-        # Write CSVs
-        write_csv(joinpath(outdir, "energy_lm.csv"), ["l","m","Ek_lm","Eb_lm"], rows_lm)
-        write_csv(joinpath(outdir, "energy_l.csv"), ["l","Ek_l","Eb_l"], rows_l)
-        write_csv(joinpath(outdir, "energy_m.csv"), ["m","Ek_m","Eb_m"], rows_m)
-
-        println("Wrote spectra to $(outdir)")
+        # Save JLD2
+        @save outpath data.l_values data.m_values spectra.Ek_lm spectra.Eb_lm spectra.Ek_l spectra.Eb_l spectra.Ek_m spectra.Eb_m meta
+        println(@sprintf("Wrote spectra to %s", outpath))
     finally
         NetCDF.close(nc)
     end
 end
 
 isinteractive() || main()
-
