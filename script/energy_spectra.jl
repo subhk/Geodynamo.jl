@@ -5,7 +5,14 @@ Compute kinetic and magnetic energy spectra E_k(l,m) and E_b(l,m) from a NetCDF 
 and save results to a single JLD2 file.
 
 Usage:
-  julia --project=. script/energy_spectra.jl <input.nc> [output.jld2]
+  # Single file, auto output name (<input>_spectra.jld2)
+  julia --project=. script/energy_spectra.jl <input.nc>
+
+  # Single file with explicit output path
+  julia --project=. script/energy_spectra.jl <input.nc> <output.jld2>
+
+  # Multiple files (each saves to <input>_spectra.jld2 or into --outdir)
+  julia --project=. script/energy_spectra.jl <f1.nc> <f2.nc> ... [--outdir=dir]
 
 Inputs are expected to follow Geodynamo.jl output structure with spectral variables:
   - velocity_toroidal_real/imag[spectral_mode, r]
@@ -122,44 +129,118 @@ function compute_spectra(data)
 end
 
 function main()
-    if length(ARGS) < 1
-        println("Usage: julia --project=. script/energy_spectra.jl <input.nc> [output.jld2]")
+    if isempty(ARGS)
+        println("Usage: julia --project=. script/energy_spectra.jl <input.nc> [output.jld2] | <f1.nc> <f2.nc> ... [--outdir=dir]")
         return
     end
-    input = ARGS[1]
-    outpath = length(ARGS) >= 2 ? ARGS[2] : joinpath(dirname(input), "energy_spectra.jld2")
-    outdir = dirname(outpath)
-    isdir(outdir) || mkpath(outdir)
 
-    nc = NetCDF.open(input, NC_NOWRITE)
-    try
-        data = load_spectral_data(nc)
-        spectra = compute_spectra(data)
-
-        # Try to collect basic metadata
-        meta = Dict{String,Any}()
-        try
-            if NetCDF.varid(nc, "time") != -1
-                meta["time"] = NetCDF.readvar(nc, "time")[1]
-            end
-            if NetCDF.varid(nc, "step") != -1
-                meta["step"] = NetCDF.readvar(nc, "step")[1]
-            end
-            # Global attribute "geometry" if present
-            try
-                meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry")
-            catch
-                # Ignore if missing
-            end
-        catch
-            # Ignore metadata failures
+    # Parse optional outdir flag
+    inputs = String[]
+    outdir_flag = ""
+    for a in ARGS
+        if startswith(a, "--outdir=")
+            outdir_flag = abspath(split(a, "=", limit=2)[2])
+        else
+            push!(inputs, a)
         end
+    end
 
-        # Save JLD2
-        @save outpath data.l_values data.m_values spectra.Ek_lm spectra.Eb_lm spectra.Ek_l spectra.Eb_l spectra.Ek_m spectra.Eb_m meta
-        println(@sprintf("Wrote spectra to %s", outpath))
-    finally
-        NetCDF.close(nc)
+    if length(inputs) == 1
+        input = inputs[0+1]
+        # Decide output path: if a jld2 is provided as second arg (legacy mode), handle below
+        outpath = joinpath(isempty(outdir_flag) ? dirname(input) : outdir_flag,
+                           string(splitext(basename(input))[1], "_spectra.jld2"))
+        outdir = dirname(outpath)
+        isdir(outdir) || mkpath(outdir)
+
+        nc = NetCDF.open(input, NC_NOWRITE)
+        try
+            data = load_spectral_data(nc)
+            spectra = compute_spectra(data)
+
+            # Try to collect basic metadata
+            meta = Dict{String,Any}()
+            try
+                if NetCDF.varid(nc, "time") != -1
+                    meta["time"] = NetCDF.readvar(nc, "time")[1]
+                end
+                if NetCDF.varid(nc, "step") != -1
+                    meta["step"] = NetCDF.readvar(nc, "step")[1]
+                end
+                # Global attribute "geometry" if present
+                try
+                    meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry")
+                catch
+                end
+            catch
+            end
+
+            @save outpath data.l_values data.m_values spectra.Ek_lm spectra.Eb_lm spectra.Ek_l spectra.Eb_l spectra.Ek_m spectra.Eb_m meta
+            println(@sprintf("Wrote spectra to %s", outpath))
+        finally
+            NetCDF.close(nc)
+        end
+        return
+    end
+
+    # If two args and second is .jld2, treat as explicit output path (legacy path)
+    if length(inputs) == 2 && endswith(lowercase(inputs[2]), ".jld2")
+        input, outpath = inputs[1], inputs[2]
+        outdir = dirname(outpath)
+        isdir(outdir) || mkpath(outdir)
+        nc = NetCDF.open(input, NC_NOWRITE)
+        try
+            data = load_spectral_data(nc)
+            spectra = compute_spectra(data)
+            meta = Dict{String,Any}()
+            try
+                if NetCDF.varid(nc, "time") != -1
+                    meta["time"] = NetCDF.readvar(nc, "time")[1]
+                end
+                if NetCDF.varid(nc, "step") != -1
+                    meta["step"] = NetCDF.readvar(nc, "step")[1]
+                end
+                try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
+            catch
+            end
+            @save outpath data.l_values data.m_values spectra.Ek_lm spectra.Eb_lm spectra.Ek_l spectra.Eb_l spectra.Ek_m spectra.Eb_m meta
+            println(@sprintf("Wrote spectra to %s", outpath))
+        finally
+            NetCDF.close(nc)
+        end
+        return
+    end
+
+    # Multiple inputs: process each, derive per-file output path (optionally under --outdir)
+    for input in inputs
+        if !endswith(lowercase(input), ".nc")
+            @warn "Skipping non-NC file $input"
+            continue
+        end
+        outpath = joinpath(isempty(outdir_flag) ? dirname(input) : outdir_flag,
+                           string(splitext(basename(input))[1], "_spectra.jld2"))
+        outdir = dirname(outpath)
+        isdir(outdir) || mkpath(outdir)
+        nc = NetCDF.open(input, NC_NOWRITE)
+        try
+            data = load_spectral_data(nc)
+            spectra = compute_spectra(data)
+            meta = Dict{String,Any}()
+            try
+                if NetCDF.varid(nc, "time") != -1
+                    meta["time"] = NetCDF.readvar(nc, "time")[1]
+                end
+                if NetCDF.varid(nc, "step") != -1
+                    meta["step"] = NetCDF.readvar(nc, "step")[1]
+                end
+                try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
+            catch
+            end
+            @save outpath data.l_values data.m_values spectra.Ek_lm spectra.Eb_lm spectra.Ek_l spectra.Eb_l spectra.Ek_m spectra.Eb_m meta
+            println(@sprintf("Wrote spectra to %s", outpath))
+        finally
+            NetCDF.close(nc)
+        end
     end
 end
 
