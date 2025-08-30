@@ -2,12 +2,11 @@ module Geodynamo
 
     using LinearAlgebra
     using SparseArrays
-    using MPI
+    using SHTnsKit   # Load SHTnsKit before MPI to avoid eager extension load during precompile
     using PencilArrays
     using PencilFFTs
     using HDF5
     using StaticArrays
-    using SHTnsKit
     using NCDatasets
 
     # exports shtnskit_transforms.jl (new SHTnsKit-based implementation)
@@ -152,6 +151,8 @@ module Geodynamo
     # Initialize parameters when module is loaded
     function __init__()
         try
+            # Load MPI at runtime to avoid triggering SHTnsKit's parallel extension during precompile
+            @eval using MPI
             initialize_parameters()
             @info "Geodynamo.jl parameters loaded successfully"
         catch e

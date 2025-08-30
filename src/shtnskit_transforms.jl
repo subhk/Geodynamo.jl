@@ -8,7 +8,6 @@
 #
 
 using SHTnsKit
-using MPI
 using PencilArrays
 using PencilArrays.Transpositions
 using PencilFFTs
