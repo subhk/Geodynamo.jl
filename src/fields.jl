@@ -1,19 +1,19 @@
 # ============================================================================
-# Variable Types with SHTns Integration
+# Variable Types with SHTnsKit Integration
 # ============================================================================
     
-# Field types that work with PencilArrays
+# Field types that work with PencilArrays using SHTnsKit
 struct SHTnsSpectralField{T<:Number}
-    config::SHTnsConfig
+    config::SHTnsKitConfig
     nlm::Int
     data_real::PencilArray{T,3}
     data_imag::PencilArray{T,3}
     pencil::Pencil{3}  # Store pencil for local range info
 end
 
-# Physical field on SHTns grid
+# Physical field on SHTnsKit grid
 struct SHTnsPhysicalField{T<:Number}
-    config::SHTnsConfig
+    config::SHTnsKitConfig
     nlat::Int
     nlon::Int
     data::PencilArray{T,3}  # Single array, transpose as needed
