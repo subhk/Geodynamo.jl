@@ -42,6 +42,13 @@ struct SHTnsKitConfig
     
     # Memory estimate
     memory_estimate::String
+
+    # Convenience fields for compatibility with legacy code paths
+    l_values::Vector{Int}
+    m_values::Vector{Int}
+    theta_grid::Vector{Float64}
+    phi_grid::Vector{Float64}
+    gauss_weights::Vector{Float64}
 end
 
 """
@@ -84,13 +91,46 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     memory_estimate = "$(round(memory_mb, digits=1)) MB"
     
     nlm = sht_config.nlm
+
+    # Populate compatibility grids and index arrays
+    theta_grid = try
+        Vector{Float64}(SHTnsKit.grid_latitudes(sht_config))
+    catch
+        range(-pi/2, stop=pi/2, length=nlat) |> collect |> Float64.
+    end
+    phi_grid = try
+        Vector{Float64}(SHTnsKit.grid_longitudes(sht_config))
+    catch
+        range(0, stop=2pi, length=nlon+1)[1:end-1] |> collect |> Float64.
+    end
+    gauss_weights = try
+        Vector{Float64}(SHTnsKit.get_gauss_weights(sht_config))
+    catch
+        ones(Float64, nlat)
+    end
+    # Construct l/m arrays matching nlm ordering
+    l_vals = Vector{Int}(undef, nlm)
+    m_vals = Vector{Int}(undef, nlm)
+    idx = 1
+    for l in 0:lmax
+        for m in 0:min(l, mmax)
+            if idx <= nlm
+                l_vals[idx] = l
+                m_vals[idx] = m
+            end
+            idx += 1
+        end
+    end
     
     if get_rank() == 0
         print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
     end
     
-    return SHTnsKitConfig(sht_config, nlat, nlon, lmax, mmax, nlm, 
-                         pencils, fft_plans, transpose_plans, memory_estimate)
+    return SHTnsKitConfig(
+        sht_config, nlat, nlon, lmax, mmax, nlm,
+        pencils, fft_plans, transpose_plans, memory_estimate,
+        l_vals, m_vals, theta_grid, phi_grid, gauss_weights
+    )
 end
 
 """
