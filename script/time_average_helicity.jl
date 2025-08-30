@@ -233,15 +233,62 @@ function compute_omega_r_from_Tlm(cfg::SHTnsKit.SHTConfig, lvals, mvals, tor_r, 
     return ωr
 end
 
+function volume_average_helicity(h::Array{<:Real,3}, cfg::SHTnsKit.SHTConfig, r::Union{Nothing,Vector{<:Real}})
+    nlat, nlon, nr = size(h)
+    # Theta weights (include sinθ): cfg.w
+    wθ = cfg.w
+    Δφ = 2π / nlon
+    # Radial weights via trapezoidal on r (if available), else assume unit spacing
+    if r === nothing || length(r) != nr
+        r = collect(1:nr)
+    else
+        r = Float64.(r)
+    end
+    Δr = similar(r)
+    for k in 1:nr
+        if k == 1
+            Δr[k] = (r[min(2,nr)] - r[1])
+        elseif k == nr
+            Δr[k] = (r[nr] - r[nr-1])
+        else
+            Δr[k] = 0.5*(r[k+1] - r[k-1])
+        end
+    end
+    vol = 0.0
+    integral = 0.0
+    @inbounds for k in 1:nr
+        rk2 = r[k]^2
+        vol += Δφ * Δr[k] * rk2 * sum(wθ)
+        # integrate over θ,φ for each k
+        # Sum over j: Δφ, over i: wθ[i]
+        shell_int = 0.0
+        for i in 1:nlat
+            wi = wθ[i]
+            # sum over φ at fixed (i,k)
+            sφ = 0.0
+            for j in 1:nlon
+                sφ += h[i,j,k]
+            end
+            shell_int += wi * sφ * Δφ
+        end
+        integral += rk2 * Δr[k] * shell_int
+    end
+    return integral / max(vol, eps())
+end
+
 function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::String)
     times = scan_times(dir, prefix)
     sel = [t for t in times if t0 <= t <= t1]
     isempty(sel) && error("No files found in $dir for prefix '$prefix' and time range [$t0, $t1]")
 
     sum_h = nothing
+    sum_hr = nothing
+    sum_hθ = nothing
+    sum_hφ = nothing
     count = 0
     coords = Dict{String,Any}()
     meta = Dict{String,Any}()
+    last_cfg = Ref{Union{Nothing,SHTnsKit.SHTConfig}}(nothing)
 
     for t in sel
         fname = build_filename(dir, prefix, t)
@@ -259,6 +306,7 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
 
             vr, vt, vp = vector_components(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), r)
+            last_cfg[] = cfg
             ωr = compute_omega_r_from_Tlm(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), r)
             # Compute ωθ, ωφ via finite differences on grid
             # Reuse helicity_field to get full h (includes FD-computed ωr), then replace ωr term with accurate ωr
@@ -281,11 +329,18 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
                     ωφ[i2,j2,k2] = (1/rr2) * ( dr_vθ[i2,j2,k2] + vt[i2,j2,k2]/rr2 - dθ_vr[i2,j2,k2] )
                 end
             end
-            h = vr .* ωr .+ vt .* ωθ .+ vp .* ωφ
+            # Component-wise helicity contributions
+            hr = vr .* ωr
+            hθ = vt .* ωθ
+            hφ = vp .* ωφ
+            h = hr .+ hθ .+ hφ
             if sum_h === nothing
-                sum_h = zero(h)
+                sum_h = zero(h); sum_hr = zero(hr); sum_hθ = zero(hθ); sum_hφ = zero(hφ)
             end
             sum_h .+= h
+            sum_hr .+= hr
+            sum_hθ .+= hθ
+            sum_hφ .+= hφ
             count += 1
         finally
             NetCDF.close(nc)
@@ -293,25 +348,31 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
     end
 
     count == 0 && error("No samples accumulated in range [$t0,$t1]")
-    return sum_h ./ count, count, sel, coords, meta
+    return (sum_h ./ count, sum_hr ./ count, sum_hθ ./ count, sum_hφ ./ count), count, sel, coords, meta, last_cfg[]
 end
 
 function main()
     outdir, t0, t1, prefix, outpath = parse_args(copy(ARGS))
-    h_avg, count, times_used, coords, meta = time_average_helicity(outdir, t0, t1, prefix)
+    (h_avg, hr_avg, hθ_avg, hφ_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix)
     if isempty(outpath)
         ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
         outpath = joinpath(outdir, "timeavg_helicity_$(prefix)_$(ttag).jld2")
     end
     isdir(dirname(outpath)) || mkpath(dirname(outpath))
+    # Volume-averaged helicity from time-averaged field
+    Hvol = (cfg === nothing) ? NaN : volume_average_helicity(h_avg, cfg, get(coords, "r", nothing))
     jldopen(outpath, "w"; compress=true) do f
         write(f, "helicity", h_avg)
+        write(f, "helicity_r", hr_avg)
+        write(f, "helicity_theta", hθ_avg)
+        write(f, "helicity_phi", hφ_avg)
         write(f, "count", count)
         write(f, "times", times_used)
         write(f, "coords", coords)
         write(f, "metadata", meta)
         write(f, "time_range", (t0, t1))
         write(f, "prefix", prefix)
+        write(f, "volume_avg_helicity", Hvol)
     end
     println(@sprintf("Saved time-averaged helicity to %s (samples=%d)", outpath, count))
 end
