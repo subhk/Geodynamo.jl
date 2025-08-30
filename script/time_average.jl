@@ -111,18 +111,24 @@ function build_sht_config_from_file(nc)
     nlat = (NetCDF.varid(nc, "theta") != -1) ? length(read_var_if_exists(nc, "theta")) : (lmax+2)
     nlon = (NetCDF.varid(nc, "phi") != -1) ? length(read_var_if_exists(nc, "phi")) : max(2*lmax+1, 4)
     cfg = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
-    return cfg, l_values, m_values
+    rvec = nothing
+    if NetCDF.varid(nc, "r") != -1
+        rvec = Float64.(read_var_if_exists(nc, "r"))
+    end
+    return cfg, l_values, m_values, rvec
 end
 
 function vector_synthesis_theta_phi(cfg::SHTnsKit.SHTConfig,
                                     l_values::Vector{Int}, m_values::Vector{Int},
                                     tor_r::AbstractMatrix, tor_i::AbstractMatrix,
-                                    pol_r::AbstractMatrix, pol_i::AbstractMatrix)
+                                    pol_r::AbstractMatrix, pol_i::AbstractMatrix,
+                                    rvec::Union{Vector{Float64},Nothing}=nothing)
     lmax = cfg.lmax; mmax = cfg.mmax
     nlat = cfg.nlat; nlon = cfg.nlon
     nlm, nr = size(tor_r)
     vt = Array{Float64}(undef, nlat, nlon, nr)
     vp = Array{Float64}(undef, nlat, nlon, nr)
+    vr = Array{Float64}(undef, nlat, nlon, nr)
     # Temporary coefficient matrices
     tor = zeros(ComplexF64, lmax+1, mmax+1)
     pol = zeros(ComplexF64, lmax+1, mmax+1)
@@ -138,8 +144,28 @@ function vector_synthesis_theta_phi(cfg::SHTnsKit.SHTConfig,
         vt_slice, vp_slice = SHTnsKit.SHsphtor_to_spat(cfg, pol, tor; real_output=true)
         vt[:,:,r] = vt_slice
         vp[:,:,r] = vp_slice
+        # Radial component from poloidal only: v_r = (l(l+1)/r) * P_lm Y_lm
+        if rvec !== nothing
+            rr = rvec[min(r, length(rvec))]
+            if rr > eps()
+                pol_rad = zeros(ComplexF64, lmax+1, mmax+1)
+                for i in 1:nlm
+                    l = l_values[i]; m = m_values[i]
+                    if l <= lmax && m <= mmax
+                        coeff = pol[l+1, m+1]
+                        pol_rad[l+1, m+1] = coeff * (l*(l+1)/rr)
+                    end
+                end
+                vr_slice = SHTnsKit.synthesis(cfg, pol_rad; real_output=true)
+                vr[:,:,r] = vr_slice
+            else
+                vr[:,:,r] .= 0
+            end
+        else
+            vr[:,:,r] .= 0
+        end
     end
-    return vt, vp
+    return vt, vp, vr
 end
 
 function time_average(dir::String, t0::Float64, t1::Float64, vars::Vector{String}, prefix::String)
@@ -175,9 +201,9 @@ function time_average(dir::String, t0::Float64, t1::Float64, vars::Vector{String
                 vtor_r = read_var_if_exists(nc, "velocity_toroidal_real"); vtor_i = read_var_if_exists(nc, "velocity_toroidal_imag")
                 vpol_r = read_var_if_exists(nc, "velocity_poloidal_real"); vpol_i = read_var_if_exists(nc, "velocity_poloidal_imag")
                 if vtor_r !== nothing && vtor_i !== nothing && vpol_r !== nothing && vpol_i !== nothing
-                    cfg, l_values, m_values = build_sht_config_from_file(nc)
-                    vt, vp = vector_synthesis_theta_phi(cfg, l_values, m_values, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i))
-                    for (name, A) in zip(("velocity_theta","velocity_phi"), (vt, vp))
+                    cfg, l_values, m_values, rvec = build_sht_config_from_file(nc)
+                    vt, vp, vr = vector_synthesis_theta_phi(cfg, l_values, m_values, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), rvec)
+                    for (name, A) in zip(("velocity_theta","velocity_phi","velocity_r"), (vt, vp, vr))
                         if !haskey(sums, name)
                             sums[name] = zero(A); shapes[name] = size(A); counts[name] = 0
                         end
@@ -196,9 +222,9 @@ function time_average(dir::String, t0::Float64, t1::Float64, vars::Vector{String
                 mtor_r = read_var_if_exists(nc, "magnetic_toroidal_real"); mtor_i = read_var_if_exists(nc, "magnetic_toroidal_imag")
                 mpol_r = read_var_if_exists(nc, "magnetic_poloidal_real"); mpol_i = read_var_if_exists(nc, "magnetic_poloidal_imag")
                 if mtor_r !== nothing && mtor_i !== nothing && mpol_r !== nothing && mpol_i !== nothing
-                    cfg, l_values, m_values = build_sht_config_from_file(nc)
-                    bt, bp = vector_synthesis_theta_phi(cfg, l_values, m_values, Float64.(mtor_r), Float64.(mtor_i), Float64.(mpol_r), Float64.(mpol_i))
-                    for (name, A) in zip(("magnetic_theta","magnetic_phi"), (bt, bp))
+                    cfg, l_values, m_values, rvec = build_sht_config_from_file(nc)
+                    bt, bp, br = vector_synthesis_theta_phi(cfg, l_values, m_values, Float64.(mtor_r), Float64.(mtor_i), Float64.(mpol_r), Float64.(mpol_i), rvec)
+                    for (name, A) in zip(("magnetic_theta","magnetic_phi","magnetic_r"), (bt, bp, br))
                         if !haskey(sums, name)
                             sums[name] = zero(A); shapes[name] = size(A); counts[name] = 0
                         end
@@ -240,10 +266,10 @@ function time_average(dir::String, t0::Float64, t1::Float64, vars::Vector{String
     # Include converted variable names if requested
     allkeys = copy(vars)
     if any(v -> v in ("velocity","velocity_vector"), vars)
-        append!(allkeys, ["velocity_theta","velocity_phi"])
+        append!(allkeys, ["velocity_theta","velocity_phi","velocity_r"])
     end
     if any(v -> v in ("magnetic","magnetic_vector"), vars)
-        append!(allkeys, ["magnetic_theta","magnetic_phi"])
+        append!(allkeys, ["magnetic_theta","magnetic_phi","magnetic_r"])
     end
 
     for v in allkeys
