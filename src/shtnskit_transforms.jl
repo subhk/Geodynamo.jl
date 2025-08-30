@@ -9,8 +9,11 @@
 using SHTnsKit
 using MPI
 using PencilArrays
+using PencilArrays.Transpositions
+using PencilFFTs
 using FFTW
 using LinearAlgebra
+using Base.Threads
 
 # ============================================================================
 # SHTnsKit Configuration Structure
@@ -29,6 +32,12 @@ struct SHTnsKitConfig
     
     # PencilArrays decomposition for parallelization
     pencils::NamedTuple
+    
+    # PencilFFTs plans for efficient phi-direction FFTs
+    fft_plans::Dict{Symbol, Any}
+    
+    # Transpose plans for pencil reorientations
+    transpose_plans::Dict{Symbol, PencilArrays.TransposeOperator}
     
     # Performance optimization
     plan::Union{SHTnsKit.SHTPlan, Nothing}
@@ -65,6 +74,12 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     # Create pencil decomposition for parallel theta-phi transforms
     pencils = create_pencil_decomposition_shtnskit(nlat, nlon, i_N, comm, optimize_decomp)
     
+    # Create PencilFFTs plans for efficient phi-direction transforms
+    fft_plans = create_pencil_fft_plans(pencils, (nlat, nlon, i_N))
+    
+    # Create transpose plans between different pencil orientations
+    transpose_plans = create_shtnskit_transpose_plans(pencils)
+    
     # Create optimized transform plan for repeated operations
     plan = try
         SHTnsKit.SHTPlan(sht_config)
@@ -85,7 +100,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     end
     
     return SHTnsKitConfig(sht_config, nlat, nlon, lmax, mmax, nlm, 
-                         pencils, plan, memory_estimate)
+                         pencils, fft_plans, transpose_plans, plan, memory_estimate)
 end
 
 """
