@@ -18,6 +18,7 @@ export create_shell_spectral_field, create_shell_physical_field, create_shell_ve
 export create_shell_velocity_fields, create_shell_temperature_field
 export create_shell_composition_field, create_shell_magnetic_fields
 export create_shell_hybrid_temperature_boundaries, create_shell_hybrid_composition_boundaries
+export apply_shell_temperature_boundaries!, apply_shell_composition_boundaries!
 
 """
     create_shell_radial_domain(nr=i_N) -> RadialDomain
@@ -101,5 +102,19 @@ create_shell_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg::ShellCon
 """
 create_shell_hybrid_composition_boundaries(inner_spec, outer_spec, cfg::ShellConfig; precision::Type{T}=Float64) where {T} =
     Geodynamo.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; precision)
+
+"""
+    apply_shell_temperature_boundaries!(temp_field, boundary_set; time=0)
+
+Wrapper around core NetCDF boundary application for shell geometry.
+"""
+apply_shell_temperature_boundaries!(temp_field, boundary_set; time=0.0) =
+    Geodynamo.apply_netcdf_temperature_boundaries!(temp_field, boundary_set, time)
+
+"""
+    apply_shell_composition_boundaries!(comp_field, boundary_set; time=0)
+"""
+apply_shell_composition_boundaries!(comp_field, boundary_set; time=0.0) =
+    Geodynamo.apply_netcdf_composition_boundaries!(comp_field, boundary_set, time)
 
 end # module
