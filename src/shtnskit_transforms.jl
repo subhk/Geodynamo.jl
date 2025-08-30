@@ -334,7 +334,7 @@ function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memo
     println("║ Parallel Configuration:                               ║")
     println("║   MPI Processes:    $(lpad(nprocs,4))                              ║")
     println("║   Theta-Phi Parallel: PencilArrays + PencilFFTs      ║")
-    println("║   SHTnsKit.jl:      Local ../SHTnsKit.jl             ║")
+    println("║   SHTnsKit.jl:      Registered package               ║")
     println("║   Memory/process:   $(lpad(memory_estimate,10))                    ║")
     println("╚═══════════════════════════════════════════════════════╝")
 end
