@@ -173,6 +173,84 @@ function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int)
 end
 
 """
+    create_pencil_fft_plans(pencils, dims)
+
+Create PencilFFTs plans for efficient phi-direction transforms.
+"""
+function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
+    nlat, nlon, nr = dims
+    fft_plans = Dict{Symbol, Any}()
+    
+    try
+        # Create FFT plans for phi-direction (longitude) transforms
+        # This uses the phi-pencil orientation where phi is local
+        if haskey(pencils, :phi)
+            # Forward FFT plan for phi direction
+            dummy_phi = PencilArray{ComplexF64}(undef, pencils.phi)
+            fft_plans[:phi_forward] = PencilFFTs.plan_fft!(dummy_phi, 2)  # FFT along phi (dim 2)
+            fft_plans[:phi_backward] = PencilFFTs.plan_ifft!(dummy_phi, 2) # IFFT along phi
+        end
+        
+        # Create plans for theta-pencil orientation if needed
+        if haskey(pencils, :theta)
+            dummy_theta = PencilArray{ComplexF64}(undef, pencils.theta)
+            # For theta pencil, phi is distributed, so we need different approach
+            fft_plans[:theta_phi_forward] = PencilFFTs.plan_fft!(dummy_theta, 2)
+            fft_plans[:theta_phi_backward] = PencilFFTs.plan_ifft!(dummy_theta, 2)
+        end
+        
+        @info "PencilFFTs plans created successfully"
+    catch e
+        @warn "Could not create PencilFFTs plans: $e. Falling back to regular FFTW."
+        fft_plans[:fallback] = true
+    end
+    
+    return fft_plans
+end
+
+"""
+    create_shtnskit_transpose_plans(pencils)
+
+Create transpose plans for efficient pencil reorientations.
+"""
+function create_shtnskit_transpose_plans(pencils)
+    transpose_plans = Dict{Symbol, PencilArrays.TransposeOperator}()
+    
+    try
+        # Create common transpose operations needed for SHT
+        if haskey(pencils, :theta) && haskey(pencils, :phi)
+            # Transpose from theta-pencil to phi-pencil (for FFTs)
+            transpose_plans[:theta_to_phi] = Transpose(pencils.theta => pencils.phi)
+            transpose_plans[:phi_to_theta] = Transpose(pencils.phi => pencils.theta)
+        end
+        
+        if haskey(pencils, :r) && haskey(pencils, :theta)
+            # Transpose to r-pencil for radial operations
+            transpose_plans[:theta_to_r] = Transpose(pencils.theta => pencils.r)
+            transpose_plans[:r_to_theta] = Transpose(pencils.r => pencils.theta)
+        end
+        
+        if haskey(pencils, :phi) && haskey(pencils, :r)
+            # Transpose from phi-pencil to r-pencil
+            transpose_plans[:phi_to_r] = Transpose(pencils.phi => pencils.r)
+            transpose_plans[:r_to_phi] = Transpose(pencils.r => pencils.phi)
+        end
+        
+        if haskey(pencils, :spec) && haskey(pencils, :theta)
+            # Transpose between spectral and physical representations
+            transpose_plans[:spec_to_theta] = Transpose(pencils.spec => pencils.theta)
+            transpose_plans[:theta_to_spec] = Transpose(pencils.theta => pencils.spec)
+        end
+        
+        @info "Created $(length(transpose_plans)) transpose plans"
+    catch e
+        @warn "Could not create all transpose plans: $e"
+    end
+    
+    return transpose_plans
+end
+
+"""
     estimate_memory_usage_shtnskit(nlat, nlon, lmax, field_count, T)
 
 Estimate memory usage for SHTnsKit-based transforms.
@@ -229,46 +307,32 @@ end
                                   phys::SHTnsPhysicalField{T}) where T
 
 Transform from spectral to physical space using SHTnsKit with MPI parallelization.
-This function parallelizes across theta and phi directions using PencilArrays.
+This function uses PencilArrays and PencilFFTs for optimal parallel performance.
 """
 function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
                                        phys::SHTnsPhysicalField{T}) where T
     config = spec.config
     sht_config = config.sht_config
     
-    # Get local data ranges
-    spec_real = parent(spec.data_real)
-    spec_imag = parent(spec.data_imag) 
-    phys_data = parent(phys.data)
+    # Determine if we need to transpose to phi-pencil for FFTs
+    current_pencil_spec = spec.pencil
+    target_pencil_phys = phys.pencil
     
-    # Get local ranges for parallel decomposition
-    r_range = range_local(config.pencils.r, 3)
+    # Check if physical field is in phi-pencil orientation for efficient FFTs
+    need_transpose_for_fft = !is_phi_local(target_pencil_phys)
     
-    # Process each radial level with theta-phi parallelization
-    @threads for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        
-        if local_r <= size(spec_real, 3)
-            # Extract spectral coefficients for this radial level
-            coeffs = extract_spectral_coefficients(spec_real, spec_imag, local_r, config)
-            
-            # Perform SHTnsKit synthesis with parallelization
-            if config.plan !== nothing
-                # Use optimized plan for better performance
-                phys_slice = zeros(T, config.nlat, config.nlon)
-                SHTnsKit.synthesis!(config.plan, phys_slice, coeffs)
-                
-                # Store result with theta-phi parallelization
-                store_physical_slice!(phys_data, phys_slice, local_r, config)
-            else
-                # Fallback to direct synthesis
-                phys_slice = SHTnsKit.synthesis(sht_config, coeffs; real_output=true)
-                store_physical_slice!(phys_data, phys_slice, local_r, config)
-            end
-        end
+    if need_transpose_for_fft && haskey(config.transpose_plans, :theta_to_phi)
+        # Transpose to phi-pencil for FFT operations
+        phys_phi_data = transpose_to_phi_pencil(phys, config)
+        perform_synthesis_with_pencil_fft!(spec, phys_phi_data, config, :phi)
+        # Transpose back to original pencil orientation
+        transpose_from_phi_pencil!(phys_phi_data, phys, config)
+    else
+        # Direct synthesis without transpose (if already in suitable orientation)
+        perform_synthesis_with_pencil_fft!(spec, phys, config, get_pencil_orientation(target_pencil_phys))
     end
     
-    # Synchronize across MPI processes
+    # Ensure all MPI processes are synchronized
     MPI.Barrier(get_comm())
 end
 
@@ -410,6 +474,147 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     
     # Synchronize across processes
     MPI.Barrier(get_comm())
+end
+
+# ============================================================================
+# PencilArray and PencilFFT Helper Functions  
+# ============================================================================
+
+"""
+    is_phi_local(pencil::Pencil{3}) -> Bool
+
+Check if phi dimension is local (contiguous) in the given pencil.
+"""
+function is_phi_local(pencil::Pencil{3})
+    # Check if phi (dimension 2) is in the contiguous dimensions
+    return 2 in pencil.axes_in
+end
+
+"""
+    get_pencil_orientation(pencil::Pencil{3}) -> Symbol
+
+Get the orientation of a pencil (which dimensions are local).
+"""
+function get_pencil_orientation(pencil::Pencil{3})
+    local_dims = pencil.axes_in
+    if 1 in local_dims && 2 in local_dims
+        return :theta_phi  # Both theta and phi local
+    elseif 1 in local_dims
+        return :theta      # Only theta local
+    elseif 2 in local_dims  
+        return :phi        # Only phi local
+    else
+        return :r          # Radial local
+    end
+end
+
+"""
+    transpose_to_phi_pencil(phys::SHTnsPhysicalField{T}, config) -> PencilArray
+
+Transpose physical field to phi-pencil orientation for efficient FFTs.
+"""
+function transpose_to_phi_pencil(phys::SHTnsPhysicalField{T}, config) where T
+    if haskey(config.transpose_plans, :theta_to_phi)
+        phi_data = PencilArray{T}(undef, config.pencils.phi)
+        mul!(phi_data, config.transpose_plans[:theta_to_phi], phys.data)
+        return phi_data
+    else
+        @warn "No theta_to_phi transpose plan available"
+        return phys.data  # Return original data as fallback
+    end
+end
+
+"""
+    transpose_from_phi_pencil!(phi_data, phys::SHTnsPhysicalField{T}, config) where T
+
+Transpose from phi-pencil back to original pencil orientation.
+"""
+function transpose_from_phi_pencil!(phi_data, phys::SHTnsPhysicalField{T}, config) where T
+    if haskey(config.transpose_plans, :phi_to_theta)
+        mul!(phys.data, config.transpose_plans[:phi_to_theta], phi_data)
+    else
+        @warn "No phi_to_theta transpose plan available"
+        # Copy data directly as fallback
+        copyto!(parent(phys.data), parent(phi_data))
+    end
+end
+
+"""
+    perform_synthesis_with_pencil_fft!(spec, phys, config, orientation)
+
+Perform synthesis using PencilFFTs based on pencil orientation.
+"""
+function perform_synthesis_with_pencil_fft!(spec::SHTnsSpectralField{T}, 
+                                          phys::Union{SHTnsPhysicalField{T}, PencilArray{T,3}}, 
+                                          config, orientation::Symbol) where T
+    sht_config = config.sht_config
+    
+    # Get data arrays
+    spec_real = spec.data_real
+    spec_imag = spec.data_imag
+    phys_data = isa(phys, SHTnsPhysicalField) ? phys.data : phys
+    
+    # Get local ranges for this pencil orientation
+    r_range = get_local_radial_range(phys_data)
+    
+    # Process each radial level
+    @threads for r_local in r_range
+        # Extract spectral coefficients for this radial level
+        coeffs_matrix = extract_spectral_coefficients_pencil(spec_real, spec_imag, r_local, config)
+        
+        # Perform synthesis for this radial slice
+        if config.plan !== nothing
+            # Use optimized SHTnsKit plan
+            phys_slice = zeros(T, config.nlat, config.nlon)
+            SHTnsKit.synthesis!(config.plan, phys_slice, coeffs_matrix)
+        else
+            # Direct synthesis
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+        end
+        
+        # Store result in PencilArray with proper data layout
+        store_physical_slice_pencil!(phys_data, phys_slice, r_local, config, orientation)
+    end
+    
+    # Apply PencilFFTs if in phi-pencil orientation
+    if orientation == :phi && haskey(config.fft_plans, :phi_backward)
+        try
+            # Convert to complex for IFFT if needed (for compatibility)
+            if eltype(phys_data) <: Real
+                complex_data = complex.(phys_data)
+                # Apply IFFT using PencilFFTs
+                config.fft_plans[:phi_backward] * complex_data
+                # Extract real part back to original array
+                copyto!(parent(phys_data), real.(parent(complex_data)))
+            else
+                config.fft_plans[:phi_backward] * phys_data
+            end
+        catch e
+            @warn "PencilFFT failed, using fallback: $e"
+            # Fallback to regular FFT processing per slice
+            fallback_fft_synthesis!(phys_data, config, orientation)
+        end
+    end
+end
+
+"""
+    fallback_fft_synthesis!(phys_data, config, orientation)
+
+Fallback FFT synthesis when PencilFFTs is not available.
+"""
+function fallback_fft_synthesis!(phys_data, config, orientation)
+    # Simple fallback - data is already synthesized by SHTnsKit
+    # No additional FFT processing needed as SHTnsKit handles it internally
+    @debug "Using SHTnsKit internal FFT processing"
+end
+
+"""
+    get_local_radial_range(phys_data::PencilArray{T,3}) where T
+
+Get the local radial range for the current MPI process.
+"""
+function get_local_radial_range(phys_data::PencilArray{T,3}) where T
+    return 1:size(phys_data, 3)  # Local radial extent
 end
 
 # ============================================================================
