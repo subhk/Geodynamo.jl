@@ -475,7 +475,7 @@ Convert physical compositional boundary values to spectral coefficients and appl
 function apply_composition_physical_boundaries_to_spectral!(comp_field::SHTnsCompositionField{T},
                                                            inner_values::Matrix{T}, 
                                                            outer_values::Matrix{T},
-                                                           config::SHTnsConfig) where T
+                                                           config::SHTnsKitConfig) where T
     
     # Use work arrays for physical to spectral transforms
     phys_work = comp_field.work_physical
@@ -490,7 +490,7 @@ function apply_composition_physical_boundaries_to_spectral!(comp_field::SHTnsCom
         phys_data[1:nlat, 1:nlon, 1] .= inner_values
         
         # Transform to spectral space
-        shtns_physical_to_spectral!(phys_work, spec_work)
+        shtnskit_physical_to_spectral!(phys_work, spec_work)
         
         # Extract and apply inner boundary coefficients
         apply_composition_spectral_boundary_coefficients!(comp_field, spec_work, :inner)
@@ -503,7 +503,7 @@ function apply_composition_physical_boundaries_to_spectral!(comp_field::SHTnsCom
         phys_data[1:nlat, 1:nlon, 1] .= outer_values
         
         # Transform to spectral space  
-        shtns_physical_to_spectral!(phys_work, spec_work)
+        shtnskit_physical_to_spectral!(phys_work, spec_work)
         
         # Extract and apply outer boundary coefficients
         apply_composition_spectral_boundary_coefficients!(comp_field, spec_work, :outer)
@@ -578,12 +578,12 @@ function update_composition_boundaries_from_netcdf!(comp_field::SHTnsComposition
 end
 
 """
-    validate_netcdf_composition_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsConfig)
+    validate_netcdf_composition_compatibility(boundary_set::BoundaryConditionSet, config::SHTnsKitConfig)
 
 Validate that NetCDF composition boundaries are compatible with the SHTns configuration.
 """
 function validate_netcdf_composition_compatibility(boundary_set::BoundaryConditionSet, 
-                                                  config::SHTnsConfig)
+                                                  config::SHTnsKitConfig)
     errors = String[]
     
     # Check grid compatibility
