@@ -1116,7 +1116,7 @@ end
 
 
 function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int, 
-                             config::SHTnsConfig) where T
+                             config::SHTnsKitConfig) where T
     """
     Compute surface integral of flux at given radial level
     """

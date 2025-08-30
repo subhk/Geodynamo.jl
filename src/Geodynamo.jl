@@ -33,13 +33,7 @@ module Geodynamo
     export get_local_range, get_local_indices, local_data_size, get_local_data
 
     # Legacy shtns_transforms.jl (deprecated - use SHTnsKit instead)
-    # export shtns_spectral_to_physical!, shtns_physical_to_spectral!
-    # export shtns_vector_synthesis!, shtns_vector_analysis!
-    # export batch_spectral_to_physical!
-    # export shtns_compute_gradient!
-    # export get_transform_statistics, print_transform_statistics
-    # export clear_transform_cache!
-    # export SHTnsTransformManager, get_transform_manager
+    # Legacy SHTns exports removed in SHTnsKit migration
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
@@ -140,7 +134,6 @@ module Geodynamo
     # Include base modules in dependency order
     include("pencil_decomps.jl")
     include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms
-    include("shtns_compat.jl")          # Compatibility shims for legacy API
     include("fields.jl")
     include("linear_algebra.jl")
     # include("shtns_transforms.jl")  # Legacy - replaced by shtnskit_transforms.jl
