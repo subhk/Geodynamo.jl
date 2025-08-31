@@ -7,10 +7,12 @@
 # scalar spherical-harmonic synthesis Y_{l0}(θ) to transform toroidal/poloidal scalars
 # into physical space over θ for all radii, then plots r–θ heatmaps.
 #
-# Note (vector fields): This reconstructs the scalar toroidal/poloidal potentials for m=0. If you need
-# vector components (u_r, u_θ, u_φ) from tor/pol, we can extend with vector synthesis,
-# but this requires consistent normalization choices. This version uses standard
-# normalization Y_{l0}(θ)=sqrt((2l+1)/(4π)) P_l(cosθ).
+# Note (vector fields): This script reconstructs physical vector components
+# u_r, u_θ, u_φ for m=0 by combining toroidal and poloidal scalars via
+#   u_r   = Σ [ℓ(ℓ+1)/r^2] P_l0(r) Y_l0(θ)
+#   u_θ   = Σ [ (1/r) ∂(r P_l0)/∂r ] ∂Y_l0/∂θ
+#   u_φ   = Σ [ -(1/r) T_l0(r) ] ∂Y_l0/∂θ
+# using Y_l0(θ)=√((2ℓ+1)/(4π)) P_l(cosθ) by default. Disable normalization with --no-norm.
 #
 # Note (scalar fields): For temperature/composition, if spectral variables
 # temperature_spectral_* or composition_spectral_* exist, synthesis is used.
@@ -38,14 +40,16 @@ mutable struct Opts
     clim::Union{Nothing,Tuple{Float64,Float64}}
     degrees::Bool
     nonorm::Bool
+    veccomp::Union{Nothing,Symbol}  # :ur | :utheta | :uphi for vectors
 end
 
-Opts() = Opts(nothing, nothing, true, false)
+Opts() = Opts(nothing, nothing, true, false, :ur)
 
 function parse_args()
     path = get(ARGS, 1, "")
     family = lowercase(get(ARGS, 2, "velocity"))   # "velocity" | "magnetic" | "temperature" | "composition"
-    which  = lowercase(get(ARGS, 3, family in ("temperature","composition") ? "scalar" : "both"))  # vector: toroidal|poloidal|both; scalar: scalar
+    # For vectors, the component is selected with --vec ur|utheta|uphi; we still synthesize using both toroidal+poloidal as needed.
+    which  = lowercase(get(ARGS, 3, family in ("temperature","composition") ? "scalar" : "vector"))
     extras = ARGS[4:end]
     opts = Opts()
     i = 1
@@ -62,16 +66,16 @@ function parse_args()
             opts.degrees = false; i += 1
         elseif a == "--no-norm"
             opts.nonorm = true; i += 1
+        elseif a == "--vec" && i+1 <= length(extras)
+            v = lowercase(extras[i+1])
+            v ∈ ("ur","utheta","uphi") || error("--vec must be one of ur|utheta|uphi")
+            opts.veccomp = Symbol(v); i += 2
         else
             error("Unknown/malformed option '$a'. Supported: --cmap NAME --clim MIN MAX --degrees|--radians --no-norm")
         end
     end
     family ∈ ("velocity","magnetic","temperature","composition") || error("family must be 'velocity','magnetic','temperature', or 'composition'")
-    if family in ("velocity","magnetic")
-        which  ∈ ("toroidal","poloidal","both") || error("vector component must be 'toroidal','poloidal', or 'both'")
-    else
-        which = "scalar"
-    end
+    which = family in ("temperature","composition") ? "scalar" : "vector"
     return path, family, which, opts
 end
 
@@ -155,6 +159,25 @@ function legendre_P_all(x::AbstractVector{<:Real}, Lmax::Int)
     return P  # P[l+1, j] corresponds to P_l(x[j])
 end
 
+# Compute associated Legendre P_l^1(x) for l=0..Lmax via recurrence with Condon-Shortley phase.
+function legendre_P1_all(x::AbstractVector{<:Real}, Lmax::Int)
+    nx = length(x)
+    P1 = Array{Float64}(undef, Lmax+1, nx)
+    @inbounds for j in 1:nx
+        P1[1,j] = 0.0                 # l=0, m=1 -> 0
+        if Lmax >= 1
+            P1[2,j] = -sqrt(max(0.0, 1 - x[j]^2))  # l=1, m=1: -sqrt(1-x^2)
+        end
+    end
+    @inbounds for l in 2:Lmax
+        for j in 1:nx
+            # Recurrence: P_l^1 = (2l-1) x P_{l-1}^1 - (l-1) P_{l-2}^1
+            P1[l+1, j] = (2l - 1) * x[j] * P1[l, j] - (l - 1) * P1[l-1, j]
+        end
+    end
+    return P1  # P1[l+1, j] corresponds to P_l^1(x[j])
+end
+
 function synthesize_m0(theta::AbstractVector, lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
                        coeffs::AbstractMatrix; normalize::Bool=true)
     # coeffs is (nlm, nr) for either toroidal or poloidal real-part (complex OK but imag ~ 0 for m=0)
@@ -178,6 +201,85 @@ function synthesize_m0(theta::AbstractVector, lvals::AbstractVector{<:Integer}, 
                 F[t, j] += norm(l) * Pl[t] * c
             end
         end
+    end
+    return F
+end
+
+function synthesize_vector_m0(theta::AbstractVector, r::AbstractVector,
+                               lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
+                               pol_coeffs::AbstractMatrix, tor_coeffs::AbstractMatrix;
+                               component::Symbol=:ur, normalize::Bool=true)
+    # coeff matrices are (nlm, nr) real parts; component ∈ (:ur, :utheta, :uphi)
+    idxs = findall(==(0), mvals)
+    isempty(idxs) && error("No m=0 coefficients found for vector synthesis")
+    Lmax = maximum(lvals[idxs])
+    x = cos.(theta)
+    P = legendre_P_all(x, Lmax)
+    P1 = legendre_P1_all(x, Lmax)
+    norm = normalize ? (l -> sqrt((2l+1)/(4π))) : (l -> 1.0)
+    nθ = length(theta)
+    nr = size(pol_coeffs, 2)
+    F = zeros(Float64, nθ, nr)
+    # Precompute 1/r and 1/r^2, and d(r*P_l0)/dr
+    invr = 1.0 ./ r
+    invr2 = invr .^ 2
+    # Compute d(r pol)/dr per (l index, r): numeric diff
+    function dr_of_rP(row::AbstractVector, r::AbstractVector)
+        nr = length(r)
+        out = similar(row)
+        out[1] = (r[2]*row[2] - r[1]*row[1]) / (r[2]-r[1])
+        @inbounds for k in 2:(nr-1)
+            out[k] = (r[k+1]*row[k+1] - r[k-1]*row[k-1]) / (r[k+1]-r[k-1])
+        end
+        out[end] = (r[end]*row[end] - r[end-1]*row[end-1]) / (r[end]-r[end-1])
+        return out
+    end
+    if component == :ur
+        @inbounds for (k, i) in enumerate(idxs)
+            l = lvals[i]
+            Yl = view(P, l+1, :)
+            Nl = norm(l)
+            for j in 1:nr
+                cP = pol_coeffs[i, j]
+                s = Nl * l*(l+1) * invr2[j] * cP
+                @simd for t in 1:nθ
+                    F[t, j] += s * Yl[t]
+                end
+            end
+        end
+    elseif component == :utheta
+        # need d(rP)/dr and dY/dθ = Nl * P_l^1(cosθ)
+        d_rP = Array{Float64}(undef, length(idxs), nr)
+        for (k, i) in enumerate(idxs)
+            d_rP[k, :] = dr_of_rP(view(pol_coeffs, i, :), r)
+        end
+        @inbounds for (k, i) in enumerate(idxs)
+            l = lvals[i]
+            dY = view(P1, l+1, :)
+            Nl = norm(l)
+            for j in 1:nr
+                s = Nl * invr[j] * d_rP[k, j]
+                @simd for t in 1:nθ
+                    F[t, j] += s * dY[t]
+                end
+            end
+        end
+    elseif component == :uphi
+        # depends only on toroidal, via - (1/r) ∂Y/∂θ = - (1/r) Nl P_l^1
+        @inbounds for (k, i) in enumerate(idxs)
+            l = lvals[i]
+            dY = view(P1, l+1, :)
+            Nl = norm(l)
+            for j in 1:nr
+                cT = tor_coeffs[i, j]
+                s = -Nl * invr[j] * cT
+                @simd for t in 1:nθ
+                    F[t, j] += s * dY[t]
+                end
+            end
+        end
+    else
+        error("Unknown vector component $(component)")
     end
     return F
 end
@@ -235,26 +337,14 @@ function main()
     end
 
     if data.mode == :vector
-        # Use real parts (m=0 should be real for real-valued fields)
-        Tm0 = synthesize_m0(data.theta, data.l, data.m, data.tor_real; normalize=!opts.nonorm)
-        Pm0 = synthesize_m0(data.theta, data.l, data.m, data.pol_real; normalize=!opts.nonorm)
-        if which == "both"
-            fig = Figure(resolution=(1200, 650))
-            plot_hm(fig[1,1], Tm0, "toroidal")
-            plot_hm(fig[1,2], Pm0, "poloidal")
-            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta_both.png"
-            save(outpng, fig); @info "Saved" outpng; display(fig)
-        elseif which == "toroidal"
-            fig = Figure(resolution=(900, 650))
-            plot_hm(fig[1,1], Tm0, "toroidal")
-            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_toroidal_m0_rtheta.png"
-            save(outpng, fig); @info "Saved" outpng; display(fig)
-        else
-            fig = Figure(resolution=(900, 650))
-            plot_hm(fig[1,1], Pm0, "poloidal")
-            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_poloidal_m0_rtheta.png"
-            save(outpng, fig); @info "Saved" outpng; display(fig)
-        end
+        V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
+                                 data.pol_real, data.tor_real;
+                                 component=opts.veccomp, normalize=!opts.nonorm)
+        fig = Figure(resolution=(900, 650))
+        compname = String(opts.veccomp)
+        plot_hm(fig[1,1], V, compname)
+        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_$(compname)_m0_rtheta.png"
+        save(outpng, fig); @info "Saved" outpng; display(fig)
     elseif data.mode == :scalar
         Sm0 = synthesize_m0(data.theta, data.l, data.m, data.sca_real; normalize=!opts.nonorm)
         fig = Figure(resolution=(900, 650))
