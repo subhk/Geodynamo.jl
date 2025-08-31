@@ -20,6 +20,7 @@
 #   julia --project examples/energy_spectra.jl out.nc temperature --integrate --out temp_integrated.csv
 #
 using NCDatasets
+using JLD2
 const HAVE_SHTNSKIT = try
     @eval using SHTnsKit
     true
@@ -123,6 +124,21 @@ function read_spectral(path::AbstractString, family::String)
     end
 end
 
+function assemble_torpol_coeffs_matrix(l::Vector{Int}, m::Vector{Int},
+                                       T_real::AbstractMatrix, T_imag::AbstractMatrix,
+                                       P_real::AbstractMatrix, P_imag::AbstractMatrix,
+                                       r_idx::Int)
+    lmax = maximum(l); mmax = maximum(m)
+    Tor = zeros(ComplexF64, lmax+1, mmax+1)
+    Pol = zeros(ComplexF64, lmax+1, mmax+1)
+    @inbounds for i in eachindex(l)
+        ell = l[i]; mm = m[i]
+        Tor[ell+1, mm+1] = complex(T_real[i, r_idx], T_imag[i, r_idx])
+        Pol[ell+1, mm+1] = complex(P_real[i, r_idx], P_imag[i, r_idx])
+    end
+    return Tor, Pol
+end
+
 function assemble_scalar_coeffs_matrix(l::Vector{Int}, m::Vector{Int},
                                        A_real::AbstractMatrix, A_imag::AbstractMatrix,
                                        r_idx::Int)
@@ -172,11 +188,35 @@ function spectra_vector_at_r(l::Vector{Int}, m::Vector{Int},
                              T_real::AbstractMatrix, T_imag::AbstractMatrix,
                              P_real::AbstractMatrix, P_imag::AbstractMatrix,
                              rvals::AbstractVector, r_idx::Int)
+    # Prefer SHTnsKit if a vector energy helper is available
+    if HAVE_SHTNSKIT && (isdefined(SHTnsKit, :energy_vector_l_spectrum) || isdefined(SHTnsKit, :energy_torpol_l_spectrum))
+        Tor, Pol = assemble_torpol_coeffs_matrix(l, m, T_real, T_imag, P_real, P_imag, r_idx)
+        # Try common candidate function names/signatures
+        try
+            if isdefined(SHTnsKit, :energy_vector_l_spectrum)
+                El = try
+                    SHTnsKit.energy_vector_l_spectrum(Tor, Pol, rvals[r_idx])
+                catch
+                    SHTnsKit.energy_vector_l_spectrum(Tor, Pol)
+                end
+                return 0.5 .* Vector{Float64}(El)
+            else
+                El = try
+                    SHTnsKit.energy_torpol_l_spectrum(Pol, Tor, rvals[r_idx])
+                catch
+                    SHTnsKit.energy_torpol_l_spectrum(Pol, Tor)
+                end
+                return 0.5 .* Vector{Float64}(El)
+            end
+        catch
+            # fall back to analytic expression below
+        end
+    end
+    # Fallback: analytic tor/pol identity (orthonormal Ylm)
     lmax = maximum(l)
     E = zeros(Float64, lmax+1)
     r = rvals[r_idx]
     nr = length(rvals)
-    # finite differences for d(rP)/dr at r_idx per (l,m)
     function dr_of_rP_row(row::AbstractVector, rvals)
         if r_idx == 1
             return (rvals[2]*row[2] - rvals[1]*row[1]) / (rvals[2]-rvals[1])
@@ -188,13 +228,10 @@ function spectra_vector_at_r(l::Vector{Int}, m::Vector{Int},
     end
     rinv2 = 1.0 / (r*r)
     for (i, ell) in enumerate(l)
-        # complex magnitudes
         Tre = T_real[i, r_idx]; Tim = T_imag[i, r_idx]
         Pre = P_real[i, r_idx]; Pim = P_imag[i, r_idx]
-        # |T|^2 and |P|^2
         absT2 = Tre*Tre + Tim*Tim
         absP2 = Pre*Pre + Pim*Pim
-        # real-valued d(rP)/dr using real part only; include imag as well
         d_rP_re = dr_of_rP_row(view(P_real, i, :), rvals)
         d_rP_im = dr_of_rP_row(view(P_imag, i, :), rvals)
         abs_d_rP2 = d_rP_re*d_rP_re + d_rP_im*d_rP_im
@@ -203,12 +240,28 @@ function spectra_vector_at_r(l::Vector{Int}, m::Vector{Int},
     return E
 end
 
-function maybe_write_csv(outpath::Union{Nothing,String}, l::Vector{Int}, E::Vector{Float64})
+function maybe_write_output(outpath::Union{Nothing,String}; kwargs...)
     outpath === nothing && return
-    open(outpath, "w") do io
-        println(io, "l,E_l")
-        for ell in 0:maximum(l)
-            println(io, "$(ell),$(E[ell+1])")
+    if endswith(lowercase(outpath), ".jld2")
+        jldsave(outpath; kwargs...)
+    else
+        # CSV fallback for backward-compat
+        if haskey(kwargs, :l) && haskey(kwargs, :E_l)
+            l = kwargs[:l]; E = kwargs[:E_l]
+            open(outpath, "w") do io
+                println(io, "l,E_l")
+                for ell in l
+                    println(io, "$(ell),$(E[ell+1])")
+                end
+            end
+        elseif haskey(kwargs, :m) && haskey(kwargs, :E_m)
+            m = kwargs[:m]; E = kwargs[:E_m]
+            open(outpath, "w") do io
+                println(io, "m,E_m")
+                for mm in m
+                    println(io, "$(mm),$(E[mm+1])")
+                end
+            end
         end
     end
 end
@@ -225,7 +278,7 @@ function main()
                 for j in eachindex(rvals)
                     Esum .+= spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, j)
                 end
-                maybe_write_csv(opts.out, l, Esum)
+                maybe_write_output(opts.out; axis="l", integrated=true, family=family, l=collect(0:maximum(l)), E_l=Esum)
                 top = opts.top === nothing ? 0 : opts.top
                 println("l, E_l (integrated over r)")
                 for ell in 0:maximum(l)
@@ -239,6 +292,7 @@ function main()
                 for j in eachindex(rvals)
                     Esum_m .+= spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, j)
                 end
+                maybe_write_output(opts.out; axis="m", integrated=true, family=family, m=collect(0:mmax), E_m=Esum_m)
                 # Print m-spectrum
                 println("m, E_m (integrated over r)")
                 for mm in 0:mmax
@@ -252,7 +306,7 @@ function main()
             for j in eachindex(rvals)
                 Esum .+= spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, j)
             end
-            maybe_write_csv(opts.out, l, Esum)
+            maybe_write_output(opts.out; axis="l", integrated=true, family=family, l=collect(0:maximum(l)), E_l=Esum)
             top = opts.top === nothing ? 0 : opts.top
             println("l, E_l (integrated over r)")
             for ell in 0:maximum(l)
@@ -268,7 +322,7 @@ function main()
         if opts.axis == :l
             E = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
             println("Scalar l-spectrum at r=$(rvals[r_idx])")
-            maybe_write_csv(opts.out, l, E)
+            maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=collect(0:maximum(l)), E_l=E)
             top = opts.top === nothing ? 0 : opts.top
             println("l, E_l")
             for ell in 0:maximum(l)
@@ -279,6 +333,7 @@ function main()
             Em = spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
             mmax = length(Em)-1
             println("Scalar m-spectrum at r=$(rvals[r_idx])")
+            maybe_write_output(opts.out; axis="m", integrated=false, family=family, radius=rvals[r_idx], m=collect(0:mmax), E_m=Em)
             println("m, E_m")
             for mm in 0:mmax
                 println("$(mm), $(Em[mm+1])")
@@ -288,7 +343,7 @@ function main()
     else
         E = spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, r_idx)
         println("Vector spectra at r=$(rvals[r_idx])")
-        maybe_write_csv(opts.out, l, E)
+        maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=collect(0:maximum(l)), E_l=E)
         top = opts.top === nothing ? 0 : opts.top
         println("l, E_l")
         for ell in 0:maximum(l)
