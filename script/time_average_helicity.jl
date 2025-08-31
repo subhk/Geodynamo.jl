@@ -23,6 +23,8 @@ using Printf
 using NetCDF
 using JLD2
 using SHTnsKit
+using Geodynamo
+using MPI
 
 function usage()
     println("Usage: time_average_helicity.jl <output_dir> --start=<t0> --end=<t1> [--prefix=name] [--out=path.jld2]")
