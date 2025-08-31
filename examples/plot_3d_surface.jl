@@ -1,29 +1,93 @@
 #!/usr/bin/env julia
 
-# 3D surface rendering of a spherical field using GLMakie.
+# 3D surface rendering of a spherical field using Makie (GLMakie or CairoMakie).
 #
 # - Reads `temperature[theta,phi,r]` from a NetCDF output produced by this repo
 # - Builds a spherical mesh at a chosen radius and colors by the scalar field
 # - Saves a PNG or opens an interactive window depending on backend
 #
 # Usage examples:
+#   # Temperature outer surface
 #   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature outer
-#   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature 10    # r-index
-#   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature 0.95  # r-value (nearest)
+#   # Composition at r-index 10
+#   julia --project examples/plot_3d_surface.jl path/to/output.nc composition 10
+#   # Any variable at nearest r-value 0.95
+#   julia --project examples/plot_3d_surface.jl path/to/output.nc myvar 0.95
+#   # Inner and outer surfaces side-by-side in one figure
+#   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature both
+#   # Overlay mode (both surfaces in one axis with transparency)
+#   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature both --overlay --alpha 0.6
+#   # Custom colormap and fixed color limits
+#   julia --project examples/plot_3d_surface.jl path/to/output.nc temperature outer --cmap magma --clim 200 350
+#   # Animate across a directory of NetCDF files (sorted by time)
+#   julia --project examples/plot_3d_surface.jl path/to/dir temperature outer --animate --out movie.mp4 --fps 20
 #
 # Notes:
 # - Requires GLMakie (or CairoMakie for headless PNG). Install with:
-#     import Pkg; Pkg.add(["GLMakie"])   # or Pkg.add("CairoMakie")
+#     import Pkg; Pkg.add("GLMakie")   # or Pkg.add("CairoMakie")
 # - Uses existing dependency NCDatasets to read NetCDF files.
 
 using NCDatasets
+import Dates
 
 function parse_args()
     # Defaults: try to find a file in CWD; plot temperature; use outer radius
     path = get(ARGS, 1, "")
     varname = get(ARGS, 2, "temperature")
-    rsel = get(ARGS, 3, "outer")  # "outer" | "inner" | Int index | Float radius
+    rsel = get(ARGS, 3, "outer")  # "outer" | "inner" | "both" | Int index | Float radius
     return path, varname, rsel
+end
+
+mutable struct PlotOpts
+    overlay::Bool
+    cmap::Union{Nothing,Symbol}
+    clim::Union{Nothing,Tuple{Float64,Float64}}
+    alpha::Float64
+    animate::Bool
+    dir::Union{Nothing,String}
+    outpath::Union{Nothing,String}
+    fps::Int
+end
+
+function default_opts()
+    return PlotOpts(false, nothing, nothing, 0.6, false, nothing, nothing, 20)
+end
+
+function parse_flags!(opts::PlotOpts, extras::Vector{String})
+    i = 1
+    while i <= length(extras)
+        arg = extras[i]
+        if arg == "--overlay"
+            opts.overlay = true
+            i += 1
+        elseif arg == "--cmap" && i+1 <= length(extras)
+            opts.cmap = Symbol(extras[i+1])
+            i += 2
+        elseif arg == "--clim" && i+2 <= length(extras)
+            vmin = parse(Float64, extras[i+1])
+            vmax = parse(Float64, extras[i+2])
+            opts.clim = (vmin, vmax)
+            i += 3
+        elseif arg == "--alpha" && i+1 <= length(extras)
+            opts.alpha = parse(Float64, extras[i+1])
+            i += 2
+        elseif arg == "--animate"
+            opts.animate = true
+            i += 1
+        elseif arg == "--dir" && i+1 <= length(extras)
+            opts.dir = extras[i+1]
+            i += 2
+        elseif arg == "--out" && i+1 <= length(extras)
+            opts.outpath = extras[i+1]
+            i += 2
+        elseif arg == "--fps" && i+1 <= length(extras)
+            opts.fps = parse(Int, extras[i+1])
+            i += 2
+        else
+            error("Unknown or malformed option '$arg'. Supported: --overlay --cmap NAME --clim MIN MAX --alpha A --animate --dir DIR --out PATH --fps N")
+        end
+    end
+    return opts
 end
 
 function pick_radius_index(rvals::AbstractVector{<:Real}, rsel)
@@ -33,6 +97,8 @@ function pick_radius_index(rvals::AbstractVector{<:Real}, rsel)
             return length(rvals)
         elseif s == "inner"
             return 1
+        elseif s == "both"
+            return (1, length(rvals))
         else
             # try parse number
             try
@@ -76,45 +142,14 @@ function read_field(path::AbstractString, varname::AbstractString)
     end
 end
 
-function build_sphere_mesh(theta::AbstractVector, phi::AbstractVector, r::Real)
-    # Returns (points::Vector{Point3f}, faces::Matrix{Int}) for Makie.mesh
-    # Grid is theta in [0,π], phi in [0,2π)
-    nθ = length(theta)
-    nφ = length(phi)
-    # Precompute sin/cos
-    sθ = sin.(theta)
-    cθ = cos.(theta)
-    sφ = sin.(phi)
-    cφ = cos.(phi)
-
-    # Vertices
-    # index(i,j) -> linear index with j varying fastest
-    idx = (i,j) -> (i-1)*nφ + j
-    points = Vector{Point3f}()
-    sizehint!(points, nθ*nφ)
-    for i in 1:nθ, j in 1:nφ
-        x = r * sθ[i] * cφ[j]
-        y = r * sθ[i] * sφ[j]
-        z = r * cθ[i]
-        push!(points, Point3f(x, y, z))
-    end
-
-    # Faces (two triangles per grid cell), wrap in phi
-    faces = Vector{NTuple{3, Int}}()
-    sizehint!(faces, 2*(nθ-1)*nφ)
-    for i in 1:(nθ-1)
-        for j in 1:nφ
-            jn = (j % nφ) + 1
-            v1 = idx(i, j)
-            v2 = idx(i, jn)
-            v3 = idx(i+1, j)
-            v4 = idx(i+1, jn)
-            # triangles (v1,v2,v3) and (v2,v4,v3)
-            push!(faces, (v1, v2, v3))
-            push!(faces, (v2, v4, v3))
-        end
-    end
-    return points, faces
+function sphere_surface_coords(theta::AbstractVector, phi::AbstractVector, r::Real)
+    # Build X,Y,Z matrices (nθ×nφ) for Makie.surface from spherical parameters
+    sθ = sin.(theta); cθ = cos.(theta)
+    sφ = sin.(phi);   cφ = cos.(phi)
+    X = [r * sθ[i] * cφ[j] for i in eachindex(theta), j in eachindex(phi)]
+    Y = [r * sθ[i] * sφ[j] for i in eachindex(theta), j in eachindex(phi)]
+    Z = [r * cθ[i]        for i in eachindex(theta), j in eachindex(phi)]
+    return X, Y, Z
 end
 
 function field_at_radius(var, r_index::Int)
@@ -141,61 +176,193 @@ function ensure_backend()
     return backend
 end
 
+function time_of_file(path::AbstractString)
+    ds = NCDataset(path)
+    try
+        if haskey(ds, "time")
+            t = ds["time"][:]
+            return length(t) == 1 ? float(t[1]) : float(first(t))
+        elseif haskey(ds.attrib, "current_time")
+            return float(ds.attrib["current_time"])
+        else
+            # Fallback: parse from filename geodynamo_*_time_X.nc (X with p as decimal)
+            m = match(r"_time_([0-9p]+)", basename(path))
+            if m !== nothing
+                s = replace(m.captures[1], 'p' => '.')
+                try
+                    return parse(Float64, s)
+                catch
+                end
+            end
+            return NaN
+        end
+    finally
+        close(ds)
+    end
+end
+
+function list_nc_files_for_animation(dir::AbstractString)
+    isdir(dir) || error("Not a directory: $dir")
+    files = filter(f -> endswith(f, ".nc"), joinpath.(dir, readdir(dir)))
+    # Prefer rank_0000 if present
+    rank0 = filter(f -> occursin("rank_0000", f), files)
+    files = isempty(rank0) ? files : rank0
+    times = [(f, time_of_file(f)) for f in files]
+    # drop NaN times to the end
+    sorted = sort(times; by = x -> isfinite(x[2]) ? x[2] : Inf)
+    return first.(sorted)
+end
+
 function main()
     path, varname, rsel_raw = parse_args()
-    data = read_field(path, varname)
-    r_index = pick_radius_index(data.rvals, rsel_raw)
-    @info "Using radius index" r_index value=data.rvals[r_index]
-
-    Tθφ = field_at_radius(data.var, r_index)
-    size(Tθφ, 1) == length(data.theta) || @warn "theta dimension mismatch; assuming var dims are (theta,phi,r)"
-    size(Tθφ, 2) == length(data.phi)   || @warn "phi dimension mismatch; assuming var dims are (theta,phi,r)"
-
-    points, faces = build_sphere_mesh(data.theta, data.phi, data.rvals[r_index])
-
-    # Flatten colors to match vertex order (i varies slow, j varies fast)
-    colors = vec(Tθφ)
+    opts = parse_flags!(default_opts(), ARGS[4:end])
 
     backend = ensure_backend()
     if backend == :gl
         using GLMakie
-        fig = Figure(resolution=(900, 700))
-        ax = Axis3(fig[1,1], aspect=:data, title="$(varname) at r=$(round(data.rvals[r_index], sigdigits=4))")
-        m = mesh!(ax, points, faces; color=colors, shading=true, colormap=:viridis)
-        Colorbar(fig[1,2], m, label=varname)
-        ax.azimuth[] = 30
-        ax.elevation[] = 20
-        fig
-        display(fig)
-        # Optional: save a PNG next to the NetCDF
-        outpng = replace(basename(path), r"\.nc$" => "") * "_$(varname)_r$(r_index).png"
-        try
-            save(outpng, fig)
-            @info "Saved" outpng
-        catch err
-            @warn "Failed to save PNG" exception=(err, catch_backtrace())
-        end
-        # keep window open in GLMakie if running non-interactively
-        if !isinteractive()
-            wait(display(fig))
-        end
     else
         using CairoMakie
-        fig = Figure(resolution=(900, 700))
-        ax = Axis3(fig[1,1], aspect=:data, title="$(varname) at r=$(round(data.rvals[r_index], sigdigits=4))")
-        m = mesh!(ax, points, faces; color=colors, shading=true, colormap=:viridis)
-        Colorbar(fig[1,2], m, label=varname)
-        ax.azimuth[] = 30
-        ax.elevation[] = 20
-        outpng = replace(basename(path), r"\.nc$" => "") * "_$(varname)_r$(r_index).png"
-        save(outpng, fig)
-        @info "Saved" outpng
     end
 
-    close(data.ds)
+    # Helper to choose colormap and clim
+    function cmargs(arrs...)
+        cm = (;)
+        if opts.cmap !== nothing
+            cm = merge(cm, (; colormap = opts.cmap))
+        end
+        if opts.clim !== nothing
+            cm = merge(cm, (; colorrange = opts.clim))
+        else
+            # If multiple arrays provided, use shared range
+            if length(arrs) > 1
+                vmin = minimum(minimum.(arrs))
+                vmax = maximum(maximum.(arrs))
+                cm = merge(cm, (; colorrange = (vmin, vmax)))
+            end
+        end
+        return cm
+    end
+
+    function render_file_once(ncpath::AbstractString)
+        data = read_field(ncpath, varname)
+        rsel = pick_radius_index(data.rvals, rsel_raw)
+
+        if rsel isa Tuple{Int,Int}
+            r_in, r_out = rsel
+            Tin  = field_at_radius(data.var, r_in)
+            Tout = field_at_radius(data.var, r_out)
+            Xin, Yin, Zin = sphere_surface_coords(data.theta, data.phi, data.rvals[r_in])
+            Xo,  Yo,  Zo  = sphere_surface_coords(data.theta, data.phi, data.rvals[r_out])
+            args = cmargs(Tin, Tout)
+            if opts.overlay
+                fig = Figure(resolution=(900, 700))
+                ax = Axis3(fig[1,1], aspect=:data, title="$(varname) inner+outer")
+                m1 = surface!(ax, Xin, Yin, Zin; color=Tin, shading=true, transparency=true; args...)
+                m2 = surface!(ax, Xo, Yo, Zo;   color=Tout, shading=true, transparency=true; args...)
+                try
+                    m1[:alpha][] = opts.alpha
+                    m2[:alpha][] = opts.alpha
+                catch
+                    @warn "Alpha attribute not supported by backend; overlay may be opaque"
+                end
+                Colorbar(fig[1,2], m2, label=varname)
+                ax.azimuth[] = 30; ax.elevation[] = 20
+                outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_overlay.png"
+                save(outpng, fig); display(fig); @info "Saved" outpng
+                close(data.ds)
+                return fig, ax, (m1, m2), outpng, (:overlay, r_in, r_out, Xin, Yin, Zin, Xo, Yo, Zo)
+            else
+                fig = Figure(resolution=(1200, 600))
+                ax1 = Axis3(fig[1,1], aspect=:data, title="$(varname) inner r=$(round(data.rvals[r_in], sigdigits=4))")
+                m1 = surface!(ax1, Xin, Yin, Zin; color=Tin, shading=true; args...)
+                Colorbar(fig[1,2], m1, label=varname)
+                ax1.azimuth[] = 30; ax1.elevation[] = 20
+                ax2 = Axis3(fig[1,3], aspect=:data, title="$(varname) outer r=$(round(data.rvals[r_out], sigdigits=4))")
+                m2 = surface!(ax2, Xo, Yo, Zo; color=Tout, shading=true; args...)
+                Colorbar(fig[1,4], m2, label=varname)
+                ax2.azimuth[] = 30; ax2.elevation[] = 20
+                outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_both.png"
+                save(outpng, fig); display(fig); @info "Saved" outpng
+                close(data.ds)
+                return fig, (ax1, ax2), (m1, m2), outpng, (:split, r_in, r_out, Xin, Yin, Zin, Xo, Yo, Zo)
+            end
+        else
+            r_index = rsel
+            T = field_at_radius(data.var, r_index)
+            X, Y, Z = sphere_surface_coords(data.theta, data.phi, data.rvals[r_index])
+            args = cmargs(T)
+            fig = Figure(resolution=(900, 700))
+            ax = Axis3(fig[1,1], aspect=:data, title="$(varname) at r=$(round(data.rvals[r_index], sigdigits=4))")
+            m = surface!(ax, X, Y, Z; color=T, shading=true; args...)
+            Colorbar(fig[1,2], m, label=varname)
+            ax.azimuth[] = 30; ax.elevation[] = 20
+            outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_r$(r_index).png"
+            save(outpng, fig); display(fig); @info "Saved" outpng
+            close(data.ds)
+            return fig, ax, m, outpng, (:single, r_index, X, Y, Z)
+        end
+    end
+
+    if opts.animate
+        dir = opts.dir === nothing ? (isdir(path) ? path : dirname(path)) : opts.dir
+        files = list_nc_files_for_animation(dir)
+        isempty(files) && error("No .nc files found in directory: $dir")
+
+        firstfig, axes, plots, _, meta = render_file_once(files[1])
+        outmovie = opts.outpath === nothing ? (backend == :gl ? "movie.mp4" : "movie.gif") : opts.outpath
+        fps = opts.fps
+
+        # Prepare updater closures
+        function update_for(file)
+            data = read_field(file, varname)
+            if meta[1] == :single
+                r_index = meta[2]
+                T = field_at_radius(data.var, r_index)
+                if opts.clim === nothing
+                    plots[:colorrange][] = (minimum(T), maximum(T))
+                end
+                plots[:color][] = T
+            elseif meta[1] == :overlay
+                r_in, r_out = meta[2], meta[3]
+                Tin  = field_at_radius(data.var, r_in)
+                Tout = field_at_radius(data.var, r_out)
+                if opts.clim === nothing
+                    vmin = min(minimum(Tin), minimum(Tout))
+                    vmax = max(maximum(Tin), maximum(Tout))
+                    plots[1][:colorrange][] = (vmin, vmax)
+                    plots[2][:colorrange][] = (vmin, vmax)
+                end
+                plots[1][:color][] = Tin
+                plots[2][:color][] = Tout
+            elseif meta[1] == :split
+                r_in, r_out = meta[2], meta[3]
+                Tin  = field_at_radius(data.var, r_in)
+                Tout = field_at_radius(data.var, r_out)
+                if opts.clim === nothing
+                    vmin = min(minimum(Tin), minimum(Tout))
+                    vmax = max(maximum(Tin), maximum(Tout))
+                    plots[1][:colorrange][] = (vmin, vmax)
+                    plots[2][:colorrange][] = (vmin, vmax)
+                end
+                plots[1][:color][] = Tin
+                plots[2][:color][] = Tout
+            end
+            close(data.ds)
+        end
+
+        # Use Makie's record API
+        record(firstfig, outmovie, files; framerate=fps) do f
+            for file in files
+                update_for(file)
+                recordframe!(f)
+            end
+        end
+        @info "Saved animation" outmovie frames=length(files) fps=fps
+    else
+        render_file_once(path)
+    end
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-
