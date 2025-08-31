@@ -19,6 +19,7 @@
 
 using NCDatasets
 using JLD2
+using Geodynamo
 
 const HAVE_SHTNSKIT = try
     @eval using SHTnsKit
@@ -106,62 +107,48 @@ function synthesize_velocity!(u_r, u_θ, u_φ, sht, theta, phi, rvals, r_idx, l:
     u_r[:, :, r_idx] .= SHTnsKit.synthesis(sht, C; real_output=true)
 end
 
-function curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta, phi)
-    nθ, nφ, nr = size(u_r)
-    # Precompute sin/cos and Δ grids
-    sinθ = sin.(theta); cosθ = cos.(theta)
-    Δφ = nφ > 1 ? (phi[2] - phi[1]) : 2π
-    # Finite differences in r and θ, periodic in φ
-    function d_dθ(A)
-        d = similar(A)
-        for k in 1:nr, j in 2:(nθ-1), i in 1:nφ
-            d[j,i,k] = (A[j+1,i,k] - A[j-1,i,k]) / (theta[j+1]-theta[j-1])
+"""
+Synthesize velocity and vorticity using Geodynamo/SHTnsKit (spectral vorticity), avoiding finite differences.
+Returns (u_r,u_θ,u_φ, ω_r,ω_θ,ω_φ) on the θ–φ–r grid in the NetCDF file.
+"""
+function synthesize_vel_and_vort_from_nc(ncpath::AbstractString)
+    ds = NCDataset(ncpath)
+    try
+        θ = vec(ds["theta"][:]); φ = vec(ds["phi"][:]); r = vec(ds["r"][:])
+        lvals = vec(ds["l_values"][:]); mvals = vec(ds["m_values"][:])
+        vtor_r = Array(ds["velocity_toroidal_real"][:]); vtor_i = Array(ds["velocity_toroidal_imag"][:])
+        vpol_r = Array(ds["velocity_poloidal_real"][:]); vpol_i = Array(ds["velocity_poloidal_imag"][:])
+        lmax = maximum(lvals); mmax = maximum(mvals)
+        nlat = length(θ); nlon = length(φ); nr = length(r)
+        gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+        pencils_nt = Geodynamo.create_pencil_topology(gcfg)
+        pencils = (pencils_nt.θ, pencils_nt.φ, pencils_nt.r)
+        pencil_spec = pencils_nt.spec
+        domain = Geodynamo.create_radial_domain(nr)
+        fields = Geodynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
+        # Load spectral coefficients (single-rank layout)
+        spec_tor_r = parent(fields.toroidal.data_real); spec_tor_i = parent(fields.toroidal.data_imag)
+        spec_pol_r = parent(fields.poloidal.data_real); spec_pol_i = parent(fields.poloidal.data_imag)
+        nlm_local = min(size(spec_tor_r,1), size(vtor_r,1))
+        for i2 in 1:nlm_local, k2 in 1:nr
+            spec_tor_r[i2,1,k2] = Float64(vtor_r[i2,k2])
+            spec_tor_i[i2,1,k2] = Float64(vtor_i[i2,k2])
+            spec_pol_r[i2,1,k2] = Float64(vpol_r[i2,k2])
+            spec_pol_i[i2,1,k2] = Float64(vpol_i[i2,k2])
         end
-        d[1, :, :] .= (A[2,:,:] .- A[1,:,:]) ./ (theta[2]-theta[1])
-        d[end, :, :] .= (A[end,:,:] .- A[end-1,:,:]) ./ (theta[end]-theta[end-1])
-        d
-    end
-    function d_dφ(A)
-        d = similar(A)
-        for k in 1:nr, j in 1:nθ
-            @inbounds for i in 1:nφ
-                ip = (i % nφ) + 1; im = (i-2) % nφ + 1
-                d[j,i,k] = (A[j,ip,k] - A[j,im,k]) / (2*Δφ)
-            end
-        end
-        d
-    end
-    function d_dr(A)
-        d = similar(A)
-        for j in 1:nθ, i in 1:nφ
-            d[j,i,1] = (A[j,i,2] - A[j,i,1])/(rvals[2]-rvals[1])
-            for k in 2:(nr-1)
-                d[j,i,k] = (A[j,i,k+1] - A[j,i,k-1])/(rvals[k+1]-rvals[k-1])
-            end
-            d[j,i,nr] = (A[j,i,nr] - A[j,i,nr-1])/(rvals[nr]-rvals[nr-1])
-        end
-        d
-    end
-    # Needed combinations
-    d_sin_uφ_dθ = d_dθ(sinθ .* u_φ)
-    du_θ_dφ = d_dφ(u_θ)
-    du_r_dφ = d_dφ(u_r)
-    d_ruθ_dr = d_dr(rvals' .* u_θ)
-    d_ruφ_dr = d_dr(rvals' .* u_φ)
-    du_r_dθ = d_dθ(u_r)
-    # Curl formulas in spherical (r,θ,φ)
-    # ω_r = 1/(r sinθ) [ ∂(sinθ u_φ)/∂θ - ∂u_θ/∂φ ]
-    for k in 1:nr, j in 1:nθ, i in 1:nφ
-        denom = rvals[k]*sinθ[j]
-        ω_r[j,i,k] = (d_sin_uφ_dθ[j,i,k] - du_θ_dφ[j,i,k]) / denom
-    end
-    # ω_θ = 1/r [ (1/sinθ) ∂u_r/∂φ - ∂(r u_φ)/∂r ]
-    for k in 1:nr, j in 1:nθ, i in 1:nφ
-        ω_θ[j,i,k] = ( (1/sinθ[j]) * du_r_dφ[j,i,k] - d_ruφ_dr[j,i,k] ) / rvals[k]
-    end
-    # ω_φ = 1/r [ ∂(r u_θ)/∂r - ∂u_r/∂θ ]
-    for k in 1:nr, j in 1:nθ, i in 1:nφ
-        ω_φ[j,i,k] = ( d_ruθ_dr[j,i,k] - du_r_dθ[j,i,k] ) / rvals[k]
+        # Spectral vorticity, then synthesize both vector fields
+        Geodynamo.compute_vorticity_spectral_full!(fields, domain)
+        Geodynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+        Geodynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+        u_r = parent(fields.velocity.r_component.data)
+        u_θ = parent(fields.velocity.θ_component.data)
+        u_φ = parent(fields.velocity.φ_component.data)
+        ω_r = parent(fields.vorticity.r_component.data)
+        ω_θ = parent(fields.vorticity.θ_component.data)
+        ω_φ = parent(fields.vorticity.φ_component.data)
+        return θ, φ, r, u_r, u_θ, u_φ, ω_r, ω_θ, ω_φ
+    finally
+        close(ds)
     end
 end
 
@@ -189,20 +176,10 @@ function main()
     cnt_neg = zeros(Int, nθ, nφ, nr)
 
     for (path, t) in files_times
-        ds = NCDataset(path)
         try
-            # Allocate velocity fields for this timestep
-            u_r = zeros(Float64, nθ, nφ, nr)
-            u_θ = similar(u_r); u_φ = similar(u_r)
-            # Synthesize per radius to limit memory
-            for k in 1:nr
-                l, m, Tor, Pol = coeffs_at_r(ds, k)
-                synthesize_velocity!(u_r, u_θ, u_φ, sht, theta, phi, rvals, k, l, Pol, Tor)
-            end
-            # Curl
-            ω_r = zeros(Float64, nθ, nφ, nr)
-            ω_θ = similar(ω_r); ω_φ = similar(ω_r)
-            curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta, phi)
+            # Use spectral vorticity pipeline consistent with time_average_helicity.jl
+            θf, φf, rf, u_r, u_θ, u_φ, ω_r, ω_θ, ω_φ = synthesize_vel_and_vort_from_nc(path)
+            @assert length(θf)==nθ && length(φf)==nφ && length(rf)==nr
             # z-components and z-helicity
             cosθ = cos.(theta); sinθ = sin.(theta)
             # Broadcast over phi,r dims via reshape
@@ -217,8 +194,6 @@ function main()
             sum_neg .+= h .* negmask
             cnt_pos .+= posmask
             cnt_neg .+= negmask
-        finally
-            close(ds)
         end
     end
 
