@@ -27,9 +27,9 @@
 #   # Show both toroidal and poloidal (two subplots)
 #   julia --project examples/plot_m0_from_torpol.jl out.nc velocity both --cmap balance
 #   # Scalars: temperature m=0 from spectral coeffs (or fall back to phi-average)
-#   julia --project examples/plot_m0_from_torpol.jl out.nc temperature
+#   julia --project examples/plot_m0_from_torpol.jl out.nc temperature --backend shtns
 #   # Scalars: composition m=0
-#   julia --project examples/plot_m0_from_torpol.jl out.nc composition --cmap magma
+#   julia --project examples/plot_m0_from_torpol.jl out.nc composition --backend analytic --cmap magma
 #   # Disable Ylm normalization (use raw P_l):
 #   julia --project examples/plot_m0_from_torpol.jl out.nc velocity toroidal --no-norm
 
@@ -41,9 +41,10 @@ mutable struct Opts
     degrees::Bool
     nonorm::Bool
     veccomp::Union{Nothing,Symbol}  # :ur | :utheta | :uphi for vectors
+    backend::Symbol                 # :shtns or :analytic for vector synthesis
 end
 
-Opts() = Opts(nothing, nothing, true, false, :ur)
+Opts() = Opts(nothing, nothing, true, false, :ur, :shtns)
 
 function parse_args()
     path = get(ARGS, 1, "")
@@ -70,6 +71,10 @@ function parse_args()
             v = lowercase(extras[i+1])
             v ∈ ("ur","utheta","uphi") || error("--vec must be one of ur|utheta|uphi")
             opts.veccomp = Symbol(v); i += 2
+        elseif a == "--backend" && i+1 <= length(extras)
+            b = lowercase(extras[i+1])
+            b ∈ ("shtns","analytic") || error("--backend must be shtns|analytic")
+            opts.backend = Symbol(b); i += 2
         else
             error("Unknown/malformed option '$a'. Supported: --cmap NAME --clim MIN MAX --degrees|--radians --no-norm")
         end
@@ -100,11 +105,13 @@ function read_spectral(path::AbstractString, family::String)
     ds = NCDataset(path)
     try
         haskey(ds, "theta") || error("theta not found")
+        haskey(ds, "phi") || error("phi not found")
         haskey(ds, "r") || error("r not found")
         haskey(ds, "l_values") || error("l_values not found (spectral metadata)")
         haskey(ds, "m_values") || error("m_values not found (spectral metadata)")
         theta = vec(ds["theta"][:])
         rvals = vec(ds["r"][:])
+        phi   = vec(ds["phi"][:])
         lvals = vec(ds["l_values"][:])
         mvals = vec(ds["m_values"][:])
         if family in ("velocity","magnetic")
@@ -120,7 +127,7 @@ function read_spectral(path::AbstractString, family::String)
             pol_imag = Array(ds[pol_i][:])
             size(tor_real,1) == length(lvals) || @warn "nlm mismatch for toroidal"
             size(pol_real,1) == length(lvals) || @warn "nlm mismatch for poloidal"
-            return (mode=:vector, theta=theta, r=rvals, l=lvals, m=mvals,
+            return (mode=:vector, theta=theta, phi=phi, r=rvals, l=lvals, m=mvals,
                     tor_real=tor_real, tor_imag=tor_imag,
                     pol_real=pol_real, pol_imag=pol_imag, ds=ds)
         else
@@ -131,7 +138,7 @@ function read_spectral(path::AbstractString, family::String)
             sca_real = Array(ds[sca_r][:])
             sca_imag = Array(ds[sca_i][:])
             size(sca_real,1) == length(lvals) || @warn "nlm mismatch for scalar"
-            return (mode=:scalar, theta=theta, r=rvals, l=lvals, m=mvals,
+            return (mode=:scalar, theta=theta, phi=phi, r=rvals, l=lvals, m=mvals,
                     sca_real=sca_real, sca_imag=sca_imag, ds=ds)
         end
     catch
@@ -284,6 +291,62 @@ function synthesize_vector_m0(theta::AbstractVector, r::AbstractVector,
     return F
 end
 
+# SHTnsKit-based synthesis for tangential components (uθ, uφ) using only m=0 modes.
+function shtns_vector_m0_tangential(theta::AbstractVector, phi::AbstractVector,
+                                    lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
+                                    pol_real::AbstractMatrix, pol_imag::AbstractMatrix,
+                                    tor_real::AbstractMatrix, tor_imag::AbstractMatrix)
+    @eval using SHTnsKit
+    nlat = length(theta); nlon = length(phi); nr = size(pol_real, 2)
+    lmax = maximum(lvals); mmax = maximum(mvals)
+    # Build SHTnsKit config with orthonormal norm to match our Y_lm
+    sht = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
+    SHTnsKit.prepare_plm_tables!(sht)
+    # Precompute indices for m=0
+    idxs = findall(==(0), mvals)
+    # Prepare outputs
+    uθ_m0 = zeros(Float64, nlat, nr)
+    uφ_m0 = zeros(Float64, nlat, nr)
+    for j in 1:nr
+        # Build coeff matrices (l+1, m+1) with only m=0 filled
+        Pol = zeros(ComplexF64, lmax+1, mmax+1)
+        Tor = zeros(ComplexF64, lmax+1, mmax+1)
+        @inbounds for i in idxs
+            l = lvals[i]
+            Pol[l+1, 1] = complex(pol_real[i, j], pol_imag[i, j])
+            Tor[l+1, 1] = complex(tor_real[i, j], tor_imag[i, j])
+        end
+        vt, vp = SHTnsKit.SHsphtor_to_spat(sht, Pol, Tor; real_output=true)
+        # Average over phi to get m=0 slice (should be phi-independent already)
+        uθ_m0[:, j] .= sum(vt; dims=2)[:,1] ./ nlon
+        uφ_m0[:, j] .= sum(vp; dims=2)[:,1] ./ nlon
+    end
+    return uθ_m0, uφ_m0
+end
+
+# SHTnsKit-based synthesis for scalar m=0 using only m=0 modes.
+function shtns_scalar_m0(theta::AbstractVector, phi::AbstractVector,
+                         lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
+                         sca_real::AbstractMatrix, sca_imag::AbstractMatrix)
+    @eval using SHTnsKit
+    nlat = length(theta); nlon = length(phi); nr = size(sca_real, 2)
+    lmax = maximum(lvals); mmax = maximum(mvals)
+    sht = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
+    SHTnsKit.prepare_plm_tables!(sht)
+    idxs = findall(==(0), mvals)
+    m0 = zeros(Float64, nlat, nr)
+    for j in 1:nr
+        C = zeros(ComplexF64, lmax+1, mmax+1)
+        @inbounds for i in idxs
+            l = lvals[i]
+            C[l+1, 1] = complex(sca_real[i, j], sca_imag[i, j])
+        end
+        fθφ = SHTnsKit.synthesis(sht, C; real_output=true)
+        m0[:, j] .= sum(fθφ; dims=2)[:,1] ./ nlon
+    end
+    return m0
+end
+
 function main()
     path, family, which, opts = parse_args()
     # Try spectral path first; fall back to physical scalars for temperature/composition
@@ -337,16 +400,40 @@ function main()
     end
 
     if data.mode == :vector
-        V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
-                                 data.pol_real, data.tor_real;
-                                 component=opts.veccomp, normalize=!opts.nonorm)
+        V = nothing
+        if opts.veccomp == :ur
+            V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
+                                     data.pol_real, data.tor_real;
+                                     component=:ur, normalize=!opts.nonorm)
+        else
+            if opts.backend == :shtns
+                # Need phi grid for averaging; try to read from file (optional)
+                dsphi = try
+                    NCDataset(path)
+                catch
+                    nothing
+                end
+                phi = dsphi === nothing ? range(0, stop=2pi, length= max(4, 2*maximum(data.l)+1)+1)[1:end-1] |> collect : vec(dsphi["phi"][:])
+                if dsphi !== nothing; close(dsphi); end
+                uθ_m0, uφ_m0 = shtns_vector_m0_tangential(data.theta, phi, data.l, data.m,
+                                                          data.pol_real, data.pol_imag,
+                                                          data.tor_real, data.tor_imag)
+                V = opts.veccomp == :utheta ? uθ_m0 : uφ_m0
+            else
+                V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
+                                         data.pol_real, data.tor_real;
+                                         component=opts.veccomp, normalize=!opts.nonorm)
+            end
+        end
         fig = Figure(resolution=(900, 650))
         compname = String(opts.veccomp)
         plot_hm(fig[1,1], V, compname)
         outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_$(compname)_m0_rtheta.png"
         save(outpng, fig); @info "Saved" outpng; display(fig)
     elseif data.mode == :scalar
-        Sm0 = synthesize_m0(data.theta, data.l, data.m, data.sca_real; normalize=!opts.nonorm)
+        Sm0 = opts.backend == :shtns ?
+              shtns_scalar_m0(data.theta, data.phi, data.l, data.m, data.sca_real, data.sca_imag) :
+              synthesize_m0(data.theta, data.l, data.m, data.sca_real; normalize=!opts.nonorm)
         fig = Figure(resolution=(900, 650))
         plot_hm(fig[1,1], Sm0, family)
         outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta.png"

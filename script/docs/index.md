@@ -15,15 +15,15 @@ title: Home
 
 ---
 
-## 🌍 About Geodynamo.jl
+## About Geodynamo.jl
 
 Geodynamo.jl is a cutting-edge Julia package for simulating Earth's magnetic field generation through the geodynamo process. It combines the power of efficient spherical harmonic transforms with flexible boundary conditions to enable groundbreaking research in geophysics and planetary science.
 
 ### Key Applications
-- **🌊 Geodynamo modeling** - Simulate magnetic field generation in planetary cores
-- **🌋 Mantle convection** - Study thermal and compositional convection patterns
-- **🪐 Planetary dynamics** - Model magnetic fields in Earth-like and exotic planets
-- **🎓 Education & research** - Interactive simulations for learning and discovery
+- **Geodynamo modeling** - Simulate magnetic field generation in planetary cores
+- **Mantle convection** - Study thermal and compositional convection patterns
+- **Planetary dynamics** - Model magnetic fields in Earth-like and exotic planets
+- **Education & research** - Interactive simulations for learning and discovery
 
 ---
 
