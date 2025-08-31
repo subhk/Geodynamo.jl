@@ -20,15 +20,22 @@
 #   julia --project examples/energy_spectra.jl out.nc temperature --integrate --out temp_integrated.csv
 #
 using NCDatasets
+const HAVE_SHTNSKIT = try
+    @eval using SHTnsKit
+    true
+catch
+    false
+end
 
 mutable struct Opts
     rsel::Union{Nothing,String,Int,Float64}
     integrate::Bool
     out::Union{Nothing,String}
     top::Union{Nothing,Int}
+    axis::Symbol  # :l or :m for scalar spectra
 end
 
-Opts() = Opts("outer", false, nothing, nothing)
+Opts() = Opts("outer", false, nothing, nothing, :l)
 
 function parse_args()
     path = get(ARGS, 1, "")
@@ -61,6 +68,10 @@ function parse_args()
             opts.out = extras[i+1]; i += 2
         elseif a == "--top" && i+1 <= length(extras)
             opts.top = parse(Int, extras[i+1]); i += 2
+        elseif a == "--axis" && i+1 <= length(extras)
+            ax = lowercase(extras[i+1])
+            ax ∈ ("l","m") || error("--axis must be l or m")
+            opts.axis = Symbol(ax); i += 2
         else
             error("Unknown option '$a'. Use: --r VAL --integrate --out FILE --top N")
         end
@@ -112,14 +123,49 @@ function read_spectral(path::AbstractString, family::String)
     end
 end
 
-function spectra_scalar_at_r(l::Vector{Int}, m::Vector{Int}, A_real::AbstractMatrix, A_imag::AbstractMatrix, r_idx::Int)
-    lmax = maximum(l)
-    E = zeros(Float64, lmax+1)
-    for (i, ell) in enumerate(l)
-        are = A_real[i, r_idx]; aim = A_imag[i, r_idx]
-        E[ell+1] += 0.5 * (are*are + aim*aim)
+function assemble_scalar_coeffs_matrix(l::Vector{Int}, m::Vector{Int},
+                                       A_real::AbstractMatrix, A_imag::AbstractMatrix,
+                                       r_idx::Int)
+    lmax = maximum(l); mmax = maximum(m)
+    C = zeros(ComplexF64, lmax+1, mmax+1)
+    @inbounds for i in eachindex(l)
+        ell = l[i]; mm = m[i]
+        C[ell+1, mm+1] = complex(A_real[i, r_idx], A_imag[i, r_idx])
     end
-    return E
+    return C
+end
+
+function spectra_scalar_at_r(l::Vector{Int}, m::Vector{Int}, A_real::AbstractMatrix, A_imag::AbstractMatrix, r_idx::Int)
+    if HAVE_SHTNSKIT && isdefined(SHTnsKit, :energy_scalar_l_spectrum)
+        C = assemble_scalar_coeffs_matrix(l, m, A_real, A_imag, r_idx)
+        # SHTnsKit returns per-l energies; multiply by 0.5 if needed to match our definition.
+        El = SHTnsKit.energy_scalar_l_spectrum(C)
+        return 0.5 .* El
+    else
+        lmax = maximum(l)
+        E = zeros(Float64, lmax+1)
+        for (i, ell) in enumerate(l)
+            are = A_real[i, r_idx]; aim = A_imag[i, r_idx]
+            E[ell+1] += 0.5 * (are*are + aim*aim)
+        end
+        return E
+    end
+end
+
+function spectra_scalar_m_at_r(l::Vector{Int}, m::Vector{Int}, A_real::AbstractMatrix, A_imag::AbstractMatrix, r_idx::Int)
+    if HAVE_SHTNSKIT && isdefined(SHTnsKit, :energy_scalar_m_spectrum)
+        C = assemble_scalar_coeffs_matrix(l, m, A_real, A_imag, r_idx)
+        Em = SHTnsKit.energy_scalar_m_spectrum(C)
+        return 0.5 .* Em
+    else
+        mmax = maximum(m)
+        E = zeros(Float64, mmax+1)
+        for (i, mm) in enumerate(m)
+            are = A_real[i, r_idx]; aim = A_imag[i, r_idx]
+            E[mm+1] += 0.5 * (are*are + aim*aim)
+        end
+        return E
+    end
 end
 
 function spectra_vector_at_r(l::Vector{Int}, m::Vector{Int},
@@ -173,40 +219,82 @@ function main()
     l = data.l; rvals = data.r
     if opts.integrate
         # shell-integrated spectra across r (simple sum over r)
-        Esum = zeros(Float64, maximum(l)+1)
         if data.mode == :scalar
-            for j in eachindex(rvals)
-                Esum .+= spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, j)
+            if opts.axis == :l
+                Esum = zeros(Float64, maximum(l)+1)
+                for j in eachindex(rvals)
+                    Esum .+= spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, j)
+                end
+                maybe_write_csv(opts.out, l, Esum)
+                top = opts.top === nothing ? 0 : opts.top
+                println("l, E_l (integrated over r)")
+                for ell in 0:maximum(l)
+                    println("$(ell), $(Esum[ell+1])")
+                    if top>0 && ell+1>=top; break; end
+                end
+                return
+            else
+                mmax = maximum(data.m)
+                Esum_m = zeros(Float64, mmax+1)
+                for j in eachindex(rvals)
+                    Esum_m .+= spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, j)
+                end
+                # Print m-spectrum
+                println("m, E_m (integrated over r)")
+                for mm in 0:mmax
+                    println("$(mm), $(Esum_m[mm+1])")
+                    if opts.top !== nothing && mm+1>=opts.top; break; end
+                end
+                return
             end
         else
+            Esum = zeros(Float64, maximum(l)+1)
             for j in eachindex(rvals)
                 Esum .+= spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, j)
             end
+            maybe_write_csv(opts.out, l, Esum)
+            top = opts.top === nothing ? 0 : opts.top
+            println("l, E_l (integrated over r)")
+            for ell in 0:maximum(l)
+                println("$(ell), $(Esum[ell+1])")
+                if top>0 && ell+1>=top; break; end
+            end
+            return
         end
-        maybe_write_csv(opts.out, l, Esum)
-        top = opts.top === nothing ? 0 : opts.top
-        println("l, E_l (integrated over r)")
-        for ell in 0:maximum(l)
-            println("$(ell), $(Esum[ell+1])")
-            if top>0 && ell+1>=top; break; end
-        end
-        return
     end
     # Single radius
     r_idx = pick_r_index(rvals, opts.rsel)
     if data.mode == :scalar
-        E = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
-        println("Scalar spectra at r=$(rvals[r_idx])")
+        if opts.axis == :l
+            E = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+            println("Scalar l-spectrum at r=$(rvals[r_idx])")
+            maybe_write_csv(opts.out, l, E)
+            top = opts.top === nothing ? 0 : opts.top
+            println("l, E_l")
+            for ell in 0:maximum(l)
+                println("$(ell), $(E[ell+1])")
+                if top>0 && ell+1>=top; break; end
+            end
+        else
+            Em = spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+            mmax = length(Em)-1
+            println("Scalar m-spectrum at r=$(rvals[r_idx])")
+            println("m, E_m")
+            for mm in 0:mmax
+                println("$(mm), $(Em[mm+1])")
+                if opts.top !== nothing && mm+1>=opts.top; break; end
+            end
+        end
     else
         E = spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, r_idx)
         println("Vector spectra at r=$(rvals[r_idx])")
-    end
-    maybe_write_csv(opts.out, l, E)
-    top = opts.top === nothing ? 0 : opts.top
-    println("l, E_l")
-    for ell in 0:maximum(l)
-        println("$(ell), $(E[ell+1])")
-        if top>0 && ell+1>=top; break; end
+        maybe_write_csv(opts.out, l, E)
+        top = opts.top === nothing ? 0 : opts.top
+        println("l, E_l")
+        for ell in 0:maximum(l)
+            println("$(ell), $(E[ell+1])")
+            if top>0 && ell+1>=top; break; end
+        end
     end
     close(data.ds)
 end
@@ -214,4 +302,3 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-
