@@ -89,9 +89,9 @@ function build_sht_from_nc(nc)
     lmax = maximum(lvals); mmax = maximum(mvals)
     nlat = (NetCDF.varid(nc, "theta") != -1) ? length(read_var(nc, "theta")) : (lmax+2)
     nlon = (NetCDF.varid(nc, "phi") != -1) ? length(read_var(nc, "phi")) : max(2*lmax+1, 4)
-    cfg = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
+    gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
     θ = read_var(nc, "theta"); φ = read_var(nc, "phi"); r = read_var(nc, "r")
-    return cfg, lvals, mvals, (θ, φ, r)
+    return gcfg, lvals, mvals, (θ, φ, r)
 end
 
 function vector_components(cfg::SHTnsKit.SHTConfig, lvals, mvals,
@@ -303,37 +303,48 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             coords["theta"] = θ; coords["phi"] = φ; coords["r"] = r
             try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
 
-            vr, vt, vp = vector_components(cfg, lvals, mvals, Float64.(vtor_r), Float64.(vtor_i), Float64.(vpol_r), Float64.(vpol_i), r)
-            last_cfg[] = cfg
-            # Build Slm/Tlm for each radius and compute spectral vorticity components via SHTnsKit helper
-            lmax = cfg.lmax; mmax = cfg.mmax; nlm = size(vtor_r, 1)
-            Slm = zeros(ComplexF64, lmax+1, mmax+1)
-            Tlm = zeros(ComplexF64, lmax+1, mmax+1)
-            # Optionally estimate dSlm_dr via 1D radial FD on spectral coefficients (not used by helper yet)
-            for k2 in 1:nr
-                fill!(Slm, 0); fill!(Tlm, 0)
-                for i2 in 1:nlm
-                    l = lvals[i2]; m = mvals[i2]
-                    if l <= lmax && m <= mmax
-                        Slm[l+1, m+1] = complex(vpol_r[i2,k2], vpol_i[i2,k2])
-                        Tlm[l+1, m+1] = complex(vtor_r[i2,k2], vtor_i[i2,k2])
-                    end
-                end
-                rr = (r === nothing || k2 > length(r)) ? 1.0 : r[k2]
-                ωr_slice, ωθ_slice, ωφ_slice = SHTnsKit.SHsphtor_curl_to_spat(cfg, Slm, Tlm; r=rr)
-                # Compose helicity at this radius
-                hr_slice = vr[:,:,k2] .* ωr_slice
-                h_slice = hr_slice .+ vt[:,:,k2] .* ωθ_slice .+ vp[:,:,k2] .* ωφ_slice
-                if sum_h === nothing
-                    sum_h = zero(h_slice); sum_hr = zero(hr_slice)
-                end
-                sum_h .+= h_slice
-                sum_hr .+= hr_slice
+            # Build Geodynamo config and fields; compute vorticity spectrally, synthesize to grid
+            lmax = maximum(lvals); mmax = maximum(mvals)
+            nlat = (θ === nothing) ? size(vtor_r,1) : length(θ)
+            nlon = (φ === nothing) ? max(2*lmax+1, 4) : length(φ)
+            nr = (r === nothing) ? size(vtor_r,2) : length(r)
+
+            gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+            last_cfg[] = gcfg.sht_config
+            pencils_nt = Geodynamo.create_pencil_topology(gcfg)
+            pencils = (pencils_nt.θ, pencils_nt.φ, pencils_nt.r)
+            pencil_spec = pencils_nt.spec
+            domain = Geodynamo.create_radial_domain(nr)
+            fields = Geodynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
+
+            # Load spectral coefficients (single-rank layout)
+            spec_tor_r = parent(fields.toroidal.data_real); spec_tor_i = parent(fields.toroidal.data_imag)
+            spec_pol_r = parent(fields.poloidal.data_real); spec_pol_i = parent(fields.poloidal.data_imag)
+            nlm_local = min(size(spec_tor_r,1), size(vtor_r,1))
+            for i2 in 1:nlm_local, k2 in 1:nr
+                spec_tor_r[i2,1,k2] = Float64(vtor_r[i2,k2])
+                spec_tor_i[i2,1,k2] = Float64(vtor_i[i2,k2])
+                spec_pol_r[i2,1,k2] = Float64(vpol_r[i2,k2])
+                spec_pol_i[i2,1,k2] = Float64(vpol_i[i2,k2])
             end
+
+            Geodynamo.compute_vorticity_spectral_full!(fields, domain)
+            Geodynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+            Geodynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+
+            u_r = parent(fields.velocity.r_component.data)
+            u_t = parent(fields.velocity.θ_component.data)
+            u_p = parent(fields.velocity.φ_component.data)
+            w_r = parent(fields.vorticity.r_component.data)
+            w_t = parent(fields.vorticity.θ_component.data)
+            w_p = parent(fields.vorticity.φ_component.data)
+            h = u_r .* w_r .+ u_t .* w_t .+ u_p .* w_p
+            hr = u_r .* w_r
             if sum_h === nothing
-                # In case there were no radii
-                sum_h = zeros(size(vr,1), size(vr,2)); sum_hr = similar(sum_h)
+                sum_h = zero(h); sum_hr = zero(hr)
             end
+            sum_h .+= h
+            sum_hr .+= hr
             count += 1
         finally
             NetCDF.close(nc)
