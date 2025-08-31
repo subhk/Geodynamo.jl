@@ -1,59 +1,115 @@
-# GitHub Pages Configuration for Geodynamo.jl
+# GitHub Pages Configuration for Geodynamo.jl Documentation
 
 # Site settings
 title: "Geodynamo.jl"
 description: "High-performance Earth's magnetic field simulation in Julia"
-url: "https://subhk.github.io"
 baseurl: "/Geodynamo.jl"
+url: "https://subhk.github.io"
 
-# Author info
+# Author information
 author:
   name: "Subhajit Kar"
-  email: "your.email@example.com"
-
-# Theme
-theme: minima
+  email: "subhajit@example.com"
+  github: "subhk"
 
 # Build settings
 markdown: kramdown
 highlighter: rouge
-kramdown:
-  input: GFM
-  syntax_highlighter: rouge
-
-# Plugins
+theme: minima
 plugins:
   - jekyll-feed
   - jekyll-sitemap
   - jekyll-seo-tag
 
-# Navigation (for themes that support it)
+# Kramdown settings
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: 'highlight'
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+      start_line: 1
+
+# Collections
+collections:
+  guides:
+    output: true
+    permalink: /:collection/:name/
+  examples:
+    output: true
+    permalink: /:collection/:name/
+  api:
+    output: true
+    permalink: /:collection/:name/
+
+# Navigation
 header_pages:
   - getting-started.md
-  - api-reference.md  
+  - api-reference.md
   - visualization.md
   - examples.md
 
-# Social links
-github_username: subhk
-linkedin_username: your-linkedin
-
-# Google Analytics (optional)
-# google_analytics: UA-XXXXXXXXX-X
+# Default layouts
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+  - scope:
+      path: ""
+      type: "guides"
+    values:
+      layout: "guide"
+  - scope:
+      path: ""
+      type: "examples"
+    values:
+      layout: "example"
+  - scope:
+      path: ""
+      type: "api"
+    values:
+      layout: "api"
 
 # Exclude from processing
 exclude:
   - Gemfile
   - Gemfile.lock
   - node_modules
-  - vendor/
-  - .sass-cache/
-  - .jekyll-cache/
-  - gemfiles/
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
   - README.md
+  - Manifest.toml
+  - Project.toml
+  - make.jl
 
 # Custom variables
-custom:
+geodynamo:
+  version: "0.1.0"
   julia_version: "1.8+"
-  package_version: "0.1.0"
-  repository_url: "https://github.com/subhk/Geodynamo.jl"
+  github_repo: "https://github.com/subhk/Geodynamo.jl"
+  issues: "https://github.com/subhk/Geodynamo.jl/issues"
+  discussions: "https://github.com/subhk/Geodynamo.jl/discussions"
+
+# SEO settings
+social:
+  name: "Geodynamo.jl"
+  links:
+    - "https://github.com/subhk/Geodynamo.jl"
+
+# Feed settings
+feed:
+  collections:
+    - guides
+    - examples

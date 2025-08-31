@@ -1,16 +1,21 @@
 #!/usr/bin/env julia
 
-# m=0 (axisymmetric) r-θ plot reconstructed from toroidal/poloidal spectral data.
+# m=0 (axisymmetric) r-θ plot reconstructed from spectral data.
 #
 # Reads spectral coefficients (e.g., velocity_toroidal_real/imag and velocity_poloidal_real/imag)
 # along with l_values, m_values from a NetCDF output. Selects m=0 modes, performs a
 # scalar spherical-harmonic synthesis Y_{l0}(θ) to transform toroidal/poloidal scalars
 # into physical space over θ for all radii, then plots r–θ heatmaps.
 #
-# Note: This reconstructs the scalar toroidal/poloidal potentials for m=0. If you need
+# Note (vector fields): This reconstructs the scalar toroidal/poloidal potentials for m=0. If you need
 # vector components (u_r, u_θ, u_φ) from tor/pol, we can extend with vector synthesis,
 # but this requires consistent normalization choices. This version uses standard
 # normalization Y_{l0}(θ)=sqrt((2l+1)/(4π)) P_l(cosθ).
+#
+# Note (scalar fields): For temperature/composition, if spectral variables
+# temperature_spectral_* or composition_spectral_* exist, synthesis is used.
+# Otherwise, the script falls back to computing the zonal mean (phi-average) of the
+# physical variable temperature/ composition to obtain m=0.
 #
 # Usage examples:
 #   # Velocity toroidal m=0 (default normalization)
@@ -19,6 +24,10 @@
 #   julia --project examples/plot_m0_from_torpol.jl out.nc magnetic poloidal --clim -1 1
 #   # Show both toroidal and poloidal (two subplots)
 #   julia --project examples/plot_m0_from_torpol.jl out.nc velocity both --cmap balance
+#   # Scalars: temperature m=0 from spectral coeffs (or fall back to phi-average)
+#   julia --project examples/plot_m0_from_torpol.jl out.nc temperature
+#   # Scalars: composition m=0
+#   julia --project examples/plot_m0_from_torpol.jl out.nc composition --cmap magma
 #   # Disable Ylm normalization (use raw P_l):
 #   julia --project examples/plot_m0_from_torpol.jl out.nc velocity toroidal --no-norm
 
@@ -35,8 +44,8 @@ Opts() = Opts(nothing, nothing, true, false)
 
 function parse_args()
     path = get(ARGS, 1, "")
-    family = lowercase(get(ARGS, 2, "velocity"))   # "velocity" | "magnetic"
-    which  = lowercase(get(ARGS, 3, "both"))       # "toroidal" | "poloidal" | "both"
+    family = lowercase(get(ARGS, 2, "velocity"))   # "velocity" | "magnetic" | "temperature" | "composition"
+    which  = lowercase(get(ARGS, 3, family in ("temperature","composition") ? "scalar" : "both"))  # vector: toroidal|poloidal|both; scalar: scalar
     extras = ARGS[4:end]
     opts = Opts()
     i = 1
@@ -57,8 +66,12 @@ function parse_args()
             error("Unknown/malformed option '$a'. Supported: --cmap NAME --clim MIN MAX --degrees|--radians --no-norm")
         end
     end
-    family ∈ ("velocity","magnetic") || error("family must be 'velocity' or 'magnetic'")
-    which  ∈ ("toroidal","poloidal","both") || error("component must be 'toroidal','poloidal', or 'both'")
+    family ∈ ("velocity","magnetic","temperature","composition") || error("family must be 'velocity','magnetic','temperature', or 'composition'")
+    if family in ("velocity","magnetic")
+        which  ∈ ("toroidal","poloidal","both") || error("vector component must be 'toroidal','poloidal', or 'both'")
+    else
+        which = "scalar"
+    end
     return path, family, which, opts
 end
 
@@ -86,27 +99,37 @@ function read_spectral(path::AbstractString, family::String)
         haskey(ds, "r") || error("r not found")
         haskey(ds, "l_values") || error("l_values not found (spectral metadata)")
         haskey(ds, "m_values") || error("m_values not found (spectral metadata)")
-        tor_r = "$(family)_toroidal_real"; tor_i = "$(family)_toroidal_imag"
-        pol_r = "$(family)_poloidal_real"; pol_i = "$(family)_poloidal_imag"
-        haskey(ds, tor_r) || error("$tor_r not found in file")
-        haskey(ds, tor_i) || error("$tor_i not found in file")
-        haskey(ds, pol_r) || error("$pol_r not found in file")
-        haskey(ds, pol_i) || error("$pol_i not found in file")
-
         theta = vec(ds["theta"][:])
         rvals = vec(ds["r"][:])
         lvals = vec(ds["l_values"][:])
         mvals = vec(ds["m_values"][:])
-        tor_real = Array(ds[tor_r][:])
-        tor_imag = Array(ds[tor_i][:])
-        pol_real = Array(ds[pol_r][:])
-        pol_imag = Array(ds[pol_i][:])
-        # Expect dimensions (nlm, nr)
-        size(tor_real,1) == length(lvals) || @warn "nlm mismatch for toroidal"
-        size(pol_real,1) == length(lvals) || @warn "nlm mismatch for poloidal"
-        return (theta=theta, r=rvals, l=lvals, m=mvals,
-                tor_real=tor_real, tor_imag=tor_imag,
-                pol_real=pol_real, pol_imag=pol_imag, ds=ds)
+        if family in ("velocity","magnetic")
+            tor_r = "$(family)_toroidal_real"; tor_i = "$(family)_toroidal_imag"
+            pol_r = "$(family)_poloidal_real"; pol_i = "$(family)_poloidal_imag"
+            haskey(ds, tor_r) || error("$tor_r not found in file")
+            haskey(ds, tor_i) || error("$tor_i not found in file")
+            haskey(ds, pol_r) || error("$pol_r not found in file")
+            haskey(ds, pol_i) || error("$pol_i not found in file")
+            tor_real = Array(ds[tor_r][:])
+            tor_imag = Array(ds[tor_i][:])
+            pol_real = Array(ds[pol_r][:])
+            pol_imag = Array(ds[pol_i][:])
+            size(tor_real,1) == length(lvals) || @warn "nlm mismatch for toroidal"
+            size(pol_real,1) == length(lvals) || @warn "nlm mismatch for poloidal"
+            return (mode=:vector, theta=theta, r=rvals, l=lvals, m=mvals,
+                    tor_real=tor_real, tor_imag=tor_imag,
+                    pol_real=pol_real, pol_imag=pol_imag, ds=ds)
+        else
+            base = family == "temperature" ? "temperature_spectral" : "composition_spectral"
+            sca_r = "$(base)_real"; sca_i = "$(base)_imag"
+            haskey(ds, sca_r) || error("$sca_r not found in file (no spectral scalars)")
+            haskey(ds, sca_i) || error("$sca_i not found in file (no spectral scalars)")
+            sca_real = Array(ds[sca_r][:])
+            sca_imag = Array(ds[sca_i][:])
+            size(sca_real,1) == length(lvals) || @warn "nlm mismatch for scalar"
+            return (mode=:scalar, theta=theta, r=rvals, l=lvals, m=mvals,
+                    sca_real=sca_real, sca_imag=sca_imag, ds=ds)
+        end
     catch
         close(ds); rethrow()
     end
@@ -161,11 +184,29 @@ end
 
 function main()
     path, family, which, opts = parse_args()
-    data = read_spectral(path, family)
-
-    # Use real parts (m=0 should be real for real-valued fields)
-    Tm0 = synthesize_m0(data.theta, data.l, data.m, data.tor_real; normalize=!opts.nonorm)
-    Pm0 = synthesize_m0(data.theta, data.l, data.m, data.pol_real; normalize=!opts.nonorm)
+    # Try spectral path first; fall back to physical scalars for temperature/composition
+    data = nothing
+    try
+        data = read_spectral(path, family)
+    catch err
+        if family in ("temperature","composition")
+            # Fallback: use physical variable and zonal mean
+            ds = NCDataset(path)
+            try
+                haskey(ds, family) || rethrow(err)
+                theta = vec(ds["theta"][:])
+                rvals = vec(ds["r"][:])
+                A = Array(ds[family][:])   # expect (theta,phi,r)
+                ndims(A) == 3 || error("Expected $(family)[theta,phi,r] for fallback physical averaging")
+                m0 = dropdims(mean(A; dims=2), dims=2)  # (theta,r)
+                data = (mode=:scalar_phys, theta=theta, r=rvals, m0=m0, ds=ds)
+            catch
+                close(ds); rethrow()
+            end
+        else
+            rethrow()
+        end
+    end
 
     # Prepare plotting
     backend = ensure_backend()
@@ -193,21 +234,38 @@ function main()
         return ax
     end
 
-    if which == "both"
-        fig = Figure(resolution=(1200, 650))
-        plot_hm(fig[1,1], Tm0, "toroidal")
-        plot_hm(fig[1,2], Pm0, "poloidal")
-        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta_both.png"
-        save(outpng, fig); @info "Saved" outpng; display(fig)
-    elseif which == "toroidal"
+    if data.mode == :vector
+        # Use real parts (m=0 should be real for real-valued fields)
+        Tm0 = synthesize_m0(data.theta, data.l, data.m, data.tor_real; normalize=!opts.nonorm)
+        Pm0 = synthesize_m0(data.theta, data.l, data.m, data.pol_real; normalize=!opts.nonorm)
+        if which == "both"
+            fig = Figure(resolution=(1200, 650))
+            plot_hm(fig[1,1], Tm0, "toroidal")
+            plot_hm(fig[1,2], Pm0, "poloidal")
+            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta_both.png"
+            save(outpng, fig); @info "Saved" outpng; display(fig)
+        elseif which == "toroidal"
+            fig = Figure(resolution=(900, 650))
+            plot_hm(fig[1,1], Tm0, "toroidal")
+            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_toroidal_m0_rtheta.png"
+            save(outpng, fig); @info "Saved" outpng; display(fig)
+        else
+            fig = Figure(resolution=(900, 650))
+            plot_hm(fig[1,1], Pm0, "poloidal")
+            outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_poloidal_m0_rtheta.png"
+            save(outpng, fig); @info "Saved" outpng; display(fig)
+        end
+    elseif data.mode == :scalar
+        Sm0 = synthesize_m0(data.theta, data.l, data.m, data.sca_real; normalize=!opts.nonorm)
         fig = Figure(resolution=(900, 650))
-        plot_hm(fig[1,1], Tm0, "toroidal")
-        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_toroidal_m0_rtheta.png"
+        plot_hm(fig[1,1], Sm0, family)
+        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta.png"
         save(outpng, fig); @info "Saved" outpng; display(fig)
     else
+        # scalar physical fallback already computed as (theta, r)
         fig = Figure(resolution=(900, 650))
-        plot_hm(fig[1,1], Pm0, "poloidal")
-        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_poloidal_m0_rtheta.png"
+        plot_hm(fig[1,1], data.m0, family)
+        outpng = replace(basename(path), r"\.nc$" => "") * "_$(family)_m0_rtheta.png"
         save(outpng, fig); @info "Saved" outpng; display(fig)
     end
 
@@ -217,4 +275,3 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-
