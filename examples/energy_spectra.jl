@@ -34,9 +34,10 @@ mutable struct Opts
     out::Union{Nothing,String}
     top::Union{Nothing,Int}
     axis::Symbol  # :l or :m for scalar spectra
+    both::Bool    # compute both at a radius and integrated over r
 end
 
-Opts() = Opts("outer", false, nothing, nothing, :l)
+Opts() = Opts("outer", false, nothing, nothing, :l, false)
 
 function parse_args()
     path = get(ARGS, 1, "")
@@ -73,6 +74,8 @@ function parse_args()
             ax = lowercase(extras[i+1])
             ax ∈ ("l","m") || error("--axis must be l or m")
             opts.axis = Symbol(ax); i += 2
+        elseif a == "--both"
+            opts.both = true; i += 1
         else
             error("Unknown option '$a'. Use: --r VAL --integrate --out FILE --top N")
         end
@@ -270,6 +273,9 @@ function main()
     path, family, opts = parse_args()
     data = read_spectral(path, family)
     l = data.l; rvals = data.r
+    # Helper to provide default l or m domain vectors
+    l_dom() = collect(0:maximum(l))
+    m_dom() = collect(0:maximum(data.m))
     if opts.integrate
         # shell-integrated spectra across r (simple sum over r)
         if data.mode == :scalar
@@ -316,39 +322,89 @@ function main()
             return
         end
     end
-    # Single radius
+    # Single radius and/or both
     r_idx = pick_r_index(rvals, opts.rsel)
-    if data.mode == :scalar
-        if opts.axis == :l
-            E = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
-            println("Scalar l-spectrum at r=$(rvals[r_idx])")
-            maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=collect(0:maximum(l)), E_l=E)
+    if !opts.both
+        if data.mode == :scalar
+            if opts.axis == :l
+                E = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+                println("Scalar l-spectrum at r=$(rvals[r_idx])")
+                maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=l_dom(), E_l=E)
+                top = opts.top === nothing ? 0 : opts.top
+                println("l, E_l")
+                for ell in 0:maximum(l)
+                    println("$(ell), $(E[ell+1])")
+                    if top>0 && ell+1>=top; break; end
+                end
+            else
+                Em = spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+                println("Scalar m-spectrum at r=$(rvals[r_idx])")
+                maybe_write_output(opts.out; axis="m", integrated=false, family=family, radius=rvals[r_idx], m=m_dom(), E_m=Em)
+                println("m, E_m")
+                for mm in 0:maximum(data.m)
+                    println("$(mm), $(Em[mm+1])")
+                    if opts.top !== nothing && mm+1>=opts.top; break; end
+                end
+            end
+        else
+            E = spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, r_idx)
+            println("Vector spectra at r=$(rvals[r_idx])")
+            maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=l_dom(), E_l=E)
             top = opts.top === nothing ? 0 : opts.top
             println("l, E_l")
             for ell in 0:maximum(l)
                 println("$(ell), $(E[ell+1])")
                 if top>0 && ell+1>=top; break; end
             end
-        else
-            Em = spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
-            mmax = length(Em)-1
-            println("Scalar m-spectrum at r=$(rvals[r_idx])")
-            maybe_write_output(opts.out; axis="m", integrated=false, family=family, radius=rvals[r_idx], m=collect(0:mmax), E_m=Em)
-            println("m, E_m")
-            for mm in 0:mmax
-                println("$(mm), $(Em[mm+1])")
-                if opts.top !== nothing && mm+1>=opts.top; break; end
-            end
         end
     else
-        E = spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, r_idx)
-        println("Vector spectra at r=$(rvals[r_idx])")
-        maybe_write_output(opts.out; axis="l", integrated=false, family=family, radius=rvals[r_idx], l=collect(0:maximum(l)), E_l=E)
-        top = opts.top === nothing ? 0 : opts.top
-        println("l, E_l")
-        for ell in 0:maximum(l)
-            println("$(ell), $(E[ell+1])")
-            if top>0 && ell+1>=top; break; end
+        # Compute both at-selected-radius and integrated-over-r; write combined JLD2 if requested
+        if data.mode == :scalar
+            if opts.axis == :l
+                E_at = spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+                E_int = zeros(Float64, maximum(l)+1)
+                for j in eachindex(rvals); E_int .+= spectra_scalar_at_r(l, data.m, data.sca_real, data.sca_imag, j); end
+                if opts.out !== nothing && endswith(lowercase(opts.out), ".jld2")
+                    jldsave(opts.out; mode="scalar", axis="l", family=family, radius=rvals[r_idx], l=l_dom(), E_at=E_at, E_integrated=E_int)
+                else
+                    # stdout + optional CSV variants
+                    println("Scalar l-spectrum at r=$(rvals[r_idx]) and integrated over r")
+                    println("l, E_at, E_integrated")
+                    for ell in 0:maximum(l)
+                        println("$(ell), $(E_at[ell+1]), $(E_int[ell+1])")
+                        if opts.top !== nothing && ell+1>=opts.top; break; end
+                    end
+                end
+            else
+                Em_at = spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, r_idx)
+                mmax = maximum(data.m)
+                Em_int = zeros(Float64, mmax+1)
+                for j in eachindex(rvals); Em_int .+= spectra_scalar_m_at_r(l, data.m, data.sca_real, data.sca_imag, j); end
+                if opts.out !== nothing && endswith(lowercase(opts.out), ".jld2")
+                    jldsave(opts.out; mode="scalar", axis="m", family=family, radius=rvals[r_idx], m=m_dom(), E_at=Em_at, E_integrated=Em_int)
+                else
+                    println("Scalar m-spectrum at r=$(rvals[r_idx]) and integrated over r")
+                    println("m, E_at, E_integrated")
+                    for mm in 0:mmax
+                        println("$(mm), $(Em_at[mm+1]), $(Em_int[mm+1])")
+                        if opts.top !== nothing && mm+1>=opts.top; break; end
+                    end
+                end
+            end
+        else
+            El_at = spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, r_idx)
+            El_int = zeros(Float64, maximum(l)+1)
+            for j in eachindex(rvals); El_int .+= spectra_vector_at_r(l, data.m, data.tor_real, data.tor_imag, data.pol_real, data.pol_imag, rvals, j); end
+            if opts.out !== nothing && endswith(lowercase(opts.out), ".jld2")
+                jldsave(opts.out; mode="vector", axis="l", family=family, radius=rvals[r_idx], l=l_dom(), E_at=El_at, E_integrated=El_int)
+            else
+                println("Vector l-spectrum at r=$(rvals[r_idx]) and integrated over r")
+                println("l, E_at, E_integrated")
+                for ell in 0:maximum(l)
+                    println("$(ell), $(El_at[ell+1]), $(El_int[ell+1])")
+                    if opts.top !== nothing && ell+1>=opts.top; break; end
+                end
+            end
         end
     end
     close(data.ds)
