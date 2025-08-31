@@ -29,6 +29,7 @@ using Printf
 using NetCDF
 using JLD2
 using SHTnsKit
+using MPI
 
 function usage()
     println("Usage: time_average.jl <output_dir> --start=<t0> --end=<t1> --vars=v1[,v2,...] [--prefix=name] [--out=path.jld2]")
@@ -284,26 +285,114 @@ function time_average(dir::String, t0::Float64, t1::Float64, vars::Vector{String
 end
 
 function main()
-    outdir, t0, t1, varlist, prefix, outpath = parse_args(copy(ARGS))
-    avgs, counts, times_used, meta = time_average(outdir, t0, t1, varlist, prefix)
+    if !MPI.Initialized(); MPI.Init(); end
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
+    try
+        outdir, t0, t1, varlist, prefix, outpath = parse_args(copy(ARGS))
+        # Determine times on rank 0 and broadcast
+        times = rank == 0 ? scan_times(outdir, prefix) : Float64[]
+        nt = MPI.bcast(length(times), 0, comm)
+        if rank != 0
+            times = Vector{Float64}(undef, nt)
+        end
+        if nt > 0
+            MPI.Bcast!(times, 0, comm)
+        end
+        sel = [t for t in times if t0 <= t <= t1]
+        if isempty(sel)
+            if rank == 0
+                @warn "No times found in $outdir for prefix '$prefix' and range [$t0,$t1]"
+            end
+            return
+        end
 
-    if isempty(outpath)
-        ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
-        outpath = joinpath(outdir, "timeavg_$(prefix)_$(ttag).jld2")
-    end
-    isdir(dirname(outpath)) || mkpath(dirname(outpath))
+        # Each rank processes its assigned subset (round-robin)
+        local_sums = Dict{String, Any}()
+        local_counts = Dict{String, Int}()
+        local_meta = Dict{String,Any}()
+        for (idx, t) in enumerate(sel)
+            if (idx - 1) % nprocs != rank; continue; end
+            avgs_part, counts_part, times_used_part, meta_part = time_average(outdir, t, t, varlist, prefix)
+            # accumulate
+            for (k, A) in avgs_part
+                if !haskey(local_sums, k)
+                    local_sums[k] = zero(A)
+                    local_counts[k] = 0
+                end
+                local_sums[k] .+= A .* counts_part[k]  # convert back to sums
+                local_counts[k] += counts_part[k]
+            end
+            if isempty(local_meta)
+                local_meta = meta_part
+            end
+        end
 
-    # Save with compression
-    jldopen(outpath, "w"; compress=true) do f
-        write(f, "variables", varlist)
-        write(f, "averages", avgs)
-        write(f, "counts", counts)
-        write(f, "times", times_used)
-        write(f, "metadata", meta)
-        write(f, "time_range", (t0, t1))
-        write(f, "prefix", prefix)
+        # Write per-rank temp file
+        isdir(outdir) || mkpath(outdir)
+        tmpfile = joinpath(outdir, @sprintf("timeavg_tmp_rank_%04d.jld2", rank))
+        jldopen(tmpfile, "w"; compress=true) do f
+            write(f, "sums", local_sums)
+            write(f, "counts", local_counts)
+            write(f, "meta", local_meta)
+            write(f, "times", sel)
+            write(f, "vars", varlist)
+        end
+        MPI.Barrier(comm)
+
+        # Rank 0 aggregates temp files
+        if rank == 0
+            global_sums = Dict{String, Any}()
+            global_counts = Dict{String, Int}()
+            for r in 0:(nprocs-1)
+                tf = joinpath(outdir, @sprintf("timeavg_tmp_rank_%04d.jld2", r))
+                if !isfile(tf); continue; end
+                data = JLD2.load(tf)
+                sums_r = data["sums"]; counts_r = data["counts"]
+                for (k, S) in sums_r
+                    if !haskey(global_sums, k)
+                        global_sums[k] = zero(S)
+                        global_counts[k] = 0
+                    end
+                    global_sums[k] .+= S
+                    global_counts[k] += get(counts_r, k, 0)
+                end
+            end
+            # Compute averages
+            avgs = Dict{String, Any}()
+            for (k, S) in global_sums
+                c = global_counts[k]
+                if c > 0
+                    avgs[k] = S ./ c
+                end
+            end
+            if isempty(outpath)
+                ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
+                outpath = joinpath(outdir, "timeavg_$(prefix)_$(ttag).jld2")
+            end
+            isdir(dirname(outpath)) || mkpath(dirname(outpath))
+            jldopen(outpath, "w"; compress=true) do f
+                write(f, "variables", varlist)
+                write(f, "averages", avgs)
+                write(f, "counts", global_counts)
+                write(f, "times", sel)
+                write(f, "metadata", local_meta)
+                write(f, "time_range", (t0, t1))
+                write(f, "prefix", prefix)
+            end
+            # Cleanup tmp files
+            for r in 0:(nprocs-1)
+                tf = joinpath(outdir, @sprintf("timeavg_tmp_rank_%04d.jld2", r))
+                isfile(tf) && rm(tf; force=true)
+            end
+            println(@sprintf("Saved time-averaged variables to %s", outpath))
+        end
+        MPI.Barrier(comm)
+    finally
+        try MPI.Barrier(MPI.COMM_WORLD) catch end
+        if MPI.Initialized() && !MPI.Is_finalized(); MPI.Finalize(); end
     end
-    println(@sprintf("Saved time-averaged variables to %s", outpath))
 end
 
 isinteractive() || main()
