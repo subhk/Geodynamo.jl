@@ -27,7 +27,7 @@ Geodynamo.jl is a cutting-edge Julia package for simulating Earth's magnetic fie
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 Get up and running with your first geodynamo simulation in minutes:
 
@@ -59,37 +59,37 @@ println("✓ Your first geodynamo simulation is ready!")
 
 ---
 
-## ⭐ Key Features
+## Key Features
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin: 2rem 0;">
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>🌊 Spherical Harmonic Transforms</h3>
+<h3>Spherical Harmonic Transforms</h3>
 <p>Efficient spectral methods using SHTns for accurate spherical geometry calculations with optimized performance.</p>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>🔧 Flexible Boundary Conditions</h3>
+<h3>Flexible Boundary Conditions</h3>
 <p>Support for NetCDF data files, programmatic patterns, and hybrid approaches for realistic simulations.</p>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>⚡ High Performance</h3>
+<h3>High Performance</h3>
 <p>CPU-optimized with SIMD vectorization, multi-threading, and MPI parallelization for HPC clusters.</p>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>📊 Advanced Visualization</h3>
+<h3>Advanced Visualization</h3>
 <p>Built-in plotting tools including Hammer projections, spherical maps, and time-series analysis.</p>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>📁 Data Integration</h3>
+<h3>Data Integration</h3>
 <p>Seamless NetCDF integration for loading observational data and numerical model outputs.</p>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 1.5rem;">
-<h3>⏱️ Time-Dependent</h3>
+<h3>Time-Dependent</h3>
 <p>Support for evolving boundary conditions and time-dependent simulations with monitoring tools.</p>
 </div>
 
@@ -97,7 +97,7 @@ println("✓ Your first geodynamo simulation is ready!")
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 | Section | Description | Audience |
 |---------|-------------|----------|
@@ -108,7 +108,7 @@ println("✓ Your first geodynamo simulation is ready!")
 
 ---
 
-## 🛠 Installation
+## Installation
 
 ### Prerequisites
 - Julia {{ site.geodynamo.julia_version }} ([Download](https://julialang.org/downloads/))
@@ -131,22 +131,22 @@ Pkg.develop(url="{{ site.geodynamo.github_repo }}")
 
 ---
 
-## 📈 Performance Highlights
+## Performance Highlights
 
 <div style="background-color: #f6f8fa; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0;">
 
 **Benchmark Results:**
-- **🔧 SIMD Vectorization**: 20-30% speedup on modern CPUs
+- **SIMD Vectorization**: 20-30% speedup on modern CPUs
 - **🧵 Multi-threading**: 35-50% improvement with optimal thread count
-- **💾 Memory Optimization**: 30-40% reduction in allocations
-- **🌐 MPI Scaling**: Linear scaling to 1000+ cores on HPC clusters
-- **⚡ Transform Speed**: Optimized spherical harmonic transforms
+- **Memory Optimization**: 30-40% reduction in allocations
+- **MPI Scaling**: Linear scaling to 1000+ cores on HPC clusters
+- **Transform Speed**: Optimized spherical harmonic transforms
 
 </div>
 
 ---
 
-## 🎯 Use Cases & Research
+## Use Cases & Research
 
 ### Scientific Applications
 - **Earth's magnetic field** evolution and reversal studies
@@ -162,30 +162,30 @@ Pkg.develop(url="{{ site.geodynamo.github_repo }}")
 
 ---
 
-## 🔬 Example Gallery
+## Example Gallery
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0;">
 
 <div style="border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem; text-align: center;">
-<h4>🌡️ Basic Thermal Convection</h4>
+<h4>🌡Basic Thermal Convection</h4>
 <p>Start with simple temperature-driven convection</p>
 <a href="examples.html#basic-thermal-convection" style="text-decoration: none;">View Example →</a>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem; text-align: center;">
-<h4>🌋 Plume Dynamics</h4>
+<h4>Plume Dynamics</h4>
 <p>Model hot plumes rising from the core</p>
 <a href="examples.html#plume-dynamics" style="text-decoration: none;">View Example →</a>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem; text-align: center;">
-<h4>🗺️ Hammer Projection</h4>
+<h4>Hammer Projection</h4>
 <p>Visualize magnetic fields on global maps</p>
 <a href="visualization.html#hammer-projection" style="text-decoration: none;">View Example →</a>
 </div>
 
 <div style="border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem; text-align: center;">
-<h4>⏱️ Time Evolution</h4>
+<h4>Time Evolution</h4>
 <p>Simulate evolving boundary conditions</p>
 <a href="examples.html#time-evolution" style="text-decoration: none;">View Example →</a>
 </div>
@@ -196,30 +196,30 @@ Pkg.develop(url="{{ site.geodynamo.github_repo }}")
 
 ---
 
-## 🤝 Community & Support
+## Community & Support
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 2rem 0;">
 
 <div style="text-align: center;">
-<h4>📚 Documentation</h4>
+<h4>Documentation</h4>
 <p>Comprehensive guides and API reference</p>
 <a href="getting-started.html">Read the Docs</a>
 </div>
 
 <div style="text-align: center;">
-<h4>🐛 Issues & Bugs</h4>
+<h4>Issues & Bugs</h4>
 <p>Report problems and request features</p>
 <a href="{{ site.geodynamo.issues }}">GitHub Issues</a>
 </div>
 
 <div style="text-align: center;">
-<h4>💬 Discussions</h4>
+<h4>Discussions</h4>
 <p>Ask questions and share ideas</p>
 <a href="{{ site.geodynamo.discussions }}">GitHub Discussions</a>
 </div>
 
 <div style="text-align: center;">
-<h4>🔬 Contributing</h4>
+<h4>Contributing</h4>
 <p>Help improve the package</p>
 <a href="{{ site.geodynamo.github_repo }}/blob/main/CONTRIBUTING.md">Contribute</a>
 </div>
@@ -228,7 +228,7 @@ Pkg.develop(url="{{ site.geodynamo.github_repo }}")
 
 ---
 
-## 📚 Related Packages
+## Related Packages
 
 Geodynamo.jl is part of the Julia scientific computing ecosystem:
 
@@ -239,7 +239,7 @@ Geodynamo.jl is part of the Julia scientific computing ecosystem:
 
 ---
 
-## 📄 Citation
+## Citation
 
 If you use Geodynamo.jl in your research, please cite:
 
@@ -255,14 +255,14 @@ If you use Geodynamo.jl in your research, please cite:
 
 ---
 
-## 🗺️ Development Roadmap
+## Development Roadmap
 
-- [ ] **🧲 Full magnetic dynamo** - Complete dynamo simulation capabilities
-- [ ] **🚀 GPU acceleration** - CUDA and ROCm support for modern GPUs
-- [ ] **🔍 Adaptive grids** - Non-uniform radial and angular mesh refinement
-- [ ] **🤖 Machine learning** - Neural network integration for subgrid physics
-- [ ] **🎬 Advanced visualization** - 3D rendering and animation tools
-- [ ] **☁️ Cloud computing** - Integration with cloud HPC platforms
+- [ ] **Full magnetic dynamo** - Complete dynamo simulation capabilities
+- [ ] **GPU acceleration** - CUDA and ROCm support for modern GPUs
+- [ ] **Adaptive grids** - Non-uniform radial and angular mesh refinement
+- [ ] **Machine learning** - Neural network integration for subgrid physics
+- [ ] **Advanced visualization** - 3D rendering and animation tools
+- [ ] **Cloud computing** - Integration with cloud HPC platforms
 
 ---
 
@@ -277,7 +277,7 @@ If you use Geodynamo.jl in your research, please cite:
 <div style="text-align: center; padding: 1rem; color: #666;">
 <small>
 <strong>Geodynamo.jl {{ site.geodynamo.version }}</strong> • 
-Built with ❤️ using Julia and Jekyll • 
+Built with ❤using Julia and Jekyll • 
 <a href="{{ site.geodynamo.github_repo }}/blob/main/LICENSE">MIT License</a>
 </small>
 </div>
