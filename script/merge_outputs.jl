@@ -1,5 +1,3 @@
-#!/usr/bin/env julia
-
 """
 Merge per-rank Geodynamo NetCDF outputs into a single global file.
 
