@@ -402,31 +402,114 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
 end
 
 function main()
-    outdir, t0, t1, prefix, outpath, mode = parse_args(copy(ARGS))
-    (h_avg, hr_avg, hθ_avg, hφ_avg, hz_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix; mode=mode)
-    if isempty(outpath)
-        ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
-        outpath = joinpath(outdir, "timeavg_helicity_$(prefix)_$(ttag).jld2")
+    if !MPI.Initialized(); MPI.Init(); end
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
+    try
+        outdir, t0, t1, prefix, outpath, mode = parse_args(copy(ARGS))
+        times = rank == 0 ? scan_times(outdir, prefix) : Float64[]
+        nt = MPI.bcast(length(times), 0, comm)
+        if rank != 0
+            times = Vector{Float64}(undef, nt)
+        end
+        if nt > 0
+            MPI.Bcast!(times, 0, comm)
+        end
+        sel = [t for t in times if t0 <= t <= t1]
+        if isempty(sel)
+            if rank == 0
+                @warn "No times found in $outdir for prefix '$prefix' and range [$t0,$t1]"
+            end
+            return
+        end
+
+        # Each rank processes its subset
+        sum_h = nothing; sum_hr = nothing; sum_hθ = nothing; sum_hφ = nothing; sum_hz = nothing
+        count = 0
+        coords0 = Dict{String,Any}(); meta0 = Dict{String,Any}(); cfg0 = nothing
+        for (idx, t) in enumerate(sel)
+            if (idx - 1) % nprocs != rank; continue; end
+            (h_avg, hr_avg, hθ_avg, hφ_avg, hz_avg), c, times_used, coords, meta, cfg = time_average_helicity(outdir, t, t, prefix; mode=mode)
+            if sum_h === nothing
+                sum_h = zero(h_avg); sum_hr = zero(hr_avg); sum_hθ = zero(hθ_avg); sum_hφ = zero(hφ_avg); sum_hz = zero(hz_avg)
+                coords0 = coords; meta0 = meta; cfg0 = cfg
+            end
+            sum_h .+= h_avg .* c; sum_hr .+= hr_avg .* c; sum_hθ .+= hθ_avg .* c; sum_hφ .+= hφ_avg .* c; sum_hz .+= hz_avg .* c
+            count += c
+        end
+
+        # Write per-rank temporary result
+        tmpfile = joinpath(outdir, @sprintf("timeavg_helicity_tmp_rank_%04d.jld2", rank))
+        jldopen(tmpfile, "w"; compress=true) do f
+            write(f, "sum_h", sum_h); write(f, "sum_hr", sum_hr); write(f, "sum_hθ", sum_hθ); write(f, "sum_hφ", sum_hφ); write(f, "sum_hz", sum_hz)
+            write(f, "count", count); write(f, "coords", coords0); write(f, "meta", meta0)
+        end
+        MPI.Barrier(comm)
+
+        if rank == 0
+            total_h = nothing; total_hr = nothing; total_hθ = nothing; total_hφ = nothing; total_hz = nothing; total_count = 0
+            coordsA = Dict{String,Any}(); metaA = Dict{String,Any}()
+            for r in 0:(nprocs-1)
+                tf = joinpath(outdir, @sprintf("timeavg_helicity_tmp_rank_%04d.jld2", r))
+                if !isfile(tf); continue; end
+                data = JLD2.load(tf)
+                if total_h === nothing
+                    total_h = zero(data["sum_h"]); total_hr = zero(data["sum_hr"]); total_hθ = zero(data["sum_hθ"]); total_hφ = zero(data["sum_hφ"]); total_hz = zero(data["sum_hz"])
+                    coordsA = data["coords"]; metaA = data["meta"]
+                end
+                total_h .+= data["sum_h"]; total_hr .+= data["sum_hr"]; total_hθ .+= data["sum_hθ"]; total_hφ .+= data["sum_hφ"]; total_hz .+= data["sum_hz"]
+                total_count += data["count"]
+            end
+            if total_count == 0
+                @warn "No helicity samples accumulated"
+                return
+            end
+            h_avg = total_h ./ total_count
+            hr_avg = total_hr ./ total_count
+            hθ_avg = total_hθ ./ total_count
+            hφ_avg = total_hφ ./ total_count
+            hz_avg = total_hz ./ total_count
+            # Volume average (approximate weights)
+            Hvol = NaN
+            if !isempty(coordsA) && haskey(coordsA, "theta")
+                nlat = size(h_avg,1); nlon = size(h_avg,2)
+                lmax = nlat - 2
+                tmpcfg = SHTnsKit.create_gauss_config(lmax, nlat; mmax=lmax, nlon=nlon, norm=:orthonormal)
+                Hvol = volume_average_helicity(h_avg, tmpcfg, get(coordsA, "r", nothing))
+            end
+            if isempty(outpath)
+                ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
+                outpath = joinpath(outdir, "timeavg_helicity_$(prefix)_$(ttag).jld2")
+            end
+            isdir(dirname(outpath)) || mkpath(dirname(outpath))
+            jldopen(outpath, "w"; compress=true) do f
+                write(f, "helicity", h_avg)
+                write(f, "helicity_r", hr_avg)
+                write(f, "helicity_theta", hθ_avg)
+                write(f, "helicity_phi", hφ_avg)
+                write(f, "helicity_z", hz_avg)
+                write(f, "count", total_count)
+                write(f, "times", sel)
+                write(f, "coords", coordsA)
+                write(f, "metadata", metaA)
+                write(f, "time_range", (t0, t1))
+                write(f, "prefix", prefix)
+                write(f, "volume_avg_helicity", Hvol)
+                write(f, "avg_mode", mode)
+            end
+            # cleanup temps
+            for r in 0:(nprocs-1)
+                tf = joinpath(outdir, @sprintf("timeavg_helicity_tmp_rank_%04d.jld2", r))
+                isfile(tf) && rm(tf; force=true)
+            end
+            println(@sprintf("Saved time-averaged helicity to %s (samples=%d)", outpath, total_count))
+        end
+        MPI.Barrier(comm)
+    finally
+        try MPI.Barrier(MPI.COMM_WORLD) catch end
+        if MPI.Initialized() && !MPI.Is_finalized(); MPI.Finalize(); end
     end
-    isdir(dirname(outpath)) || mkpath(dirname(outpath))
-    # Volume-averaged helicity from time-averaged field
-    Hvol = (cfg === nothing) ? NaN : volume_average_helicity(h_avg, cfg, get(coords, "r", nothing))
-    jldopen(outpath, "w"; compress=true) do f
-        write(f, "helicity", h_avg)
-        write(f, "helicity_r", hr_avg)
-        write(f, "helicity_theta", hθ_avg)
-        write(f, "helicity_phi", hφ_avg)
-        write(f, "helicity_z", hz_avg)
-        write(f, "count", count)
-        write(f, "times", times_used)
-        write(f, "coords", coords)
-        write(f, "metadata", meta)
-        write(f, "time_range", (t0, t1))
-        write(f, "prefix", prefix)
-        write(f, "volume_avg_helicity", Hvol)
-        write(f, "avg_mode", mode)
-    end
-    println(@sprintf("Saved time-averaged helicity to %s (samples=%d)", outpath, count))
 end
 
 isinteractive() || main()
