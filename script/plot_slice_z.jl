@@ -204,7 +204,7 @@ function main()
 
             br, bt, bp = synthesize_magnetic(cfg, lvals, mvals, Float64.(mtor_r), 
                                         Float64.(mtor_i), Float64.(mpol_r), Float64.(mpol_i), r)
-                                        
+
             if quantity == "magnetic_r"; field3d = br
             elseif quantity == "magnetic_theta"; field3d = bt
             elseif quantity == "magnetic_phi"; field3d = bp
@@ -223,7 +223,8 @@ function main()
         slice, θv, φv = extract_slice_z(field3d, θ, φ, r, z0)
         # Plot
         if plane == "lonlat"
-            heatmap(φv, θv, slice'; aspect_ratio=1, c=Symbol(cmap), xlabel="φ", ylabel="θ", title=ttl=="" ? "$(quantity) at z=$(z0)" : ttl, colorbar=true)
+            heatmap(φv, θv, slice'; aspect_ratio=1, c=Symbol(cmap), xlabel="φ", 
+                ylabel="θ", title=ttl=="" ? "$(quantity) at z=$(z0)" : ttl, colorbar=true)
         else
             # xy scatter (approximate): x=r sinθ cosφ, y=r sinθ sinφ at interpolated r
             xs = Float64[]; ys = Float64[]; vs = Float64[]
@@ -236,7 +237,8 @@ function main()
                     push!(xs,x); push!(ys,y); push!(vs,val)
                 end
             end
-            scatter(xs, ys, marker_z=vs, markersize=3, c=Symbol(cmap), xlabel="x", ylabel="y", title=ttl=="" ? "$(quantity) at z=$(z0)" : ttl, colorbar=true, markerstrokewidth=0)
+            scatter(xs, ys, marker_z=vs, markersize=3, c=Symbol(cmap), xlabel="x", 
+                    ylabel="y", title=ttl=="" ? "$(quantity) at z=$(z0)" : ttl, colorbar=true, markerstrokewidth=0)
         end
         if outfile != ""
             savefig(outfile)

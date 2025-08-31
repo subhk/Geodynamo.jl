@@ -277,7 +277,7 @@ function main()
     demo_advanced_interpolation()
     
     println("\n" * "=" ^ 60)
-    println("🎉 NetCDF Boundary Conditions Demo Completed Successfully!")
+    println("NetCDF Boundary Conditions Demo Completed Successfully!")
     println()
     println("Key takeaways:")
     println("• NetCDF boundary files can be easily loaded and validated")

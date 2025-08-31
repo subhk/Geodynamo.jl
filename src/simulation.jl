@@ -639,7 +639,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
     nprocs = get_nprocs()
     
     if rank == 0
-        println("\n🚀 Starting MASTER geodynamo simulation...")
+        println("\nStarting MASTER geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
@@ -791,7 +791,7 @@ function run_master_simulation!(state::MasterSimulationState{T}) where T
         analyze_master_performance(state)
         
         println("\n" * "="^100)
-        println("         🎉 MASTER SIMULATION COMPLETED SUCCESSFULLY 🎉")
+        println("         MASTER SIMULATION COMPLETED SUCCESSFULLY")
         println("="^100)
         println("Total steps: $step")
         println("Final time: $(round(simulation_time, digits=4))")

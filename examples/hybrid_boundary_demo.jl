@@ -404,7 +404,7 @@ function main()
         println("• Combine with velocity and magnetic field modules")
         
     catch e
-        println("❌ Demo failed with error: $e")
+        println("Demo failed with error: $e")
         return 1
     end
     
