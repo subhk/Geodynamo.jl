@@ -47,10 +47,14 @@ mutable struct PlotOpts
     dir::Union{Nothing,String}
     outpath::Union{Nothing,String}
     fps::Int
+    tmin::Union{Nothing,Float64}
+    tmax::Union{Nothing,Float64}
+    vtkpath::Union{Nothing,String}
+    vtkdir::Union{Nothing,String}
 end
 
 function default_opts()
-    return PlotOpts(false, nothing, nothing, 0.6, false, nothing, nothing, 20)
+    return PlotOpts(false, nothing, nothing, 0.6, false, nothing, nothing, 20, nothing, nothing, nothing, nothing)
 end
 
 function parse_flags!(opts::PlotOpts, extras::Vector{String})
@@ -83,8 +87,20 @@ function parse_flags!(opts::PlotOpts, extras::Vector{String})
         elseif arg == "--fps" && i+1 <= length(extras)
             opts.fps = parse(Int, extras[i+1])
             i += 2
+        elseif arg == "--tmin" && i+1 <= length(extras)
+            opts.tmin = parse(Float64, extras[i+1])
+            i += 2
+        elseif arg == "--tmax" && i+1 <= length(extras)
+            opts.tmax = parse(Float64, extras[i+1])
+            i += 2
+        elseif arg == "--vtk" && i+1 <= length(extras)
+            opts.vtkpath = extras[i+1]
+            i += 2
+        elseif arg == "--vtkdir" && i+1 <= length(extras)
+            opts.vtkdir = extras[i+1]
+            i += 2
         else
-            error("Unknown or malformed option '$arg'. Supported: --overlay --cmap NAME --clim MIN MAX --alpha A --animate --dir DIR --out PATH --fps N")
+            error("Unknown or malformed option '$arg'. Supported: --overlay --cmap NAME --clim MIN MAX --alpha A --animate --dir DIR --out PATH --fps N --tmin T --tmax T --vtk FILE --vtkdir DIR")
         end
     end
     return opts
@@ -210,7 +226,7 @@ function list_nc_files_for_animation(dir::AbstractString)
     times = [(f, time_of_file(f)) for f in files]
     # drop NaN times to the end
     sorted = sort(times; by = x -> isfinite(x[2]) ? x[2] : Inf)
-    return first.(sorted)
+    return first.(sorted), last.(sorted)
 end
 
 function main()
@@ -269,6 +285,21 @@ function main()
                 ax.azimuth[] = 30; ax.elevation[] = 20
                 outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_overlay.png"
                 save(outpng, fig); display(fig); @info "Saved" outpng
+                if opts.vtkpath !== nothing
+                    base = opts.vtkpath
+                    if endswith(lowercase(base), ".vtk")
+                        innerpath = replace(base, r"\.vtk$" => "_inner.vtk")
+                        outerpath = replace(base, r"\.vtk$" => "_outer.vtk")
+                    else
+                        mkpath(base; exist_ok=true)
+                        root = replace(basename(ncpath), r"\.nc$" => "")
+                        innerpath = joinpath(base, "$(root)_$(varname)_inner.vtk")
+                        outerpath = joinpath(base, "$(root)_$(varname)_outer.vtk")
+                    end
+                    export_vtk_surface(innerpath, data.theta, data.phi, data.rvals[r_in], Tin, varname)
+                    export_vtk_surface(outerpath, data.theta, data.phi, data.rvals[r_out], Tout, varname)
+                    @info "Exported VTK" inner=innerpath outer=outerpath
+                end
                 close(data.ds)
                 return fig, ax, (m1, m2), outpng, (:overlay, r_in, r_out, Xin, Yin, Zin, Xo, Yo, Zo)
             else
@@ -283,6 +314,21 @@ function main()
                 ax2.azimuth[] = 30; ax2.elevation[] = 20
                 outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_both.png"
                 save(outpng, fig); display(fig); @info "Saved" outpng
+                if opts.vtkpath !== nothing
+                    base = opts.vtkpath
+                    if endswith(lowercase(base), ".vtk")
+                        innerpath = replace(base, r"\.vtk$" => "_inner.vtk")
+                        outerpath = replace(base, r"\.vtk$" => "_outer.vtk")
+                    else
+                        mkpath(base; exist_ok=true)
+                        root = replace(basename(ncpath), r"\.nc$" => "")
+                        innerpath = joinpath(base, "$(root)_$(varname)_inner.vtk")
+                        outerpath = joinpath(base, "$(root)_$(varname)_outer.vtk")
+                    end
+                    export_vtk_surface(innerpath, data.theta, data.phi, data.rvals[r_in], Tin, varname)
+                    export_vtk_surface(outerpath, data.theta, data.phi, data.rvals[r_out], Tout, varname)
+                    @info "Exported VTK" inner=innerpath outer=outerpath
+                end
                 close(data.ds)
                 return fig, (ax1, ax2), (m1, m2), outpng, (:split, r_in, r_out, Xin, Yin, Zin, Xo, Yo, Zo)
             end
@@ -298,6 +344,15 @@ function main()
             ax.azimuth[] = 30; ax.elevation[] = 20
             outpng = replace(basename(ncpath), r"\.nc$" => "") * "_$(varname)_r$(r_index).png"
             save(outpng, fig); display(fig); @info "Saved" outpng
+            if opts.vtkpath !== nothing
+                base = opts.vtkpath
+                vtkfile = endswith(lowercase(base), ".vtk") ? base : joinpath(base, replace(basename(ncpath), r"\.nc$" => "_$(varname)_r$(r_index).vtk"))
+                if !endswith(lowercase(base), ".vtk")
+                    mkpath(base; exist_ok=true)
+                end
+                export_vtk_surface(vtkfile, data.theta, data.phi, data.rvals[r_index], T, varname)
+                @info "Exported VTK" file=vtkfile
+            end
             close(data.ds)
             return fig, ax, m, outpng, (:single, r_index, X, Y, Z)
         end
@@ -305,8 +360,12 @@ function main()
 
     if opts.animate
         dir = opts.dir === nothing ? (isdir(path) ? path : dirname(path)) : opts.dir
-        files = list_nc_files_for_animation(dir)
-        isempty(files) && error("No .nc files found in directory: $dir")
+        files, times = list_nc_files_for_animation(dir)
+        # Apply time range filtering if requested
+        if opts.tmin !== nothing || opts.tmax !== nothing
+            files = [f for (f,t) in zip(files, times) if (opts.tmin === nothing || t >= opts.tmin) && (opts.tmax === nothing || t <= opts.tmax)]
+        end
+        isempty(files) && error("No .nc files found in directory (after time filtering): $dir")
 
         firstfig, axes, plots, _, meta = render_file_once(files[1])
         outmovie = opts.outpath === nothing ? (backend == :gl ? "movie.mp4" : "movie.gif") : opts.outpath
@@ -323,6 +382,67 @@ function main()
                 end
                 plots[:color][] = T
             elseif meta[1] == :overlay
+function build_sphere_mesh(theta::AbstractVector, phi::AbstractVector, r::Real)
+    nθ = length(theta)
+    nφ = length(phi)
+    sθ = sin.(theta); cθ = cos.(theta)
+    sφ = sin.(phi);   cφ = cos.(phi)
+    # Points as N×3 Float32
+    N = nθ * nφ
+    pts = Array{Float32}(undef, N, 3)
+    # index mapping
+    idx = (i,j) -> (i-1)*nφ + j
+    for i in 1:nθ, j in 1:nφ
+        k = idx(i,j)
+        pts[k,1] = Float32(r * sθ[i] * cφ[j])
+        pts[k,2] = Float32(r * sθ[i] * sφ[j])
+        pts[k,3] = Float32(r * cθ[i])
+    end
+    faces = Vector{NTuple{3,Int}}()
+    sizehint!(faces, 2*(nθ-1)*nφ)
+    for i in 1:(nθ-1)
+        for j in 1:nφ
+            jn = (j % nφ) + 1
+            v1 = idx(i, j)
+            v2 = idx(i, jn)
+            v3 = idx(i+1, j)
+            v4 = idx(i+1, jn)
+            push!(faces, (v1, v2, v3))
+            push!(faces, (v2, v4, v3))
+        end
+    end
+    return pts, faces
+end
+
+function export_vtk_surface(path::AbstractString, theta, phi, r::Real, values::AbstractMatrix, name::AbstractString)
+    pts, faces = build_sphere_mesh(theta, phi, r)
+    N = size(pts,1)
+    M = length(faces)
+    length(vec(values)) == N || error("VTK export: values size mismatch with points")
+    open(path, "w") do io
+        println(io, "# vtk DataFile Version 3.0")
+        println(io, "Geodynamo surface $name")
+        println(io, "ASCII")
+        println(io, "DATASET POLYDATA")
+        println(io, "POINTS $N float")
+        for k in 1:N
+            println(io, "$(pts[k,1]) $(pts[k,2]) $(pts[k,3])")
+        end
+        println(io, "POLYGONS $M $(M*4)")
+        for (a,b,c) in faces
+            # VTK uses 0-based indices
+            println(io, "3 $(a-1) $(b-1) $(c-1)")
+        end
+        println(io, "POINT_DATA $N")
+        println(io, "SCALARS $name float 1")
+        println(io, "LOOKUP_TABLE default")
+        vals = vec(values)
+        for v in vals
+            println(io, Float32(v))
+        end
+    end
+end
+
                 r_in, r_out = meta[2], meta[3]
                 Tin  = field_at_radius(data.var, r_in)
                 Tout = field_at_radius(data.var, r_out)
@@ -352,9 +472,32 @@ function main()
 
         # Use Makie's record API
         record(firstfig, outmovie, files; framerate=fps) do f
-            for file in files
+            for (i, file) in pairs(files)
                 update_for(file)
                 recordframe!(f)
+                if opts.vtkdir !== nothing
+                    mkpath(opts.vtkdir; exist_ok=true)
+                    t = time_of_file(file)
+                    ts = replace(@sprintf("%.6f", t), '.' => 'p')
+                    if meta[1] == :single
+                        r_index = meta[2]
+                        data = read_field(file, varname)
+                        T = field_at_radius(data.var, r_index)
+                        vtkfile = joinpath(opts.vtkdir, "$(varname)_r$(r_index)_t$(ts).vtk")
+                        export_vtk_surface(vtkfile, data.theta, data.phi, data.rvals[r_index], T, varname)
+                        close(data.ds)
+                    else
+                        r_in, r_out = meta[2], meta[3]
+                        data = read_field(file, varname)
+                        Tin  = field_at_radius(data.var, r_in)
+                        Tout = field_at_radius(data.var, r_out)
+                        vtkfile_in  = joinpath(opts.vtkdir, "$(varname)_inner_r$(r_in)_t$(ts).vtk")
+                        vtkfile_out = joinpath(opts.vtkdir, "$(varname)_outer_r$(r_out)_t$(ts).vtk")
+                        export_vtk_surface(vtkfile_in,  data.theta, data.phi, data.rvals[r_in],  Tin,  varname)
+                        export_vtk_surface(vtkfile_out, data.theta, data.phi, data.rvals[r_out], Tout, varname)
+                        close(data.ds)
+                    end
+                end
             end
         end
         @info "Saved animation" outmovie frames=length(files) fps=fps
