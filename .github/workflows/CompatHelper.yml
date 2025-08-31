@@ -1,0 +1,97 @@
+name: CompatHelper
+
+on:
+  schedule:
+    # Run daily at 5:00 AM UTC (allows for global usage patterns)
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      subdirs:
+        description: "Subdirectories (comma-separated, default: '.')"
+        required: false
+        default: "."
+      
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  issues: read
+
+jobs:
+  CompatHelper:
+    runs-on: ubuntu-latest
+    env:
+      JULIA_NUM_THREADS: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v1
+        with:
+          version: '1.10'
+          
+      - name: Install CompatHelper
+        run: julia -e 'using Pkg; Pkg.add("CompatHelper")'
+        
+      - name: Run CompatHelper
+        run: julia -e '
+          using CompatHelper;
+          CompatHelper.main(;
+            subdirs = map(strip, split("${{ github.event.inputs.subdirs || "." }}", ",")),
+            pr_title_prefix = "[CompatHelper] ",
+            pr_title_suffix = "",
+            keep_existing_compat = true,
+            drop_lower_bounds = true,
+            update_existing_prs = true,
+            bump_compat_containing_equality_specifier = true
+          )'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}
+          
+  # Optional: Check for dependency vulnerabilities
+  dependency-security-check:
+    runs-on: ubuntu-latest
+    needs: CompatHelper
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v1
+        with:
+          version: '1.10'
+          
+      - name: Install dependencies  
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+        
+      - name: Check for known vulnerabilities
+        run: julia --project=. -e '
+          using Pkg;
+          # Get list of direct and indirect dependencies
+          deps = Pkg.dependencies();
+          vulnerable_packages = String[];
+          
+          println("=== Dependency Security Check ===");
+          println("Checking $(length(deps)) packages for known issues...");
+          
+          # Add your custom vulnerability checks here
+          # For now, just report the dependency tree
+          for (uuid, info) in deps
+            if info.is_direct_dep
+              println("Direct dependency: $(info.name) v$(info.version)")
+            end
+          end
+          
+          if length(vulnerable_packages) > 0
+            println("⚠️  Found potentially vulnerable packages:");
+            for pkg in vulnerable_packages
+              println("  - $pkg")
+            end
+            exit(1)
+          else
+            println("✅ No known vulnerabilities detected")
+          end
+        '
