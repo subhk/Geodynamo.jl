@@ -106,10 +106,11 @@ function synthesize_velocity!(u_r, u_θ, u_φ, sht, theta, phi, rvals, r_idx, l:
     u_r[:, :, r_idx] .= SHTnsKit.synthesis(sht, C; real_output=true)
 end
 
-function curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta)
+function curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta, phi)
     nθ, nφ, nr = size(u_r)
     # Precompute sin/cos and Δ grids
     sinθ = sin.(theta); cosθ = cos.(theta)
+    Δφ = nφ > 1 ? (phi[2] - phi[1]) : 2π
     # Finite differences in r and θ, periodic in φ
     function d_dθ(A)
         d = similar(A)
@@ -125,7 +126,7 @@ function curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta)
         for k in 1:nr, j in 1:nθ
             @inbounds for i in 1:nφ
                 ip = (i % nφ) + 1; im = (i-2) % nφ + 1
-                d[j,i,k] = (A[j,ip,k] - A[j,im,k]) / (2*(phi[ip]-phi[i]))
+                d[j,i,k] = (A[j,ip,k] - A[j,im,k]) / (2*Δφ)
             end
         end
         d
@@ -201,7 +202,7 @@ function main()
             # Curl
             ω_r = zeros(Float64, nθ, nφ, nr)
             ω_θ = similar(ω_r); ω_φ = similar(ω_r)
-            curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta)
+            curl_spherical!(ω_r, ω_θ, ω_φ, u_r, u_θ, u_φ, rvals, theta, phi)
             # z-components and z-helicity
             cosθ = cos.(theta); sinθ = sin.(theta)
             # Broadcast over phi,r dims via reshape
@@ -229,10 +230,54 @@ function main()
         avg_neg[i,j,k] = cn>0 ? sum_neg[i,j,k]/cn : NaN
     end
 
+    # Also produce theta-aggregated time-averages, both unweighted and volume-weighted
+    sum_pos_theta = sum(sum_pos; dims=(2,3))[:,1,1]
+    sum_neg_theta = sum(sum_neg; dims=(2,3))[:,1,1]
+    cnt_pos_theta = sum(cnt_pos; dims=(2,3))[:,1,1]
+    cnt_neg_theta = sum(cnt_neg; dims=(2,3))[:,1,1]
+    avg_pos_theta = [cnt_pos_theta[i]>0 ? sum_pos_theta[i]/cnt_pos_theta[i] : NaN for i in 1:nθ]
+    avg_neg_theta = [cnt_neg_theta[i]>0 ? sum_neg_theta[i]/cnt_neg_theta[i] : NaN for i in 1:nθ]
+
+    # Volume-weighted theta profiles using Gauss weights (wθ) and radial Δr and r^2 factors
+    wθ = try
+        Vector{Float64}(SHTnsKit.get_gauss_weights(sht))
+    catch
+        sin.(theta)
+    end
+    Δφ = nφ > 1 ? (phi[2]-phi[1]) : 2π
+    Δr = similar(rvals)
+    for k in 1:nr
+        if k == 1
+            Δr[k] = (rvals[min(2,nr)] - rvals[1])
+        elseif k == nr
+            Δr[k] = (rvals[nr] - rvals[nr-1])
+        else
+            Δr[k] = 0.5*(rvals[k+1] - rvals[k-1])
+        end
+    end
+    num_pos_wθ = zeros(Float64, nθ); den_pos_wθ = zeros(Float64, nθ)
+    num_neg_wθ = zeros(Float64, nθ); den_neg_wθ = zeros(Float64, nθ)
+    @inbounds for i in 1:nθ, j in 1:nφ, k in 1:nr
+        w = wθ[i] * Δφ * (rvals[k]^2) * Δr[k]
+        if cnt_pos[i,j,k] > 0
+            num_pos_wθ[i] += sum_pos[i,j,k] * w
+            den_pos_wθ[i] += cnt_pos[i,j,k] * w
+        end
+        if cnt_neg[i,j,k] > 0
+            num_neg_wθ[i] += sum_neg[i,j,k] * w
+            den_neg_wθ[i] += cnt_neg[i,j,k] * w
+        end
+    end
+    avg_pos_theta_weighted = [den_pos_wθ[i]>0 ? num_pos_wθ[i]/den_pos_wθ[i] : NaN for i in 1:nθ]
+    avg_neg_theta_weighted = [den_neg_wθ[i]>0 ? num_neg_wθ[i]/den_neg_wθ[i] : NaN for i in 1:nθ]
+
     jldsave(opts.out;
         theta=theta, phi=phi, r=rvals,
         avg_pos=avg_pos, avg_neg=avg_neg,
         count_pos=cnt_pos, count_neg=cnt_neg,
+        avg_pos_theta=avg_pos_theta, avg_neg_theta=avg_neg_theta,
+        count_pos_theta=cnt_pos_theta, count_neg_theta=cnt_neg_theta,
+        avg_pos_theta_weighted=avg_pos_theta_weighted, avg_neg_theta_weighted=avg_neg_theta_weighted,
         description="Time-averaged z-helicity (u_z*ω_z) separated by sign")
     println("Saved ", opts.out)
 end
@@ -240,4 +285,3 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-
