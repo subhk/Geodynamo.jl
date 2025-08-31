@@ -2,42 +2,312 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
+    tags: ['*']
   pull_request:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
+  # Allow manual triggering
+  workflow_dispatch:
+
+# Cancel in-progress runs on new push
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
+  statuses: write
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    continue-on-error: ${{ matrix.experimental || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - '1.8'      # Minimum supported version
+          - '1.10'     # LTS version  
+          - '1.11'     # Latest stable
+        os: 
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+        arch:
+          - x64
+        experimental: [false]
+        include:
+          # Test on nightly Julia (allowed to fail)
+          - version: 'nightly'
+            os: ubuntu-latest
+            arch: x64
+            experimental: true
+          # Test on ARM64 (macOS)
+          - version: '1.10'
+            os: macOS-14  # ARM64 runner
+            arch: aarch64
+            experimental: false
+        exclude:
+          # MPI might not work well on Windows
+          - os: windows-latest
+            
     env:
       JULIA_NUM_THREADS: 2
+      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Julia
-        uses: julia-actions/setup-julia@v1
         with:
-          version: '1.10'
-
+          fetch-depth: 0  # Needed for proper version detection
+          
+      - name: Set up Julia ${{ matrix.version }}
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+          
       - name: Cache Julia artifacts
         uses: actions/cache@v4
         with:
           path: ~/.julia/artifacts
-          key: ${{ runner.os }}-julia-artifacts-${{ hashFiles('**/Project.toml', '**/Manifest.toml') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-julia-artifacts-${{ matrix.version }}-${{ hashFiles('**/Project.toml', '**/Manifest.toml') }}
           restore-keys: |
-            ${{ runner.os }}-julia-artifacts-
+            ${{ runner.os }}-${{ matrix.arch }}-julia-artifacts-${{ matrix.version }}-
+            ${{ runner.os }}-${{ matrix.arch }}-julia-artifacts-
+            
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev netcdf-bin libnetcdf-dev
+          
+      - name: Install system dependencies (macOS) 
+        if: runner.os == 'macOS'
+        run: |
+          brew install openmpi netcdf
+          
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Windows MPI setup - using Microsoft MPI
+          choco install msmpi -y
+          
+      - name: Build package
+        uses: julia-actions/julia-buildpkg@v1
+        
+      - name: Run tests
+        uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: ${{ matrix.version == '1.10' && matrix.os == 'ubuntu-latest' }}
+          
+      - name: Process coverage
+        if: matrix.version == '1.10' && matrix.os == 'ubuntu-latest'
+        uses: julia-actions/julia-processcoverage@v1
+        
+      - name: Upload coverage to Codecov
+        if: matrix.version == '1.10' && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          
+      - name: Run smoke test with MPI (Linux/macOS)
+        if: runner.os != 'Windows' && matrix.version == '1.10'
+        run: |
+          # Test with 2 MPI processes
+          mpirun -n 2 julia --project=. extras/smoke_test.jl
+          
+  # Documentation build job
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      statuses: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+          
+      - name: Install dependencies
+        run: julia --project=docs -e '
+          using Pkg;
+          Pkg.develop(PackageSpec(path=pwd()));
+          Pkg.instantiate()'
+          
+      - name: Build and deploy documentation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+        run: julia --project=docs docs/make.jl
 
-      - name: Install MPI runtime
+  # Package quality checks
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+          
+      - name: Install JuliaFormatter
+        run: julia -e 'using Pkg; Pkg.add("JuliaFormatter")'
+        
+      - name: Check code formatting
+        run: |
+          julia -e '
+            using JuliaFormatter;
+            formatted = format(".", verbose=true, overwrite=false);
+            if !formatted
+              @error "Code is not properly formatted. Please run JuliaFormatter.jl";
+              exit(1);
+            else
+              @info "✅ Code is properly formatted";
+            end'
+            
+      - name: Install Aqua for package quality
+        run: julia -e 'using Pkg; Pkg.add("Aqua")'
+        
+      - name: Run Aqua quality checks
+        run: julia --project=. -e '
+          using Aqua, Geodynamo;
+          Aqua.test_all(
+            Geodynamo;
+            ambiguities=false,  # Can be noisy
+            deps_compat=true,
+            project_extras=true,
+            stale_deps=true,
+            unbound_args=true
+          )'
+
+  # Performance benchmarks (on release tags)
+  benchmark:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      JULIA_NUM_THREADS: 4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+          
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y openmpi-bin libopenmpi-dev
+          
+      - name: Install benchmark dependencies
+        run: julia --project=. -e '
+          using Pkg;
+          Pkg.add("BenchmarkTools");
+          Pkg.instantiate()'
+          
+      - name: Run performance benchmarks
+        run: julia --project=. -e '
+          using BenchmarkTools, Geodynamo;
+          
+          println("=== Geodynamo.jl Performance Benchmarks ===");
+          println("Julia version: ", VERSION);
+          println("Threads: ", Threads.nthreads());
+          println("Date: ", now());
+          println();
+          
+          # Basic configuration benchmark
+          @info "Testing configuration creation...";
+          suite = BenchmarkGroup();
+          suite["config_small"] = @benchmarkable create_optimized_config(16, 16, nlat=32, nlon=64);
+          suite["config_medium"] = @benchmarkable create_optimized_config(32, 32, nlat=64, nlon=128);
+          suite["config_large"] = @benchmarkable create_optimized_config(64, 64, nlat=128, nlon=256);
+          
+          results = run(suite);
+          display(results);
+          
+          # Save results for comparison
+          BenchmarkTools.save("benchmark_results.json", results);
+          '
+          
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results.json
+          retention-days: 90
 
-      - name: Instantiate
-        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+  # Integration test with latest dependencies
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+          
+      - name: Install with latest compatible dependencies
+        run: |
+          julia --project=. -e '
+            using Pkg;
+            # Update to latest compatible versions
+            Pkg.update();
+            Pkg.instantiate();
+            # Run tests with updated dependencies
+            Pkg.test();
+          '
 
-      - name: Run unit tests
-        run: julia --project=. -e 'using Pkg; Pkg.test()'
-
-      - name: Run smoke test (2 ranks)
-        run: mpirun -n 2 julia --project=. extras/smoke_test.jl
+  # Notify on workflow completion
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test, docs, quality]
+    if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - name: Determine overall status
+        id: status
+        run: |
+          if [ "${{ needs.test.result }}" == "success" ] && \
+             [ "${{ needs.docs.result }}" == "success" ] && \
+             [ "${{ needs.quality.result }}" == "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ All checks passed!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT  
+            echo "message=❌ Some checks failed" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Create status summary
+        run: |
+          echo "## 🔄 CI Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.docs.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY  
+          echo "| Code Quality | ${{ needs.quality.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status:** ${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
