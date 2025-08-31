@@ -35,17 +35,21 @@ function parse_args(args)
     t1 = nothing
     prefix = "combined_global"
     outpath = ""
+    mode = "avg"  # avg | abs | rms
     for a in args[2:end]
         if startswith(a, "--start="); t0 = parse(Float64, split(a, "=", limit=2)[2])
         elseif startswith(a, "--end="); t1 = parse(Float64, split(a, "=", limit=2)[2])
         elseif startswith(a, "--prefix="); prefix = split(a, "=", limit=2)[2]
         elseif startswith(a, "--out="); outpath = split(a, "=", limit=2)[2]
+        elseif startswith(a, "--mode=")
+            mode = lowercase(split(a, "=", limit=2)[2])
+            mode in ("avg","abs","rms") || error("--mode must be one of avg|abs|rms")
         else
             @warn "Unknown argument $a (ignored)"
         end
     end
     (t0 === nothing || t1 === nothing) && (usage(); error("--start and --end required"))
-    return outdir, t0, t1, prefix, outpath
+    return outdir, t0, t1, prefix, outpath, mode
 end
 
 format_time_str(t::Float64) = replace(@sprintf("%.6f", t), "." => "p")
@@ -276,13 +280,16 @@ function volume_average_helicity(h::Array{<:Real,3}, cfg::SHTnsKit.SHTConfig, r:
     return integral / max(vol, eps())
 end
 
-function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::String)
+function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::String; mode::String="avg")
     times = scan_times(dir, prefix)
     sel = [t for t in times if t0 <= t <= t1]
     isempty(sel) && error("No files found in $dir for prefix '$prefix' and time range [$t0, $t1]")
 
     sum_h = nothing
     sum_hr = nothing
+    sum_hθ = nothing
+    sum_hφ = nothing
+    sum_hz = nothing
     count = 0
     coords = Dict{String,Any}()
     meta = Dict{String,Any}()
@@ -338,13 +345,36 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             w_r = parent(fields.vorticity.r_component.data)
             w_t = parent(fields.vorticity.θ_component.data)
             w_p = parent(fields.vorticity.φ_component.data)
-            h = u_r .* w_r .+ u_t .* w_t .+ u_p .* w_p
             hr = u_r .* w_r
-            if sum_h === nothing
-                sum_h = zero(h); sum_hr = zero(hr)
+            hθ = u_t .* w_t
+            hφ = u_p .* w_p
+            # z-component: u_z = u_r cosθ - u_θ sinθ; ω_z = ω_r cosθ - ω_θ sinθ
+            θvec = θ
+            if θvec === nothing && (cfg !== nothing)
+                try
+                    θvec = acos.(cfg.x)
+                catch
+                    θvec = range(0, stop=π, length=size(u_r,1)) |> collect
+                end
             end
-            sum_h .+= h
-            sum_hr .+= hr
+            cθ = cos.(θvec); sθ = sin.(θvec)
+            cθ_mat = reshape(cθ, size(u_r,1), 1, 1)
+            sθ_mat = reshape(sθ, size(u_r,1), 1, 1)
+            u_z = u_r .* cθ_mat .- u_t .* sθ_mat
+            w_z = w_r .* cθ_mat .- w_t .* sθ_mat
+            hz = u_z .* w_z
+            h = hr .+ hθ .+ hφ
+
+            if sum_h === nothing
+                sum_h = zero(h); sum_hr = zero(hr); sum_hθ = zero(hθ); sum_hφ = zero(hφ); sum_hz = zero(hz)
+            end
+            if mode == "avg"
+                sum_h .+= h; sum_hr .+= hr; sum_hθ .+= hθ; sum_hφ .+= hφ; sum_hz .+= hz
+            elseif mode == "abs"
+                sum_h .+= abs.(h); sum_hr .+= abs.(hr); sum_hθ .+= abs.(hθ); sum_hφ .+= abs.(hφ); sum_hz .+= abs.(hz)
+            elseif mode == "rms"
+                sum_h .+= h.^2; sum_hr .+= hr.^2; sum_hθ .+= hθ.^2; sum_hφ .+= hφ.^2; sum_hz .+= hz.^2
+            end
             count += 1
         finally
             NetCDF.close(nc)
@@ -352,12 +382,26 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
     end
 
     count == 0 && error("No samples accumulated in range [$t0,$t1]")
-    return (sum_h ./ count, sum_hr ./ count), count, sel, coords, meta, last_cfg[]
+    if mode == "avg" || mode == "abs"
+        h_avg = sum_h ./ count
+        hr_avg = sum_hr ./ count
+        hθ_avg = sum_hθ ./ count
+        hφ_avg = sum_hφ ./ count
+        hz_avg = sum_hz ./ count
+    else
+        # rms
+        h_avg = sqrt.(sum_h ./ count)
+        hr_avg = sqrt.(sum_hr ./ count)
+        hθ_avg = sqrt.(sum_hθ ./ count)
+        hφ_avg = sqrt.(sum_hφ ./ count)
+        hz_avg = sqrt.(sum_hz ./ count)
+    end
+    return (h_avg, hr_avg, hθ_avg, hφ_avg, hz_avg), count, sel, coords, meta, last_cfg[]
 end
 
 function main()
-    outdir, t0, t1, prefix, outpath = parse_args(copy(ARGS))
-    (h_avg, hr_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix)
+    outdir, t0, t1, prefix, outpath, mode = parse_args(copy(ARGS))
+    (h_avg, hr_avg, hθ_avg, hφ_avg, hz_avg), count, times_used, coords, meta, cfg = time_average_helicity(outdir, t0, t1, prefix; mode=mode)
     if isempty(outpath)
         ttag = string(replace(@sprintf("%.6f", t0), "."=>"p"), "_", replace(@sprintf("%.6f", t1), "."=>"p"))
         outpath = joinpath(outdir, "timeavg_helicity_$(prefix)_$(ttag).jld2")
@@ -368,6 +412,9 @@ function main()
     jldopen(outpath, "w"; compress=true) do f
         write(f, "helicity", h_avg)
         write(f, "helicity_r", hr_avg)
+        write(f, "helicity_theta", hθ_avg)
+        write(f, "helicity_phi", hφ_avg)
+        write(f, "helicity_z", hz_avg)
         write(f, "count", count)
         write(f, "times", times_used)
         write(f, "coords", coords)
@@ -375,6 +422,7 @@ function main()
         write(f, "time_range", (t0, t1))
         write(f, "prefix", prefix)
         write(f, "volume_avg_helicity", Hvol)
+        write(f, "avg_mode", mode)
     end
     println(@sprintf("Saved time-averaged helicity to %s (samples=%d)", outpath, count))
 end
