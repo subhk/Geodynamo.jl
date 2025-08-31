@@ -1,6 +1,9 @@
 ---
-layout: default
+layout: page
 title: Visualization Guide
+permalink: /visualization/
+nav_order: 4
+description: "Comprehensive guide to plotting and analyzing Geodynamo.jl simulation results"
 ---
 
 # Visualization and Plotting Guide

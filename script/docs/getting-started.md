@@ -1,6 +1,9 @@
 ---
-layout: default
+layout: page
 title: Getting Started
+permalink: /getting-started/
+nav_order: 2
+description: "Complete beginner's guide to geodynamo modeling with Geodynamo.jl"
 ---
 
 # Getting Started Guide

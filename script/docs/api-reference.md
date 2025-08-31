@@ -1,6 +1,9 @@
 ---
-layout: default
+layout: page
 title: API Reference
+permalink: /api-reference/
+nav_order: 3
+description: "Complete function and type documentation for Geodynamo.jl"
 ---
 
 # API Reference

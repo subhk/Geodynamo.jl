@@ -1,6 +1,9 @@
 ---
-layout: default  
-title: Examples
+layout: page
+title: Examples Gallery
+permalink: /examples/
+nav_order: 5
+description: "Working code examples for common Geodynamo.jl use cases"
 ---
 
 # Examples Gallery

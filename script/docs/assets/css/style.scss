@@ -1,0 +1,307 @@
+---
+---
+
+@import "minima";
+
+// Custom styling for Geodynamo.jl documentation
+
+// Color scheme
+$primary-color: #667eea;
+$secondary-color: #764ba2;
+$accent-color: #f093fb;
+$text-color: #333;
+$code-bg: #f6f8fa;
+$border-color: #e1e4e8;
+
+// Hero section styling
+.hero {
+  background: linear-gradient(135deg, $primary-color 0%, $secondary-color 100%);
+  color: white;
+  padding: 3rem 2rem;
+  text-align: center;
+  border-radius: 12px;
+  margin: 2rem 0;
+  
+  h1, h2 {
+    color: white;
+    margin-bottom: 1rem;
+  }
+  
+  p {
+    font-size: 1.1em;
+    opacity: 0.95;
+  }
+  
+  .btn {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: bold;
+    border: 2px solid rgba(255,255,255,0.3);
+    margin: 0.5rem;
+    transition: all 0.3s ease;
+    
+    &:hover {
+      background: rgba(255,255,255,0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+  }
+}
+
+// Feature cards
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  border: 1px solid $border-color;
+  border-radius: 8px;
+  padding: 1.5rem;
+  background: white;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  h3 {
+    color: $primary-color;
+    margin-top: 0;
+    font-size: 1.2em;
+  }
+  
+  p {
+    margin-bottom: 0;
+    line-height: 1.6;
+  }
+}
+
+// Example cards
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.example-card {
+  border: 1px solid $border-color;
+  border-radius: 6px;
+  padding: 1rem;
+  text-align: center;
+  background: white;
+  transition: transform 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  
+  h4 {
+    color: $secondary-color;
+    margin-top: 0;
+  }
+  
+  a {
+    text-decoration: none;
+    color: $primary-color;
+    font-weight: 500;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+// Code blocks
+pre, code {
+  background-color: $code-bg;
+  border-radius: 4px;
+}
+
+pre {
+  padding: 1rem;
+  overflow-x: auto;
+  border-left: 4px solid $primary-color;
+}
+
+code {
+  padding: 0.2em 0.4em;
+  font-size: 0.9em;
+}
+
+// Highlight boxes
+.highlight-box {
+  background: linear-gradient(135deg, lighten($primary-color, 40%) 0%, lighten($secondary-color, 40%) 100%);
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+  border-left: 4px solid $primary-color;
+}
+
+.info-box {
+  background-color: #f0f9ff;
+  border: 1px solid #0ea5e9;
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1rem 0;
+  
+  h4 {
+    color: #0284c7;
+    margin-top: 0;
+  }
+}
+
+.warning-box {
+  background-color: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1rem 0;
+  
+  h4 {
+    color: #d97706;
+    margin-top: 0;
+  }
+}
+
+// Navigation improvements
+.site-nav {
+  .page-link {
+    font-weight: 500;
+    color: $text-color;
+    
+    &:hover {
+      color: $primary-color;
+    }
+  }
+}
+
+// Footer styling
+.site-footer {
+  background-color: #f8f9fa;
+  border-top: 1px solid $border-color;
+  
+  .footer-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 2rem;
+    margin: 2rem 0;
+  }
+}
+
+// Responsive improvements
+@media (max-width: 768px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .example-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .hero {
+    padding: 2rem 1rem;
+    
+    .btn {
+      display: block;
+      margin: 0.5rem auto;
+      max-width: 200px;
+    }
+  }
+}
+
+// Table styling
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  
+  th, td {
+    border: 1px solid $border-color;
+    padding: 0.75rem;
+    text-align: left;
+  }
+  
+  th {
+    background-color: $code-bg;
+    font-weight: 600;
+    color: $secondary-color;
+  }
+  
+  tr:nth-child(even) {
+    background-color: rgba($code-bg, 0.5);
+  }
+}
+
+// Badge styling
+.badge {
+  display: inline-block;
+  padding: 0.25em 0.6em;
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: baseline;
+  border-radius: 0.25rem;
+  
+  &.badge-primary {
+    color: white;
+    background-color: $primary-color;
+  }
+  
+  &.badge-secondary {
+    color: white;
+    background-color: $secondary-color;
+  }
+  
+  &.badge-success {
+    color: white;
+    background-color: #28a745;
+  }
+}
+
+// Breadcrumb
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  list-style: none;
+  background-color: $code-bg;
+  border-radius: 0.25rem;
+  
+  .breadcrumb-item {
+    display: flex;
+    
+    &:not(:last-child)::after {
+      display: inline-block;
+      padding-right: 0.5rem;
+      padding-left: 0.5rem;
+      color: #6c757d;
+      content: "/";
+    }
+    
+    &.active {
+      color: #6c757d;
+    }
+  }
+  
+  a {
+    color: $primary-color;
+    text-decoration: none;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
