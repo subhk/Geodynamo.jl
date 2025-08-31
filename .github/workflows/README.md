@@ -2,43 +2,43 @@
 
 This directory contains automated workflows for Geodynamo.jl that handle continuous integration, automated releases, and dependency management.
 
-## 🔄 Workflows Overview
+## Workflows Overview
 
 ### 1. **CI.yml** - Continuous Integration
 **Triggers:** Push to main/master, Pull Requests, Manual dispatch, Tags
 
 **What it does:**
-- ✅ **Cross-platform testing** - Tests on Ubuntu, macOS, Windows
-- ✅ **Multiple Julia versions** - Tests Julia 1.8, 1.10, 1.11, and nightly
-- ✅ **Architecture coverage** - Tests x64 and ARM64 (Apple Silicon)
-- ✅ **MPI testing** - Runs smoke tests with OpenMPI
-- ✅ **Code coverage** - Uploads coverage reports to Codecov
-- ✅ **Documentation** - Builds and deploys docs automatically
-- ✅ **Code quality** - Checks formatting with JuliaFormatter and quality with Aqua
-- ✅ **Performance benchmarks** - Runs benchmarks on tagged releases
-- ✅ **Integration tests** - Tests with latest compatible dependencies
+- **Cross-platform testing** - Tests on Ubuntu, macOS, Windows
+- **Multiple Julia versions** - Tests Julia 1.8, 1.10, 1.11, and nightly
+- **Architecture coverage** - Tests x64 and ARM64 (Apple Silicon)
+- **MPI testing** - Runs smoke tests with OpenMPI
+- **Code coverage** - Uploads coverage reports to Codecov
+- **Documentation** - Builds and deploys docs automatically
+- **Code quality** - Checks formatting with JuliaFormatter and quality with Aqua
+- **Performance benchmarks** - Runs benchmarks on tagged releases
+- **Integration tests** - Tests with latest compatible dependencies
 
 ### 2. **TagBot.yml** - Automated Release Management  
 **Triggers:** JuliaRegistrator comments, Manual dispatch
 
 **What it does:**
-- 🏷️ **Automatic tagging** - Creates Git tags when package is registered
-- 📦 **GitHub releases** - Creates release pages with changelogs
-- 📝 **Release notes** - Auto-generates release notes from commits and PRs
-- 🔗 **Links to registry** - Provides installation instructions
+- **Automatic tagging** - Creates Git tags when package is registered
+- **GitHub releases** - Creates release pages with changelogs
+- **Release notes** - Auto-generates release notes from commits and PRs
+- **Links to registry** - Provides installation instructions
 
 ### 3. **CompatHelper.yml** - Dependency Management
 **Triggers:** Daily at 5:00 AM UTC, Manual dispatch
 
 **What it does:**
-- 🔄 **Dependency updates** - Automatically checks for new compatible versions
-- 📋 **Pull requests** - Creates PRs with dependency updates
-- 🔍 **Security checks** - Scans for known vulnerabilities
-- ⚡ **Smart updates** - Only updates when safe and beneficial
+- **Dependency updates** - Automatically checks for new compatible versions
+- **Pull requests** - Creates PRs with dependency updates
+- **Security checks** - Scans for known vulnerabilities
+- **Smart updates** - Only updates when safe and beneficial
 
 ---
 
-## 🛠️ Setup Instructions
+## Setup Instructions
 
 ### 1. Required Secrets
 
@@ -70,14 +70,14 @@ Set up branch protection for your main branch:
 1. Go to Settings → Branches
 2. Add rule for `main` branch
 3. Enable:
-   - ✅ Require a pull request before merging
-   - ✅ Require status checks to pass before merging
-   - ✅ Require branches to be up to date before merging
-   - ✅ Status checks: `test`, `quality`, `docs`
+   - Require a pull request before merging
+   - Require status checks to pass before merging
+   - Require branches to be up to date before merging
+   - Status checks: `test`, `quality`, `docs`
 
 ---
 
-## 📊 Monitoring and Usage
+## Monitoring and Usage
 
 ### CI Status Badges
 
@@ -94,16 +94,16 @@ Add these badges to your README.md:
 
 | Event | CI | TagBot | CompatHelper |
 |-------|-------|---------|--------------|
-| **Push to main** | ✅ Runs full test suite | ❌ | ❌ |
-| **Pull Request** | ✅ Tests changes | ❌ | ❌ |
-| **New tag** | ✅ + benchmarks | ✅ Creates release | ❌ |
-| **JuliaRegistrator comment** | ❌ | ✅ Creates tag/release | ❌ |
-| **Daily 5 AM UTC** | ❌ | ❌ | ✅ Checks dependencies |
-| **Manual dispatch** | ✅ Can run anytime | ✅ Can run anytime | ✅ Can run anytime |
+| **Push to main** | Runs full test suite | | |
+| **Pull Request** | Tests changes | | |
+| **New tag** | + benchmarks | Creates release | |
+| **JuliaRegistrator comment** | | Creates tag/release | |
+| **Daily 5 AM UTC** | | | Checks dependencies |
+| **Manual dispatch** | Can run anytime | Can run anytime | Can run anytime |
 
 ---
 
-## 🚀 Release Process
+## Release Process
 
 ### Automatic Release (Recommended)
 
@@ -124,14 +124,14 @@ If you need to create a release manually:
 ### Release Notes
 
 TagBot automatically generates release notes including:
-- 📋 **Commit summary** since last release
-- 🔗 **Pull request links** and contributors  
-- 📦 **Installation instructions**
-- 🔄 **Changelog link** comparing versions
+- **Commit summary** since last release
+- **Pull request links** and contributors  
+- **Installation instructions**
+- **Changelog link** comparing versions
 
 ---
 
-## 🔧 Customization
+## Customization
 
 ### CI Matrix Configuration
 
@@ -171,26 +171,26 @@ with:
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
-#### ❌ "Tests failing on Windows"
+#### "Tests failing on Windows"
 - MPI may not work on Windows runners
 - Consider excluding Windows from MPI tests
 - Use Windows-specific MPI setup (MS-MPI)
 
-#### ❌ "Documentation build fails"
+#### "Documentation build fails"
 - Check `DOCUMENTER_KEY` secret is set correctly
 - Verify docs/Project.toml has correct dependencies
 - Ensure docs/make.jl doesn't have errors
 
-#### ❌ "TagBot not creating releases"  
+#### "TagBot not creating releases"  
 - Verify JuliaRegistrator successfully registered the package
 - Check that the comment format was correct: `@JuliaRegistrator register`
 - Ensure repository permissions allow TagBot to create releases
 
-#### ❌ "CompatHelper PRs not appearing"
+#### "CompatHelper PRs not appearing"
 - Check CompatHelper has permission to create PRs
 - Verify there are actually dependency updates available
 - Look for errors in the CompatHelper workflow logs
@@ -211,17 +211,17 @@ with:
 
 ---
 
-## 📈 Benefits
+## Benefits
 
 These workflows provide:
 
-✅ **Automated testing** - Catch bugs before they reach users  
-✅ **Cross-platform compatibility** - Ensure code works everywhere  
-✅ **Dependency management** - Stay up-to-date with ecosystem  
-✅ **Professional releases** - Automated, consistent release process  
-✅ **Code quality** - Maintain high standards automatically  
-✅ **Documentation** - Always up-to-date docs  
-✅ **Performance tracking** - Monitor performance over time  
-✅ **Security monitoring** - Check for vulnerable dependencies  
+**Automated testing** - Catch bugs before they reach users  
+**Cross-platform compatibility** - Ensure code works everywhere  
+**Dependency management** - Stay up-to-date with ecosystem  
+**Professional releases** - Automated, consistent release process  
+**Code quality** - Maintain high standards automatically  
+**Documentation** - Always up-to-date docs  
+**Performance tracking** - Monitor performance over time  
+**Security monitoring** - Check for vulnerable dependencies  
 
-Your package now has enterprise-grade automation! 🎉
+Your package now has enterprise-grade automation! 

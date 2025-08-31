@@ -247,7 +247,7 @@ simd_opt = create_simd_optimizer(Float32)  # Use single precision for max SIMD w
 simd_opt.advection_kernel(output, field, u_r, u_theta, u_phi)
 ```
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### **Thread Performance Issues:**
 ```julia
@@ -287,7 +287,7 @@ else
 end
 ```
 
-## 📈 Expected CPU Performance Gains
+## Expected CPU Performance Gains
 
 ### **Typical Speedups on Modern CPUs:**
 

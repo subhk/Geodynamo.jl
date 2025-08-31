@@ -12,7 +12,7 @@ Comprehensive guide to plotting and analyzing Geodynamo.jl simulation results.
 
 ---
 
-## 🎨 Overview
+## Overview
 
 Geodynamo.jl provides powerful visualization tools for analyzing simulation results, including:
 
@@ -24,7 +24,7 @@ Geodynamo.jl provides powerful visualization tools for analyzing simulation resu
 
 ---
 
-## 🗺️ Spherical Surface Plotting
+## Spherical Surface Plotting
 
 ### Basic Spherical Plots
 
@@ -106,7 +106,7 @@ julia --project=. script/plot_hammer_magnetic.jl ./output/combined_time_1p000000
 
 ---
 
-## 📏 Cross-Sectional Slices
+## Cross-Sectional Slices
 
 ### Constant-Z Slices
 
@@ -139,7 +139,7 @@ julia --project=. script/plot_slice_z.jl ./output/combined_time_1p000000.nc \
 
 ---
 
-## 📊 Custom Plotting in Julia
+## Custom Plotting in Julia
 
 ### Basic Plotting Setup
 
@@ -283,7 +283,7 @@ savefig("magnetic_field_3d.png")
 
 ---
 
-## 📈 Time Series Analysis
+## Time Series Analysis
 
 ### Temporal Evolution Plots
 
@@ -364,7 +364,7 @@ savefig("magnetic_spectrum.png")
 
 ---
 
-## 📊 Performance Visualization
+## Performance Visualization
 
 ### Performance Monitoring Plots
 
@@ -407,7 +407,7 @@ savefig("performance_dashboard.png")
 
 ---
 
-## 🎨 Styling and Customization
+## Styling and Customization
 
 ### Color Schemes
 
@@ -465,7 +465,7 @@ end
 
 ---
 
-## 🛠️ Tips and Best Practices
+## Tips and Best Practices
 
 ### Performance Tips
 
@@ -503,7 +503,7 @@ end
 
 ---
 
-## 📚 Advanced Examples
+## Advanced Examples
 
 ### Animation Creation
 
@@ -552,7 +552,7 @@ end
 
 ---
 
-## 🔗 Related Tools
+## Related Tools
 
 - **[GMT.jl](https://github.com/GenericMappingTools/GMT.jl)** - Advanced geographic plotting
 - **[PlotlyJS.jl](https://github.com/JuliaPlots/PlotlyJS.jl)** - Interactive web-based plots  

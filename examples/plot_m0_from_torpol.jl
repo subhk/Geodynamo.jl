@@ -42,9 +42,10 @@ mutable struct Opts
     nonorm::Bool
     veccomp::Union{Nothing,Symbol}  # :ur | :utheta | :uphi for vectors
     backend::Symbol                 # :shtns or :analytic for vector synthesis
+    strict::Bool                    # when true, disable scalar physical fallback
 end
 
-Opts() = Opts(nothing, nothing, true, false, :ur, :shtns)
+Opts() = Opts(nothing, nothing, true, false, :ur, :shtns, false)
 
 function parse_args()
     path = get(ARGS, 1, "")
@@ -75,6 +76,8 @@ function parse_args()
             b = lowercase(extras[i+1])
             b ∈ ("shtns","analytic") || error("--backend must be shtns|analytic")
             opts.backend = Symbol(b); i += 2
+        elseif a == "--no-fallback" || a == "--strict"
+            opts.strict = true; i += 1
         else
             error("Unknown/malformed option '$a'. Supported: --cmap NAME --clim MIN MAX --degrees|--radians --no-norm")
         end
@@ -324,6 +327,31 @@ function shtns_vector_m0_tangential(theta::AbstractVector, phi::AbstractVector,
     return uθ_m0, uφ_m0
 end
 
+# SHTnsKit-based synthesis for radial component ur using only m=0 modes.
+function shtns_vector_ur_m0(theta::AbstractVector, phi::AbstractVector, r::AbstractVector,
+                            lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
+                            pol_real::AbstractMatrix, pol_imag::AbstractMatrix)
+    @eval using SHTnsKit
+    nlat = length(theta); nlon = length(phi); nr = size(pol_real, 2)
+    lmax = maximum(lvals); mmax = maximum(mvals)
+    sht = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
+    SHTnsKit.prepare_plm_tables!(sht)
+    idxs = findall(==(0), mvals)
+    ur_m0 = zeros(Float64, nlat, nr)
+    for j in 1:nr
+        C = zeros(ComplexF64, lmax+1, mmax+1)
+        rinv2 = 1.0 / (r[j]^2)
+        @inbounds for i in idxs
+            l = lvals[i]
+            # ur = Σ l(l+1)/r^2 * P_l0(r) Y_l0(θ); here pol_real holds P_l0(r)
+            C[l+1, 1] = complex(l*(l+1)*rinv2 * pol_real[i, j], 0.0)
+        end
+        fθφ = SHTnsKit.synthesis(sht, C; real_output=true)
+        ur_m0[:, j] .= sum(fθφ; dims=2)[:,1] ./ nlon
+    end
+    return ur_m0
+end
+
 # SHTnsKit-based synthesis for scalar m=0 using only m=0 modes.
 function shtns_scalar_m0(theta::AbstractVector, phi::AbstractVector,
                          lvals::AbstractVector{<:Integer}, mvals::AbstractVector{<:Integer},
@@ -358,6 +386,9 @@ function main()
             # Fallback: use physical variable and zonal mean
             ds = NCDataset(path)
             try
+                if opts.strict
+                    rethrow(err)
+                end
                 haskey(ds, family) || rethrow(err)
                 theta = vec(ds["theta"][:])
                 rvals = vec(ds["r"][:])
@@ -402,9 +433,14 @@ function main()
     if data.mode == :vector
         V = nothing
         if opts.veccomp == :ur
-            V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
-                                     data.pol_real, data.tor_real;
-                                     component=:ur, normalize=!opts.nonorm)
+            if opts.backend == :shtns
+                V = shtns_vector_ur_m0(data.theta, data.phi, data.r, data.l, data.m,
+                                       data.pol_real, data.pol_imag)
+            else
+                V = synthesize_vector_m0(data.theta, data.r, data.l, data.m,
+                                         data.pol_real, data.tor_real;
+                                         component=:ur, normalize=!opts.nonorm)
+            end
         else
             if opts.backend == :shtns
                 # Need phi grid for averaging; try to read from file (optional)

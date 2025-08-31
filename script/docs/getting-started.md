@@ -12,7 +12,7 @@ Complete beginner's guide to geodynamo modeling with Geodynamo.jl.
 
 ---
 
-## 🎯 What You'll Learn
+## What You'll Learn
 
 By the end of this guide, you'll be able to:
 - Set up and run basic geodynamo simulations
@@ -20,7 +20,7 @@ By the end of this guide, you'll be able to:
 - Visualize simulation results
 - Understand key concepts in geodynamo modeling
 
-## 📋 Prerequisites
+## Prerequisites
 
 - **Julia 1.8+** installed ([Download here](https://julialang.org/downloads/))
 - Basic familiarity with Julia syntax
@@ -28,7 +28,7 @@ By the end of this guide, you'll be able to:
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Step 1: Install Geodynamo.jl
 
@@ -46,7 +46,7 @@ Pkg.add("Plots")       # For visualization
 
 ```julia
 using Geodynamo
-println("✅ Geodynamo.jl installed successfully!")
+println("Geodynamo.jl installed successfully!")
 ```
 
 ### Step 3: Install Visualization Tools (Optional)
@@ -57,7 +57,7 @@ Pkg.add(["PlotlyJS", "GR"])  # Additional plotting backends
 
 ---
 
-## 🌍 Core Concepts
+## Core Concepts
 
 ### What is a Geodynamo?
 
@@ -84,7 +84,7 @@ The package uses **spherical harmonic transforms** to efficiently solve equation
 
 ---
 
-## 🏗️ Basic Setup Workflow
+## 🏗Basic Setup Workflow
 
 Every Geodynamo.jl simulation follows this pattern:
 
@@ -137,7 +137,7 @@ config = create_optimized_config(lmax, mmax,
                                 use_threading=true,
                                 use_simd=true)
 
-println("✅ Configuration created:")
+println("Configuration created:")
 println("   Spectral resolution: lmax=$lmax, mmax=$mmax") 
 println("   Physical grid: $(nlat)×$(nlon)")
 println("   Total spectral modes: $(config.nlm)")
@@ -160,7 +160,7 @@ nr = 64                # Number of radial grid points
 
 domain = create_radial_domain(inner_radius, outer_radius, nr)
 
-println("✅ Domain created:")
+println("Domain created:")
 println("   Shell: r ∈ [$inner_radius, $outer_radius]")
 println("   Radial points: $nr")
 println("   Shell thickness: $(outer_radius - inner_radius) (normalized)")
@@ -172,7 +172,7 @@ println("   Shell thickness: $(outer_radius - inner_radius) (normalized)")
 # Create temperature field for thermal convection
 temp_field = create_shtns_temperature_field(Float64, config, domain)
 
-println("✅ Temperature field created")
+println("Temperature field created")
 ```
 
 ### Step 5: Set Boundary Conditions
@@ -190,7 +190,7 @@ temp_boundaries = create_hybrid_temperature_boundaries(
     config
 )
 
-println("✅ Boundary conditions created:")
+println("Boundary conditions created:")
 println("   CMB temperature: $cmb_temperature K")
 println("   Surface temperature: $surface_temperature K")
 ```
@@ -204,14 +204,14 @@ apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
 # Verify application
 print_boundary_info(temp_boundaries)
 
-println("✅ Boundary conditions applied successfully!")
+println("Boundary conditions applied successfully!")
 ```
 
 ### Step 7: Complete First Simulation
 
 ```julia
 function my_first_geodynamo_simulation()
-    println("🌍 My First Geodynamo Simulation")
+    println("My First Geodynamo Simulation")
     println("=" ^ 40)
     
     # Configuration
@@ -233,12 +233,12 @@ function my_first_geodynamo_simulation()
     
     # Summary
     stats = get_boundary_statistics(temp_boundaries.inner_boundary)
-    println("📊 Simulation Summary:")
+    println("Simulation Summary:")
     println("   Resolution: lmax=$(config.lmax), nlat=$(config.nlat)")
     println("   Temperature range: [$(round(stats["min"])), $(round(stats["max"]))] K")
     println("   Memory usage: ~$((config.nlm * 64 * 8) ÷ 1024 ÷ 1024) MB per field")
     
-    println("\n🎉 First simulation setup complete!")
+    println("\nFirst simulation setup complete!")
     
     return temp_field, temp_boundaries, config, domain
 end
@@ -249,19 +249,19 @@ temp_field, boundaries, config, domain = my_first_geodynamo_simulation()
 
 **Expected Output:**
 ```
-🌍 My First Geodynamo Simulation  
+My First Geodynamo Simulation  
 ========================================
-📊 Simulation Summary:
+Simulation Summary:
    Resolution: lmax=32, nlat=64
    Temperature range: [4000, 4000] K
    Memory usage: ~8 MB per field
 
-🎉 First simulation setup complete!
+First simulation setup complete!
 ```
 
 ---
 
-## 🎨 Adding Realistic Physics
+## Adding Realistic Physics
 
 ### Realistic Boundary Conditions
 
@@ -269,7 +269,7 @@ Instead of uniform boundaries, let's add realistic structure:
 
 ```julia
 function realistic_boundary_example()
-    println("🌋 Realistic Boundary Conditions Example")
+    println("Realistic Boundary Conditions Example")
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -294,7 +294,7 @@ function realistic_boundary_example()
     # Analysis
     inner_stats = get_boundary_statistics(temp_boundaries.inner_boundary)
     
-    println("📊 Plume Boundary Analysis:")
+    println("Plume Boundary Analysis:")
     println("   Base CMB temperature: 4200 K")
     println("   Plume temperature range: [$(round(inner_stats["min"])), $(round(inner_stats["max"]))] K")
     println("   Temperature contrast: $(round(inner_stats["max"] - inner_stats["min"])) K")
@@ -342,7 +342,7 @@ hemisphere_boundaries = create_hybrid_temperature_boundaries(
 
 ---
 
-## 📁 Working with Real Data
+## Working with Real Data
 
 ### Using NetCDF Files
 
@@ -350,7 +350,7 @@ For realistic simulations, you can load boundary conditions from NetCDF files:
 
 ```julia
 function netcdf_boundary_example()
-    println("📂 NetCDF Boundary Conditions Example")
+    println("NetCDF Boundary Conditions Example")
     
     # Check if sample files exist  
     cmb_file = "cmb_temp.nc"
@@ -360,22 +360,22 @@ function netcdf_boundary_example()
         println("📥 Creating sample NetCDF files...")
         # Create sample files (run this once)
         include("examples/create_sample_netcdf_boundaries.jl")
-        println("✅ Sample files created")
+        println("Sample files created")
     end
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
     
     # Load boundaries from NetCDF files
-    println("📂 Loading temperature boundaries...")
+    println("Loading temperature boundaries...")
     temp_boundaries = load_temperature_boundaries(cmb_file, surface_file)
     
     # Validate compatibility  
     is_compatible = validate_netcdf_temperature_compatibility(temp_boundaries, config)
-    println("🔍 Boundary compatibility: $(is_compatible ? "✅" : "❌")")
+    println("Boundary compatibility: $(is_compatible ? "" : "")")
     
     if !is_compatible
-        println("⚠️  Grid size mismatch - automatic interpolation will be used")
+        println("⚠Grid size mismatch - automatic interpolation will be used")
     end
     
     # Apply boundaries
@@ -383,7 +383,7 @@ function netcdf_boundary_example()
     apply_netcdf_temperature_boundaries!(temp_field, temp_boundaries)
     
     # Detailed analysis
-    println("\n📊 NetCDF Boundary Analysis:")
+    println("\nNetCDF Boundary Analysis:")
     print_boundary_info(temp_boundaries)
     
     return temp_field, temp_boundaries
@@ -399,7 +399,7 @@ Mix NetCDF data with programmatic patterns for maximum flexibility:
 
 ```julia
 function hybrid_boundary_example()
-    println("🔀 Hybrid Boundary Conditions Example")
+    println("Hybrid Boundary Conditions Example")
     
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
     domain = create_radial_domain(0.35, 1.0, 64)
@@ -411,7 +411,7 @@ function hybrid_boundary_example()
             (:uniform, 300.0),    # Simple surface
             config
         )
-        println("✅ Strategy 1: NetCDF inner + programmatic outer")
+        println("Strategy 1: NetCDF inner + programmatic outer")
     end
     
     # Strategy 2: Programmatic inner + NetCDF outer
@@ -420,7 +420,7 @@ function hybrid_boundary_example()
         (:uniform, 300.0),    # Would be NetCDF if file exists
         config  
     )
-    println("✅ Strategy 2: Programmatic inner + simple outer")
+    println("Strategy 2: Programmatic inner + simple outer")
     
     # Apply the available strategy
     temp_field = create_shtns_temperature_field(Float64, config, domain)
@@ -435,7 +435,7 @@ temp_field, boundaries = hybrid_boundary_example()
 
 ---
 
-## ⏱️ Running Simulations
+## Running Simulations
 
 ### Basic Time-Stepping Loop
 
@@ -443,7 +443,7 @@ Here's how to evolve your simulation in time:
 
 ```julia
 function basic_simulation_loop()
-    println("⏱️ Basic Simulation Time Loop")
+    println("Basic Simulation Time Loop")
     
     # Setup (reuse from previous examples)
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
@@ -466,7 +466,7 @@ function basic_simulation_loop()
     nsteps = 100         # Number of steps
     output_freq = 20     # Output every N steps
     
-    println("🚀 Starting simulation loop...")
+    println("Starting simulation loop...")
     println("   Time step: $dt")
     println("   Total steps: $nsteps") 
     println("   Output frequency: every $output_freq steps")
@@ -494,7 +494,7 @@ function basic_simulation_loop()
         end
     end
     
-    println("🎉 Simulation loop completed!")
+    println("Simulation loop completed!")
     return temp_field, vel_field
 end
 
@@ -508,7 +508,7 @@ Monitor your simulation performance:
 
 ```julia
 function monitored_simulation()
-    println("📊 Performance-Monitored Simulation")
+    println("Performance-Monitored Simulation")
     
     # Setup
     config = create_optimized_config(64, 64, nlat=128, nlon=256)
@@ -525,7 +525,7 @@ function monitored_simulation()
     # Initialize performance monitoring
     reset_performance_stats!()
     
-    println("⏱️ Running monitored simulation...")
+    println("Running monitored simulation...")
     
     # Timed simulation
     elapsed = @elapsed @timed_transform begin
@@ -535,10 +535,10 @@ function monitored_simulation()
     end
     
     # Performance report
-    println("\n📊 Performance Report:")
+    println("\nPerformance Report:")
     print_performance_report()
     
-    println("\n💡 Performance Summary:")
+    println("\nPerformance Summary:")
     println("   Total time: $(round(elapsed, digits=2)) seconds")
     println("   Average per step: $(round(elapsed/50*1000, digits=2)) ms")
     
@@ -551,7 +551,7 @@ temp_field = monitored_simulation()
 
 ---
 
-## 📊 Visualization and Analysis
+## Visualization and Analysis
 
 ### Basic Plotting
 
@@ -562,7 +562,7 @@ using Plots
 plotlyjs()  # Use PlotlyJS backend
 
 function basic_visualization_example()
-    println("📊 Basic Visualization Example")
+    println("Basic Visualization Example")
     
     # Create a simple temperature field for plotting
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
@@ -614,7 +614,7 @@ function basic_visualization_example()
     
     # Save plot
     savefig(combined, "basic_geodynamo_plot.png")
-    println("💾 Plot saved as: basic_geodynamo_plot.png")
+    println("Plot saved as: basic_geodynamo_plot.png")
     
     return combined
 end
@@ -640,7 +640,7 @@ julia --project=. script/plot_slice_z.jl output.nc --quantity=temperature --z=0.
 
 ---
 
-## 🎓 Learning Exercises
+## Learning Exercises
 
 ### Exercise 1: Resolution Study
 
@@ -648,7 +648,7 @@ Compare different resolutions:
 
 ```julia
 function resolution_study()
-    println("🎓 Exercise 1: Resolution Study")
+    println("Exercise 1: Resolution Study")
     
     resolutions = [
         (16, 32, 64),    # lmax, nlat, nlon
@@ -668,7 +668,7 @@ function resolution_study()
         println("   lmax=$lmax, grid=$(nlat)×$(nlon): $(config.nlm) modes, ~$(memory_mb) MB")
     end
     
-    println("💡 Key insight: Memory scales as lmax² while accuracy improves")
+    println("Key insight: Memory scales as lmax² while accuracy improves")
 end
 
 resolution_study()
@@ -680,7 +680,7 @@ Compare different boundary patterns:
 
 ```julia
 function boundary_comparison_study()
-    println("🎓 Exercise 2: Boundary Pattern Comparison")
+    println("Exercise 2: Boundary Pattern Comparison")
     
     config = create_optimized_config(32, 32, nlat=64, nlon=128)
     domain = create_radial_domain(0.35, 1.0, 32)
@@ -692,7 +692,7 @@ function boundary_comparison_study()
         ("Hemisphere", (:hemisphere, 4000.0, Dict("axis" => "z", "amplitude" => 300.0)))
     ]
     
-    println("📊 Pattern Comparison:")
+    println("Pattern Comparison:")
     for (name, pattern_spec) in patterns
         boundaries = create_hybrid_temperature_boundaries(
             pattern_spec, (:uniform, 300.0), config
@@ -705,7 +705,7 @@ function boundary_comparison_study()
         println("     Std Dev: $(round(stats["std"], digits=1)) K")
     end
     
-    println("💡 Key insight: Different patterns create different convection styles")
+    println("Key insight: Different patterns create different convection styles")
 end
 
 boundary_comparison_study()
@@ -713,7 +713,7 @@ boundary_comparison_study()
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues and Solutions
 
@@ -790,41 +790,41 @@ println("Julia threads: $(Threads.nthreads())")
 
 ---
 
-## 🎯 Next Steps
+## Next Steps
 
 ### Beginner Path
-1. ✅ Complete this getting started guide
-2. 📊 Try the [visualization examples](visualization.html)
-3. 🔬 Explore [basic examples](examples.html)
+1. Complete this getting started guide
+2. Try the [visualization examples](visualization.html)
+3. Explore [basic examples](examples.html)
 4. 📖 Read the [API reference](api-reference.html)
 
 ### Intermediate Path  
-1. 📁 Use NetCDF boundary conditions
+1. Use NetCDF boundary conditions
 2. ⏰ Add time-dependent boundaries
-3. 🔀 Experiment with hybrid approaches
-4. 📈 Perform resolution studies
+3. Experiment with hybrid approaches
+4. Perform resolution studies
 
 ### Advanced Path
-1. 🧲 Add magnetic field generation
-2. ⚡ Optimize for HPC clusters
-3. 🔬 Develop new physics modules
-4. 📝 Contribute to the project
+1. Add magnetic field generation
+2. Optimize for HPC clusters
+3. Develop new physics modules
+4. Contribute to the project
 
 ---
 
-## 🎉 Congratulations!
+## Congratulations!
 
 You've completed the Geodynamo.jl getting started guide! You now know how to:
 
-- ✅ Set up basic geodynamo simulations
-- ✅ Apply different boundary conditions  
-- ✅ Run time-stepping loops
-- ✅ Visualize results
-- ✅ Monitor performance
-- ✅ Troubleshoot common issues
+- Set up basic geodynamo simulations
+- Apply different boundary conditions  
+- Run time-stepping loops
+- Visualize results
+- Monitor performance
+- Troubleshoot common issues
 
 **Ready for more?** Check out our [Examples Gallery](examples.html) for working code samples, or dive into the [API Reference](api-reference.html) for detailed documentation.
 
 ---
 
-*Happy geodynamo modeling! 🌍*
+*Happy geodynamo modeling! *

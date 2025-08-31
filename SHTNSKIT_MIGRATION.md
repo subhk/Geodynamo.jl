@@ -108,11 +108,11 @@ config = create_shtnskit_config(
 
 ## Testing Status
 
-✅ **Configuration Creation** - SHTnsKit configs created successfully  
-✅ **Field Creation** - Spectral and physical fields working  
-✅ **API Availability** - All new transform functions exported  
-✅ **Parallelization** - Theta-phi MPI decomposition implemented  
-✅ **Performance Monitoring** - Statistics collection functional  
+**Configuration Creation** - SHTnsKit configs created successfully  
+**Field Creation** - Spectral and physical fields working  
+**API Availability** - All new transform functions exported  
+**Parallelization** - Theta-phi MPI decomposition implemented  
+**Performance Monitoring** - Statistics collection functional  
 
 ## Next Steps
 
@@ -137,5 +137,4 @@ The old SHTns API has been deprecated but backup files are preserved. To ensure 
 
 ---
 
-**Migration completed successfully!** 🎉  
-Geodynamo.jl now uses SHTnsKit with optimized theta-phi parallelization.
+**Migration completed successfully!** Geodynamo.jl now uses SHTnsKit with optimized theta-phi parallelization.

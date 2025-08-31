@@ -2,7 +2,7 @@
 
 This guide will help you set up a GitHub Pages website for Geodynamo.jl using the documentation files created in this directory.
 
-## 📁 File Overview
+## File Overview
 
 The documentation website includes:
 
@@ -17,7 +17,7 @@ script/docs/
 └── README.md           # This setup guide
 ```
 
-## 🚀 Setup Steps
+## Setup Steps
 
 ### Step 1: Copy Files to Main Docs Directory
 
@@ -62,7 +62,7 @@ Your documentation website will be available at:
 https://your-username.github.io/Geodynamo.jl/
 ```
 
-## 🎨 Customization Options
+## Customization Options
 
 ### Jekyll Theme
 
@@ -118,7 +118,7 @@ Create a `docs/assets/style.css` file for custom styling:
 }
 ```
 
-## 📝 Content Updates
+## Content Updates
 
 ### Adding New Pages
 
@@ -136,7 +136,7 @@ Create a `docs/assets/style.css` file for custom styling:
 
 Simply edit the markdown files in `docs/`. Changes will be automatically deployed when you commit to the main branch.
 
-## 🔧 Advanced Features
+## Advanced Features
 
 ### Custom Domain
 
@@ -169,7 +169,7 @@ For advanced search, consider using:
 - **lunr.js** (client-side search)
 - **Simple Jekyll Search** (basic search)
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Site Not Building
 
@@ -194,25 +194,25 @@ For advanced search, consider using:
 - **Check browser console** for CSS/JS errors
 - **Validate HTML** using online validators
 
-## 📚 Resources
+## Resources
 
 - **[GitHub Pages Documentation](https://docs.github.com/en/pages)**
 - **[Jekyll Documentation](https://jekyllrb.com/docs/)**
 - **[Markdown Guide](https://www.markdownguide.org/)**
 - **[YAML Syntax](https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html)**
 
-## 🎉 Success!
+## Success!
 
 Once set up, your documentation website will:
 
-- ✅ **Automatically update** when you push changes
-- ✅ **Be mobile-responsive** with clean styling  
-- ✅ **Include syntax highlighting** for code examples
-- ✅ **Provide easy navigation** between sections
-- ✅ **Be discoverable** by search engines
-- ✅ **Load fast** with GitHub's CDN
+- **Automatically update** when you push changes
+- **Be mobile-responsive** with clean styling  
+- **Include syntax highlighting** for code examples
+- **Provide easy navigation** between sections
+- **Be discoverable** by search engines
+- **Load fast** with GitHub's CDN
 
-## 📞 Need Help?
+## Need Help?
 
 If you encounter issues:
 
@@ -223,4 +223,4 @@ If you encounter issues:
 
 ---
 
-**Your professional documentation website is ready to go! 🚀**
+**Your professional documentation website is ready to go! **

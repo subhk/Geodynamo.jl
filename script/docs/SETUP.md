@@ -2,7 +2,7 @@
 
 This guide will help you set up a professional documentation website for Geodynamo.jl using GitHub Pages and Jekyll.
 
-## 📁 What's Included
+## What's Included
 
 The documentation website includes:
 
@@ -24,7 +24,7 @@ docs/
 └── SETUP.md               # This setup guide
 ```
 
-## 🚀 Quick Setup (GitHub Pages)
+## Quick Setup (GitHub Pages)
 
 ### Method 1: Copy Files to Main docs/
 
@@ -56,7 +56,7 @@ If you want to use docs/ as the website root:
 2. **Move content** from script/docs/ to repository root
 3. **Update _config.yml** baseurl to `""`
 
-## 🔧 Local Development Setup
+## Local Development Setup
 
 ### Prerequisites
 
@@ -101,7 +101,7 @@ bundle exec jekyll serve --drafts
 bundle exec jekyll serve --port 4001
 ```
 
-## ⚙️ Customization
+## Customization
 
 ### Site Configuration
 
@@ -167,7 +167,7 @@ $secondary-color: #764ba2;
    ```
 3. **Write your content** in Markdown
 
-## 🎨 Theme Features
+## Theme Features
 
 ### Built-in Components
 
@@ -184,7 +184,7 @@ $secondary-color: #764ba2;
 **Info Boxes:**
 ```html
 <div class="info-box">
-  <h4>💡 Information</h4>
+  <h4>Information</h4>
   <p>Important information for users</p>
 </div>
 ```
@@ -201,12 +201,12 @@ Pages with 3+ headings automatically get a table of contents.
 ### Responsive Design
 
 The theme is fully responsive and works on:
-- ✅ Desktop computers
-- ✅ Tablets  
-- ✅ Mobile phones
-- ✅ High-DPI displays
+- Desktop computers
+- Tablets  
+- Mobile phones
+- High-DPI displays
 
-## 📊 Analytics & SEO
+## Analytics & SEO
 
 ### Google Analytics
 
@@ -219,11 +219,11 @@ google_analytics: UA-XXXXXXXXX-X
 ### SEO Optimization
 
 The site includes:
-- ✅ **Meta tags** for search engines
-- ✅ **Open Graph** tags for social sharing
-- ✅ **Structured data** for rich snippets
-- ✅ **Sitemap** generation
-- ✅ **RSS feed** for updates
+- **Meta tags** for search engines
+- **Open Graph** tags for social sharing
+- **Structured data** for rich snippets
+- **Sitemap** generation
+- **RSS feed** for updates
 
 ### Social Sharing
 
@@ -237,27 +237,27 @@ social:
     - "https://twitter.com/your-handle"
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
-**❌ "Jekyll not found"**
+**"Jekyll not found"**
 ```bash
 gem install jekyll bundler
 bundle install
 ```
 
-**❌ "Permission denied"**
+**"Permission denied"**
 ```bash
 sudo chown -R $(whoami) docs/
 ```
 
-**❌ "Site not updating"**
+**"Site not updating"**
 - Check GitHub Actions for build errors
 - Verify file names and paths
 - Clear browser cache
 
-**❌ "Ruby version error"**
+**"Ruby version error"**
 ```bash
 rbenv install 3.0.0
 rbenv global 3.0.0
@@ -275,7 +275,7 @@ Common fixes:
 - Verify file paths in links
 - Ensure all referenced files exist
 
-## 🚀 Advanced Features
+## Advanced Features
 
 ### Custom Domain
 
@@ -307,27 +307,27 @@ For non-technical users:
 - **Netlify CMS** - Git-based content management
 - **Prose.io** - Simple GitHub-based editor
 
-## 📚 Resources
+## Resources
 
 - **[Jekyll Documentation](https://jekyllrb.com/docs/)**
 - **[GitHub Pages Documentation](https://docs.github.com/en/pages)**
 - **[Liquid Template Language](https://shopify.github.io/liquid/)**
 - **[Markdown Guide](https://www.markdownguide.org/)**
 
-## 🎉 Success!
+## Success!
 
 Your documentation website includes:
 
-✅ **Professional design** with modern styling  
-✅ **Mobile responsive** layout  
-✅ **Interactive features** like copy buttons and smooth scrolling  
-✅ **SEO optimized** for search engines  
-✅ **Social media ready** with Open Graph tags  
-✅ **Automated deployment** via GitHub Pages  
-✅ **Fast loading** with optimized assets  
-✅ **Accessible** design following web standards  
+**Professional design** with modern styling  
+**Mobile responsive** layout  
+**Interactive features** like copy buttons and smooth scrolling  
+**SEO optimized** for search engines  
+**Social media ready** with Open Graph tags  
+**Automated deployment** via GitHub Pages  
+**Fast loading** with optimized assets  
+**Accessible** design following web standards  
 
-## 💬 Need Help?
+## Need Help?
 
 - **GitHub Issues** - Report bugs or request features
 - **GitHub Discussions** - Ask questions and get help
@@ -335,4 +335,4 @@ Your documentation website includes:
 
 ---
 
-**Your professional documentation website is ready to showcase your Julia package! 🚀**
+**Your professional documentation website is ready to showcase your Julia package! **

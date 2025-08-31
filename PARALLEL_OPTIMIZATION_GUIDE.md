@@ -215,7 +215,7 @@ state = initialize_optimized_simulation(Float64,
 )
 ```
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### **Threading Issues:**
 ```julia
@@ -248,7 +248,7 @@ async_comm = state.hybrid_parallelizer.async_comm
 println("Communication pattern: $(async_comm.comm_pattern)")
 ```
 
-## 📈 Expected Performance Gains
+## Expected Performance Gains
 
 ### **Typical Speedups:**
 
