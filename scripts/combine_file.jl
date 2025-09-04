@@ -133,6 +133,7 @@
 #
 # ============================================================================
 
+using Geodynamo
 using MPI
 using PencilArrays  
 using NetCDF
