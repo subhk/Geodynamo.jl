@@ -147,7 +147,7 @@ module Geodynamo
     include("optimizations.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
-    include("../extras/combine_file.jl")
+    include("combiner.jl")
 
     # Geometry-specific convenience layers
     include("Shell/Shell.jl")
