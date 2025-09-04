@@ -459,20 +459,32 @@ function apply_geometric_factors_spectral!(temp_field::SHTnsTemperatureField{T},
     
     @inbounds for r_idx in r_range
         if r_idx <= oc_domain.N
-            r_inv = oc_domain.r[r_idx, 3]  # 1/r
             local_r = r_idx - first(r_range) + 1
-            
-            @simd for lm_idx in lm_range
-                local_lm = lm_idx - first(lm_range) + 1
-                if local_lm <= size(grad_θ_real, 1) && local_r <= size(grad_θ_real, 3)
-                    # ∇_θ T = (1/r) ∂T/∂θ
-                    grad_θ_real[local_lm, 1, local_r] *= r_inv
-                    grad_θ_imag[local_lm, 1, local_r] *= r_inv
-                    
-                    # ∇_φ T = (1/(r sin θ)) ∂T/∂φ
-                    # The sin θ factor is handled in the spherical harmonic basis
-                    grad_φ_real[local_lm, 1, local_r] *= r_inv
-                    grad_φ_imag[local_lm, 1, local_r] *= r_inv
+            r_val = oc_domain.r[r_idx, 4]
+            # Avoid 1/0 at r=0 (ball geometry). In that case, leave gradients zero.
+            if r_val == 0.0
+                # Ensure inner-plane gradient stays finite/zero
+                @simd for lm_idx in lm_range
+                    local_lm = lm_idx - first(lm_range) + 1
+                    if local_lm <= size(grad_θ_real, 1) && local_r <= size(grad_θ_real, 3)
+                        grad_θ_real[local_lm, 1, local_r] = 0
+                        grad_θ_imag[local_lm, 1, local_r] = 0
+                        grad_φ_real[local_lm, 1, local_r] = 0
+                        grad_φ_imag[local_lm, 1, local_r] = 0
+                    end
+                end
+            else
+                r_inv = oc_domain.r[r_idx, 3]  # 1/r
+                @simd for lm_idx in lm_range
+                    local_lm = lm_idx - first(lm_range) + 1
+                    if local_lm <= size(grad_θ_real, 1) && local_r <= size(grad_θ_real, 3)
+                        # ∇_θ T = (1/r) ∂T/∂θ
+                        grad_θ_real[local_lm, 1, local_r] *= r_inv
+                        grad_θ_imag[local_lm, 1, local_r] *= r_inv
+                        # ∇_φ T = (1/(r sin θ)) ∂T/∂φ; sinθ handled by SH basis
+                        grad_φ_real[local_lm, 1, local_r] *= r_inv
+                        grad_φ_imag[local_lm, 1, local_r] *= r_inv
+                    end
                 end
             end
         end

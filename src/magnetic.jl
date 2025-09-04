@@ -216,20 +216,27 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(j_tor_real, 3)
-                    r_inv = oc_domain.r[r_idx, 3]   # 1/r
-                    r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
-                    
-                    # Toroidal current from poloidal field (with full derivatives)
-                    j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
-                                                        - d2pol_dr2_real[r_idx] 
-                                                        - 2.0 * r_inv * dpol_dr_real[r_idx])
-                    j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
-                                                        - d2pol_dr2_imag[r_idx] 
-                                                        - 2.0 * r_inv * dpol_dr_imag[r_idx])
-                    
-                    # Poloidal current from toroidal field (simpler - no radial derivatives)
-                    j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
-                    j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
+                    r_val = oc_domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        # At r=0 (ball geometry), enforce finite current density
+                        j_tor_real[local_lm, 1, local_r] = 0
+                        j_tor_imag[local_lm, 1, local_r] = 0
+                        j_pol_real[local_lm, 1, local_r] = 0
+                        j_pol_imag[local_lm, 1, local_r] = 0
+                    else
+                        r_inv = oc_domain.r[r_idx, 3]   # 1/r
+                        r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
+                        # Toroidal current from poloidal field (with full derivatives)
+                        j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
+                                                            - d2pol_dr2_real[r_idx] 
+                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
+                                                            - d2pol_dr2_imag[r_idx] 
+                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        # Poloidal current from toroidal field (simpler - no radial derivatives)
+                        j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
+                        j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
+                    end
                 end
             end
         end

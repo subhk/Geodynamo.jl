@@ -179,20 +179,27 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(ω_tor_real, 3)
-                    r_inv = oc_domain.r[r_idx, 3]   # 1/r
-                    r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
-                    
-                    # Toroidal vorticity from poloidal velocity (with full derivatives)
-                    ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
-                                                        - d2pol_dr2_real[r_idx] 
-                                                        - 2.0 * r_inv * dpol_dr_real[r_idx])
-                    ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
-                                                        - d2pol_dr2_imag[r_idx] 
-                                                        - 2.0 * r_inv * dpol_dr_imag[r_idx])
-                    
-                    # Poloidal vorticity from toroidal velocity
-                    ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
-                    ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
+                    r_val = oc_domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        # At r=0 (ball geometry), regularity implies finite values → set to 0 safely
+                        ω_tor_real[local_lm, 1, local_r] = 0
+                        ω_tor_imag[local_lm, 1, local_r] = 0
+                        ω_pol_real[local_lm, 1, local_r] = 0
+                        ω_pol_imag[local_lm, 1, local_r] = 0
+                    else
+                        r_inv = oc_domain.r[r_idx, 3]   # 1/r
+                        r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
+                        # Toroidal vorticity from poloidal velocity (with full derivatives)
+                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
+                                                            - d2pol_dr2_real[r_idx] 
+                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
+                                                            - d2pol_dr2_imag[r_idx] 
+                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        # Poloidal vorticity from toroidal velocity
+                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
+                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
+                    end
                 end
             end
         end
