@@ -302,9 +302,10 @@ end
 function export_vtp_surface_xml(path::AbstractString, theta, phi, r::Real, values::AbstractMatrix, name::AbstractString)
     HAVE_WRITEVTK || error("WriteVTK.jl not installed. Install with: import Pkg; Pkg.add(\"WriteVTK\")")
     pts, faces = build_sphere_mesh(theta, phi, r)
+    # WriteVTK expects 1-based connectivity as Vector{Vector{Int}}
+    polys = [collect(f) for f in faces]
     P = Array{Float64}(undef, size(pts,1), 3)
     P[:,1] = Float64.(pts[:,1]); P[:,2] = Float64.(pts[:,2]); P[:,3] = Float64.(pts[:,3])
-    polys = reduce(vcat, [[f[1]-1, f[2]-1, f[3]-1] for f in faces])
     vtk = WriteVTK.vtk_grid("PolyData", P; polys=polys)
     WriteVTK.vtk_point_data(vtk, name, vec(values))
     WriteVTK.vtk_save(vtk, path)
