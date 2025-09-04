@@ -747,10 +747,10 @@ end
 """
     batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
     
-Perform batched transforms for better cache efficiency using shtns_transforms.jl
+Perform batched transforms for better cache efficiency using shtnskit_transforms.jl
 """
 function batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
-    # Use batched operations from shtns_transforms.jl for better performance
+    # Use batched operations from shtnskit_transforms.jl for better performance
     specs = [fields.toroidal, fields.poloidal, fields.vort_toroidal, fields.vort_poloidal]
     physs = [fields.work_physical.r_component, fields.work_physical.θ_component, 
              fields.work_physical.φ_component, fields.velocity.r_component]
@@ -772,17 +772,13 @@ function optimize_velocity_memory_layout!(fields::SHTnsVelocityFields{T}) where 
     # Use transpose plans for optimal data layout based on upcoming operations
     config = fields.toroidal.config
     
-    # Check if we have transpose plans available
-    if haskey(config, :transpose_plans)
-        plans = config.transpose_plans
-        
-        # Optimize for radial operations if doing derivatives
-        if haskey(plans, :r_to_spec)
-            transpose_with_timer!(fields.work_tor.data_real, fields.toroidal.data_real, 
-                                plans[:r_to_spec], "toroidal_layout_opt")
-            transpose_with_timer!(fields.work_pol.data_real, fields.poloidal.data_real, 
-                                plans[:r_to_spec], "poloidal_layout_opt")
-        end
+    # Use transpose plans if available
+    plans = config.transpose_plans
+    if !isempty(plans) && haskey(plans, :r_to_spec)
+        transpose_with_timer!(fields.work_tor.data_real, fields.toroidal.data_real, 
+                              plans[:r_to_spec], "toroidal_layout_opt")
+        transpose_with_timer!(fields.work_pol.data_real, fields.poloidal.data_real, 
+                              plans[:r_to_spec], "poloidal_layout_opt")
     end
 end
 
@@ -806,11 +802,9 @@ function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config:
     end
     
     # Validate pencil topology consistency
-    if haskey(config, :pencils)
-        spec_range = range_local(config.pencils.spec, 1)
-        if !isempty(spec_range) && maximum(spec_range) > config.nlm
-            push!(errors, "Spectral pencil range exceeds config.nlm")
-        end
+    spec_range = range_local(config.pencils.spec, 1)
+    if !isempty(spec_range) && maximum(spec_range) > config.nlm
+        push!(errors, "Spectral pencil range exceeds config.nlm")
     end
     
     # Check transform manager compatibility

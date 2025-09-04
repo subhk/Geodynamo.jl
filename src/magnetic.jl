@@ -497,10 +497,10 @@ end
 """
     batch_magnetic_transforms!(mag_fields::SHTnsMagneticFields{T}) where T
     
-Perform batched transforms for better cache efficiency using shtns_transforms.jl
+Perform batched transforms for better cache efficiency using shtnskit_transforms.jl
 """
 function batch_magnetic_transforms!(mag_fields::SHTnsMagneticFields{T}) where T
-    # Use batched operations from shtns_transforms.jl for better performance
+    # Use batched operations from shtnskit_transforms.jl for better performance
     specs = [mag_fields.toroidal, mag_fields.poloidal, mag_fields.ic_toroidal, mag_fields.ic_poloidal]
     physs = [mag_fields.work_physical.r_component, mag_fields.work_physical.θ_component, 
              mag_fields.work_physical.φ_component, mag_fields.magnetic.r_component]
@@ -522,17 +522,13 @@ function optimize_magnetic_memory_layout!(mag_fields::SHTnsMagneticFields{T}) wh
     # Use transpose plans for optimal data layout based on upcoming operations
     config = mag_fields.toroidal.config
     
-    # Check if we have transpose plans available
-    if haskey(config, :transpose_plans)
-        plans = config.transpose_plans
-        
-        # Optimize for radial operations if doing derivatives
-        if haskey(plans, :r_to_spec)
-            transpose_with_timer!(mag_fields.work_tor.data_real, mag_fields.toroidal.data_real, 
-                                plans[:r_to_spec], "magnetic_toroidal_layout_opt")
-            transpose_with_timer!(mag_fields.work_pol.data_real, mag_fields.poloidal.data_real, 
-                                plans[:r_to_spec], "magnetic_poloidal_layout_opt")
-        end
+    # Use transpose plans if available
+    plans = config.transpose_plans
+    if !isempty(plans) && haskey(plans, :r_to_spec)
+        transpose_with_timer!(mag_fields.work_tor.data_real, mag_fields.toroidal.data_real, 
+                              plans[:r_to_spec], "magnetic_toroidal_layout_opt")
+        transpose_with_timer!(mag_fields.work_pol.data_real, mag_fields.poloidal.data_real, 
+                              plans[:r_to_spec], "magnetic_poloidal_layout_opt")
     end
 end
 
@@ -556,11 +552,9 @@ function validate_magnetic_configuration(mag_fields::SHTnsMagneticFields{T}, con
     end
     
     # Validate pencil topology consistency
-    if haskey(config, :pencils)
-        spec_range = range_local(config.pencils.spec, 1)
-        if !isempty(spec_range) && maximum(spec_range) > config.nlm
-            push!(errors, "Spectral pencil range exceeds config.nlm")
-        end
+    spec_range = range_local(config.pencils.spec, 1)
+    if !isempty(spec_range) && maximum(spec_range) > config.nlm
+        push!(errors, "Spectral pencil range exceeds config.nlm")
     end
     
     # Check transform manager compatibility
