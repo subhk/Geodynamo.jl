@@ -342,3 +342,56 @@ jobs:
           echo "| Code Quality | ${{ needs.quality.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Overall Status:** ${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
+
+  # Lightweight smoke test for scripts/ utilities (no plotting)
+  scripts-smoke:
+    name: Scripts Smoke (scalar averaging)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install OpenMPI (optional for single-rank MPI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+      - name: Instantiate
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+      - name: Create synthetic merged NetCDF (scalars only)
+        run: |
+          julia --project=. -e '
+            using NCDatasets, Printf
+            mkpath("smoke_out")
+            nlat, nlon, nr = 8, 16, 4
+            # Simple grids
+            theta = collect(range(0, stop=pi, length=nlat))
+            phi   = collect(range(0, stop=2pi, length=nlon+1))[1:end-1]
+            r     = collect(range(0.2, stop=1.0, length=nr))
+            # Dummy scalar field
+            temperature = [sin(th)*cos(ph) + 0.1*k for th in theta, ph in phi, k in r]
+            # Minimal l/m arrays (not used for scalars, but required by readers)
+            lmax = 3; mmax = 3
+            lvals = Int[]; mvals = Int[]
+            for l in 0:lmax, m in 0:min(l, mmax)
+              push!(lvals, l); push!(mvals, m)
+            end
+            ncpath = joinpath("smoke_out", "combined_global_time_1p000000.nc")
+            ds = NCDataset(ncpath, "c")
+            try
+              defDim(ds, "lat", nlat); defDim(ds, "lon", nlon); defDim(ds, "r", nr); defDim(ds, "mode", length(lvals))
+              ds["theta"] = (theta, ("lat",))
+              ds["phi"]   = (phi,   ("lon",))
+              ds["r"]     = (r,     ("r",))
+              ds["l_values"] = (lvals, ("mode",))
+              ds["m_values"] = (mvals, ("mode",))
+              ds["temperature"] = (temperature, ("lat","lon","r"))
+            finally
+              close(ds)
+            end'
+      - name: Run scripts/time_average.jl on synthetic data
+        run: |
+          julia --project=. scripts/time_average.jl smoke_out --start=1.0 --end=1.0 --vars=temperature --prefix=combined_global --out=smoke_out/avg.jld2
+          test -f smoke_out/avg.jld2
