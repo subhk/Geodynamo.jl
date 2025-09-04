@@ -923,6 +923,20 @@ function batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
     end
 end
 
+# ---------------------------------------------------------------------------
+# Backward-compatible alias used by other modules
+# ---------------------------------------------------------------------------
+"""
+    batch_spectral_to_physical!(specs, physs)
+
+Compatibility wrapper that calls `batch_shtnskit_transforms!` for batched
+spectral→physical transforms using SHTnsKit with PencilArrays/MPI.
+"""
+function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
+                                     physs::Vector{SHTnsPhysicalField{T}}) where T
+    return batch_shtnskit_transforms!(specs, physs)
+end
+
 # ============================================================================
 # Performance Monitoring
 # ============================================================================
@@ -950,3 +964,4 @@ export shtnskit_spectral_to_physical!, shtnskit_physical_to_spectral!
 export shtnskit_vector_synthesis!, shtnskit_vector_analysis!
 export batch_shtnskit_transforms!
 export get_shtnskit_performance_stats
+export batch_spectral_to_physical!
