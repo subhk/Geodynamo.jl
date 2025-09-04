@@ -8,11 +8,11 @@
 #
 # Usage:
 #   # Temperature m=0
-#   julia --project examples/plot_m0_rtheta.jl out.nc temperature
+#   julia --project=. scripts/plot_m0_rtheta.jl out.nc temperature
 #   # Composition m=0 with custom colormap and limits
-#   julia --project examples/plot_m0_rtheta.jl out.nc composition --cmap magma --clim -0.1 0.3
+#   julia --project=. scripts/plot_m0_rtheta.jl out.nc composition --cmap magma --clim -0.1 0.3
 #   # Plot theta in degrees
-#   julia --project examples/plot_m0_rtheta.jl out.nc temperature --degrees
+#   julia --project=. scripts/plot_m0_rtheta.jl out.nc temperature --degrees
 
 using NCDatasets
 
@@ -163,4 +163,3 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-
