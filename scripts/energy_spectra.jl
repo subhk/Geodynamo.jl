@@ -37,6 +37,7 @@ using NetCDF
 using Printf
 using JLD2
 using Statistics
+using SHTnsKit
 
 function read_var(nc, name)
     varid = NetCDF.varid(nc, name)
@@ -82,16 +83,49 @@ function load_spectral_data(nc)
     )
 end
 
-function energy_per_mode(real::AbstractMatrix, imag::AbstractMatrix)
-    # Sum over radius of |coeff|^2
-    # Input shape: (nlm, nr)
+"""
+    energy_per_mode_scalar(real, imag)
+
+Compute per-(l,m) scalar energy by summing |a_lm(r)|^2 across radius.
+Assumes SHTnsKit orthonormal spherical harmonics (norm=:orthonormal), so
+∫ |f(θ,φ)|^2 dΩ = Σ_lm |a_lm|^2. Returns a vector of length nlm.
+"""
+function energy_per_mode_scalar(real::AbstractMatrix, imag::AbstractMatrix)
     @assert size(real) == size(imag)
     nlm, nr = size(real)
     e = zeros(Float64, nlm)
     @inbounds for i in 1:nlm
         s = 0.0
-        for r in 1:nr
-            s += real[i,r]^2 + imag[i,r]^2
+        for k in 1:nr
+            s += real[i,k]^2 + imag[i,k]^2
+        end
+        e[i] = s
+    end
+    return e
+end
+
+"""
+    energy_per_mode_vector(l_values, tor_real, tor_imag, pol_real, pol_imag)
+
+Compute per-(l,m) vector energy using toroidal/poloidal coefficients under
+SHTnsKit orthonormalization. For a unit sphere surface integral, the modal
+energy density is proportional to l(l+1) (|T_lm|^2 + |P_lm|^2).
+We sum over radius index to obtain a depth-integrated spectrum.
+"""
+function energy_per_mode_vector(l_values::AbstractVector{<:Integer},
+                                tor_real::AbstractMatrix, tor_imag::AbstractMatrix,
+                                pol_real::AbstractMatrix, pol_imag::AbstractMatrix)
+    @assert size(tor_real) == size(tor_imag) == size(pol_real) == size(pol_imag)
+    nlm, nr = size(tor_real)
+    e = zeros(Float64, nlm)
+    @inbounds for i in 1:nlm
+        l = l_values[i]
+        lfac = float(l*(l+1))
+        s = 0.0
+        for k in 1:nr
+            t2 = tor_real[i,k]^2 + tor_imag[i,k]^2
+            p2 = pol_real[i,k]^2 + pol_imag[i,k]^2
+            s += lfac * (t2 + p2)
         end
         e[i] = s
     end
@@ -103,10 +137,11 @@ function compute_spectra(data)
     m = data.m_values
     nlm = length(l)
 
-    # Kinetic energy per (l,m): sum(|v_tor|^2 + |v_pol|^2) across radius
-    Ek_lm = energy_per_mode(data.vtor[1], data.vtor[2]) .+ energy_per_mode(data.vpol[1], data.vpol[2])
-    # Magnetic energy per (l,m)
-    Eb_lm = energy_per_mode(data.mtor[1], data.mtor[2]) .+ energy_per_mode(data.mpol[1], data.mpol[2])
+    # Kinetic energy per (l,m) with SHTnsKit orthonormalization:
+    # E_k(l,m) ∝ l(l+1)(|T_lm|^2 + |P_lm|^2), summed across radius
+    Ek_lm = energy_per_mode_vector(l, data.vtor[1], data.vtor[2], data.vpol[1], data.vpol[2])
+    # Magnetic energy per (l,m) with the same modal form
+    Eb_lm = energy_per_mode_vector(l, data.mtor[1], data.mtor[2], data.mpol[1], data.mpol[2])
 
     # Aggregate by l and m
     lmax = maximum(l)
