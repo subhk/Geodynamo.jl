@@ -17,13 +17,13 @@ Optional flags:
   --delete             Delete per-rank files after successful merge
 """
 
+using Geodynamo
 using Printf
 using Dates
 using Random
 using MPI
 
-# Load combiner utilities
-include(joinpath(@__DIR__, "combine_file.jl"))
+# Combiner APIs are available under Geodynamo module
 
 function parse_args(args::Vector{String})
     if isempty(args)
@@ -68,8 +68,8 @@ function find_rank_files(output_dir::String, time::Float64, prefix::String)
 end
 
 function merge_time(output_dir::String, t::Float64; delete_old::Bool=false, prefix::String="geodynamo", outdir::String=output_dir, basename::String="combined_global")
-    cfg = create_combiner_config(verbose=true, include_diagnostics=true, save_combined=true, combined_filename=basename, output_dir=outdir)
-    combiner = combine_distributed_time(output_dir, t; config=cfg)
+    cfg = Geodynamo.create_combiner_config(verbose=true, include_diagnostics=true, save_combined=true, combined_filename=basename, output_dir=outdir)
+    combiner = Geodynamo.combine_distributed_time(output_dir, t; config=cfg)
     if delete_old
         rank_files = find_rank_files(output_dir, t, prefix)
         for f in rank_files
@@ -94,7 +94,7 @@ function main()
         isdir(outdir) || mkpath(outdir)
 
         if merge_all
-            times = rank == 0 ? list_available_times(output_dir, prefix) : Float64[]
+            times = rank == 0 ? Geodynamo.list_available_times(output_dir, prefix) : Float64[]
             # Broadcast count then values for robustness
             nt = MPI.bcast(length(times), 0, comm)
             if rank != 0
