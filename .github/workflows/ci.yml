@@ -211,7 +211,7 @@ jobs:
               @error "Code is not properly formatted. Please run JuliaFormatter.jl";
               exit(1);
             else
-              @info "✅ Code is properly formatted";
+            @info "Code is properly formatted";
             end'
             
       - name: Install Aqua for package quality
@@ -326,20 +326,20 @@ jobs:
              [ "${{ needs.docs.result }}" == "success" ] && \
              [ "${{ needs.quality.result }}" == "success" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "message=✅ All checks passed!" >> $GITHUB_OUTPUT
+            echo "message=All checks passed!" >> $GITHUB_OUTPUT
           else
             echo "status=failure" >> $GITHUB_OUTPUT  
-            echo "message=❌ Some checks failed" >> $GITHUB_OUTPUT
+            echo "message=Some checks failed" >> $GITHUB_OUTPUT
           fi
           
       - name: Create status summary
         run: |
-          echo "## 🔄 CI Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## CI Results Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ needs.test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Documentation | ${{ needs.docs.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY  
-          echo "| Code Quality | ${{ needs.quality.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.docs.result == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY  
+          echo "| Code Quality | ${{ needs.quality.result == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Overall Status:** ${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
 

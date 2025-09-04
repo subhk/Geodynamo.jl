@@ -86,12 +86,12 @@ jobs:
           end
           
           if length(vulnerable_packages) > 0
-            println("⚠️  Found potentially vulnerable packages:");
+            println("Found potentially vulnerable packages:");
             for pkg in vulnerable_packages
               println("  - $pkg")
             end
             exit(1)
           else
-            println("✅ No known vulnerabilities detected")
+            println("No known vulnerabilities detected")
           end
         '
