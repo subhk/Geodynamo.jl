@@ -10,27 +10,27 @@
 #
 # Usage examples:
 #   # Temperature outer surface
-#   julia --project examples/plot_3d_surface.jl out.nc temperature outer
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature outer
 #   # Composition at r-index 10
-#   julia --project examples/plot_3d_surface.jl out.nc composition 10
+#   julia --project=. scripts/plot_3d_surface.jl out.nc composition 10
 #   # Any variable at nearest r-value 0.95
-#   julia --project examples/plot_3d_surface.jl out.nc myvar 0.95
+#   julia --project=. scripts/plot_3d_surface.jl out.nc myvar 0.95
 #   # Inner and outer surfaces side-by-side
-#   julia --project examples/plot_3d_surface.jl out.nc temperature both
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature both
 #   # Overlay mode with transparency
-#   julia --project examples/plot_3d_surface.jl out.nc temperature both --overlay --alpha 0.6
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature both --overlay --alpha 0.6
 #   # Custom colormap and fixed limits
-#   julia --project examples/plot_3d_surface.jl out.nc temperature outer --cmap magma --clim 200 350
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature outer --cmap magma --clim 200 350
 #   # Animate across a directory (sorted by time)
-#   julia --project examples/plot_3d_surface.jl outdir temperature outer --animate --out movie.mp4 --fps 20 --tmin 1.0 --tmax 5.0
+#   julia --project=. scripts/plot_3d_surface.jl outdir temperature outer --animate --out movie.mp4 --fps 20 --tmin 1.0 --tmax 5.0
 #   # Export legacy VTK PolyData (.vtk) surfaces
-#   julia --project examples/plot_3d_surface.jl out.nc temperature both --vtk vtk_out
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature both --vtk vtk_out
 #   # Export XML VTK StructuredGrid (.vts) volume for ParaView iso-surfaces
-#   julia --project examples/plot_3d_surface.jl out.nc temperature outer --vts volume.vts
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature outer --vts volume.vts
 #   # Export XML VTK PolyData (.vtp) surfaces (requires WriteVTK)
-#   julia --project examples/plot_3d_surface.jl out.nc temperature both --vtp vtp_out
+#   julia --project=. scripts/plot_3d_surface.jl out.nc temperature both --vtp vtp_out
 #   # Export per-frame VTK during animation
-#   julia --project examples/plot_3d_surface.jl outdir temperature outer --animate --vtkdir vtk_series --vtpdir vtp_series --vtsdir vts_series
+#   julia --project=. scripts/plot_3d_surface.jl outdir temperature outer --animate --vtkdir vtk_series --vtpdir vtp_series --vtsdir vts_series
 #
 # Notes:
 # - Plotting requires GLMakie (interactive) or CairoMakie (PNG). Install:
@@ -39,6 +39,7 @@
 #     import Pkg; Pkg.add("WriteVTK")
 
 using NCDatasets
+using Printf
 const HAVE_WRITEVTK = try
     @eval using WriteVTK
     true
@@ -593,4 +594,3 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
-

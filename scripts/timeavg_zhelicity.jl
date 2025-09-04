@@ -13,9 +13,9 @@
 #
 # Usage:
 #   # Average all files in a directory (prefers rank_0000) and write JLD2
-#   julia --project examples/timeavg_zhelicity.jl outdir --out zhel_timeavg.jld2
+#   julia --project=. scripts/timeavg_zhelicity.jl outdir --out zhel_timeavg.jld2
 #   # Restrict to time range
-#   julia --project examples/timeavg_zhelicity.jl outdir --tmin 1.0 --tmax 5.0 --out zhel_1_5.jld2
+#   julia --project=. scripts/timeavg_zhelicity.jl outdir --tmin 1.0 --tmax 5.0 --out zhel_1_5.jld2
 
 using NCDatasets
 using JLD2
@@ -122,7 +122,7 @@ function synthesize_vel_and_vort_from_nc(ncpath::AbstractString)
         nlat = length(θ); nlon = length(φ); nr = length(r)
         gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
         pencils_nt = Geodynamo.create_pencil_topology(gcfg)
-        pencils = (pencils_nt.θ, pencils_nt.φ, pencils_nt.r)
+        pencils = pencils_nt
         pencil_spec = pencils_nt.spec
         domain = Geodynamo.create_radial_domain(nr)
         fields = Geodynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
