@@ -10,15 +10,15 @@ Assumptions:
 Usage examples:
 
   # Average temperature from t=0.0 to t=2.0 and save default JLD2
-  julia --project=. script/time_average.jl ./output --start=0.0 --end=2.0 --vars=temperature
+  julia --project=. scripts/time_average.jl ./output --start=0.0 --end=2.0 --vars=temperature
 
   # Average multiple quantities and write to an explicit file
-  julia --project=. script/time_average.jl ./output --start=1.0 --end=3.0 \
+  julia --project=. scripts/time_average.jl ./output --start=1.0 --end=3.0 \
        --vars=temperature,velocity_toroidal_real,velocity_toroidal_imag \
        --out=./output/avg_1p0_3p0.jld2
 
   # Limit to files with a particular prefix (default combined_global)
-  julia --project=. script/time_average.jl ./output --start=0 --end=5 --vars=temperature --prefix=combined_global
+  julia --project=. scripts/time_average.jl ./output --start=0 --end=5 --vars=temperature --prefix=combined_global
 
 Notes:
 - The script scans for files matching "<prefix>_time_<time>.nc" and averages over times in [start,end].

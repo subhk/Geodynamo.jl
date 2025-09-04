@@ -5,11 +5,11 @@ Plot radial magnetic field in Hammer projection from a merged NetCDF file.
 
 Usage examples:
   # Radial magnetic field at r=0.8 in Hammer projection
-  julia --project=. script/plot_hammer_magnetic.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_hammer_magnetic.jl ./output/combined_time_1p000000.nc \
         --r=0.8 --out=./hammer_br_r0p8.png
 
   # Radial magnetic field at surface (r=1.0) with custom colormap
-  julia --project=. script/plot_hammer_magnetic.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_hammer_magnetic.jl ./output/combined_time_1p000000.nc \
         --r=1.0 --out=./hammer_br_surface.png --cmap=RdBu_r
 
 Options:

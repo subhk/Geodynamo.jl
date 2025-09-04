@@ -6,13 +6,13 @@ and save results to a single JLD2 file.
 
 Usage:
   # Single file, auto output name (<input>_spectra.jld2)
-  julia --project=. script/energy_spectra.jl <input.nc>
+  julia --project=. scripts/energy_spectra.jl <input.nc>
 
   # Single file with explicit output path
-  julia --project=. script/energy_spectra.jl <input.nc> <output.jld2>
+  julia --project=. scripts/energy_spectra.jl <input.nc> <output.jld2>
 
   # Multiple files (each saves to <input>_spectra.jld2 or into --outdir)
-  julia --project=. script/energy_spectra.jl <f1.nc> <f2.nc> ... [--outdir=dir]
+  julia --project=. scripts/energy_spectra.jl <f1.nc> <f2.nc> ... [--outdir=dir]
 
 Inputs are expected to follow Geodynamo.jl output structure with spectral variables:
   - velocity_toroidal_real/imag[spectral_mode, r]
@@ -130,7 +130,7 @@ end
 
 function main()
     if isempty(ARGS)
-        println("Usage: julia --project=. script/energy_spectra.jl <input.nc> [output.jld2] | <f1.nc> <f2.nc> ... [--outdir=dir]")
+        println("Usage: julia --project=. scripts/energy_spectra.jl <input.nc> [output.jld2] | <f1.nc> <f2.nc> ... [--outdir=dir]")
         return
     end
 

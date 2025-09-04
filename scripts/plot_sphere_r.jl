@@ -5,11 +5,11 @@ Plot a quantity on a spherical surface at constant radius r from a merged NetCDF
 
 Usage examples:
   # Temperature at r=0.8 (lon-lat heatmap)
-  julia --project=. script/plot_sphere_r.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_sphere_r.jl ./output/combined_time_1p000000.nc \
         --quantity=temperature --r=0.8 --out=./sphere_temp_r0p8.png
 
   # Velocity z-component at r=0.6
-  julia --project=. script/plot_sphere_r.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_sphere_r.jl ./output/combined_time_1p000000.nc \
         --quantity=velocity_z --r=0.6 --out=./sphere_uz_r0p6.png
 
 Quantities:
@@ -201,4 +201,3 @@ function main()
 end
 
 isinteractive() || main()
-
