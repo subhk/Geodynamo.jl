@@ -3,10 +3,10 @@ Merge per-rank Geodynamo NetCDF outputs into a single global file.
 
 Usage examples:
   # Merge a single time and keep originals
-  julia --project=. script/merge_outputs.jl ./output --time=1.250000
+  julia --project=. scripts/merge_outputs.jl ./output --time=1.250000
 
   # Merge all available times and delete per-rank files afterward
-  julia --project=. script/merge_outputs.jl ./output --all --delete
+  julia --project=. scripts/merge_outputs.jl ./output --all --delete
 
 Optional flags:
   --time=<float>       Merge only the specified time (e.g., --time=2.0)
