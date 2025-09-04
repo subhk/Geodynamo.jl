@@ -147,10 +147,17 @@ module Geodynamo
     include("optimizations.jl")
     include("simulation.jl")
     include("../extras/spectral_to_physical.jl")
+    include("../extras/combine_file.jl")
 
     # Geometry-specific convenience layers
     include("Shell/Shell.jl")
     include("Ball/Ball.jl")
+
+    # Expose combiner APIs under Geodynamo namespace
+    export FieldCombiner, CombinerConfig, create_combiner_config
+    export combine_distributed_time, list_available_times
+    export combine_time_series, save_combined_time_series
+    export save_combined_fields
 
     # Initialize parameters when module is loaded
     function __init__()
