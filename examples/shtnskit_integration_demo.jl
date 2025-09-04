@@ -29,7 +29,7 @@ function demo_shtnskit_integration()
         println("   Grid: $(nlat) × $(nlon)")
         println("   Modes: lmax=$lmax, mmax=$mmax, nlm=$(SHTnsKit.get_nlm(config.sht))")
     catch e
-        println("   ✗ Configuration failed: $e")
+        println("   Configuration failed: $e")
         return
     end
     
@@ -45,7 +45,7 @@ function demo_shtnskit_integration()
         println("   CPU transform completed with SIMD optimizations")
         println("   Physical data range: [$(minimum(physical_data)), $(maximum(physical_data))]")
     catch e
-        println("   ✗ Transform failed: $e")
+        println("   Transform failed: $e")
     end
     
     println("\n3. Computing power spectrum...")
@@ -57,7 +57,7 @@ function demo_shtnskit_integration()
         println("   Total power: $(sum(power))")
         println("   Power at l=0: $(power[1]), l=1: $(power[2])")
     catch e
-        println("   ✗ Power spectrum failed: $e")
+        println("   Power spectrum failed: $e")
     end
     
     println("\n4. Testing point evaluation...")
@@ -71,7 +71,7 @@ function demo_shtnskit_integration()
         println("   Point evaluation successful")
         println("   Value at (θ=$(theta), φ=$(phi)): $value")
     catch e
-        println("   ✗ Point evaluation failed: $e")
+        println("   Point evaluation failed: $e")
     end
     
     println("\n5. Testing field rotation...")
@@ -85,7 +85,7 @@ function demo_shtnskit_integration()
         println("   Field rotation successful")
         println("   Rotation preserves norm: $(isapprox(norm(test_coeffs), norm(rotated_coeffs)))")
     catch e
-        println("   ✗ Field rotation failed: $e")
+        println("   Field rotation failed: $e")
     end
     
     println("\n6. Testing vector transforms...")
@@ -106,7 +106,7 @@ function demo_shtnskit_integration()
         pol_error = norm(pol_coeffs - pol_back) / norm(pol_coeffs)
         println("   Roundtrip errors: tor=$(tor_error), pol=$(pol_error)")
     catch e
-        println("   ✗ Vector transforms failed: $e")
+        println("   Vector transforms failed: $e")
     end
     
     println("\n7. Testing gradient computation...")
@@ -119,7 +119,7 @@ function demo_shtnskit_integration()
         println("   ∇θ range: [$(minimum(grad_theta)), $(maximum(grad_theta))]")
         println("   ∇φ range: [$(minimum(grad_phi)), $(maximum(grad_phi))]")
     catch e
-        println("   ✗ Gradient computation failed: $e")
+        println("   Gradient computation failed: $e")
     end
     
     println("\n8. Platform and compatibility checks...")
@@ -135,7 +135,7 @@ function demo_shtnskit_integration()
             println("   Thread support: $(SHTnsKit.get_num_threads()) threads")
         end
     catch e
-        println("   ✗ Platform check failed: $e")
+        println("   Platform check failed: $e")
     end
     
     println("\n9. Performance monitoring demonstration...")
@@ -159,7 +159,7 @@ function demo_shtnskit_integration()
         
         println("   Performance monitoring successful")
     catch e
-        println("   ✗ Performance monitoring failed: $e")
+        println("   Performance monitoring failed: $e")
     end
     
     println("\n10. Memory efficiency demonstration...")
@@ -190,7 +190,7 @@ function demo_shtnskit_integration()
         
         println("   Memory efficiency demonstration successful")
     catch e
-        println("   ✗ Memory efficiency test failed: $e")
+        println("   Memory efficiency test failed: $e")
     end
     
     println("\n=== Demo Complete ===")
@@ -237,7 +237,7 @@ function demo_geodynamo_shtnskit_workflow()
         end
         
     catch e
-        println("✗ Geodynamo workflow demo failed: $e")
+        println("Geodynamo workflow demo failed: $e")
     end
 end
 

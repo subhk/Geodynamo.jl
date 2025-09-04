@@ -51,7 +51,7 @@ function demo_netcdf_boundary_loading()
         println("     Mean:  $(round(outer_stats["mean"], digits=1)) $(outer_stats["units"])")
         
     catch e
-        println("   ✗ Failed to load temperature boundaries: $e")
+        println("   Failed to load temperature boundaries: $e")
         return false
     end
     
@@ -65,7 +65,7 @@ function demo_netcdf_boundary_loading()
         print_boundary_info(comp_boundaries)
         
     catch e
-        println("   ✗ Failed to load compositional boundaries: $e")
+        println("   Failed to load compositional boundaries: $e")
         return false
     end
     
@@ -107,7 +107,7 @@ function demo_boundary_compatibility()
         return config, temp_boundaries, comp_boundaries
         
     catch e
-        println("  ✗ Configuration or validation failed: $e")
+        println("  Configuration or validation failed: $e")
         return nothing
     end
 end
@@ -156,7 +156,7 @@ function demo_boundary_application(config, temp_boundaries, comp_boundaries)
         return temp_field, comp_field
         
     catch e
-        println("  ✗ Boundary application failed: $e")
+        println("  Boundary application failed: $e")
         return nothing
     end
 end
@@ -206,7 +206,7 @@ function demo_time_dependent_boundaries()
         end
         
     catch e
-        println("  ✗ Time-dependent boundary demo failed: $e")
+        println("  Time-dependent boundary demo failed: $e")
     end
 end
 
@@ -244,7 +244,7 @@ function demo_advanced_interpolation()
         println("  Mean preservation: Original = $(round(orig_mean, digits=1)) K, Interpolated = $(round(interp_mean, digits=1)) K")
         
     catch e
-        println("  ✗ Interpolation demo failed: $e")
+        println("  Interpolation demo failed: $e")
     end
 end
 
