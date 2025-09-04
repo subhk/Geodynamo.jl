@@ -9,7 +9,7 @@ Assumptions:
 - Velocity is provided in spectral toroidal/poloidal form: velocity_toroidal_{real,imag}, velocity_poloidal_{real,imag}
 
 Usage:
-  julia --project=. script/time_average_helicity.jl <output_dir> --start=<t0> --end=<t1> [--prefix=<name>] [--out=<file.jld2>]
+  julia --project=. scripts/time_average_helicity.jl <output_dir> --start=<t0> --end=<t1> [--prefix=<name>] [--out=<file.jld2>]
 
 Saves:
   - helicity: time-averaged helicity field (nlat, nlon, nr)

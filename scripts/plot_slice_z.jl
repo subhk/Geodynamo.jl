@@ -6,11 +6,11 @@ from a merged NetCDF file (Geodynamo output).
 
 Usage examples:
   # Temperature (scalar) at z=0.2, lat-lon heatmap
-  julia --project=. script/plot_slice_z.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_slice_z.jl ./output/combined_time_1p000000.nc \
         --quantity=temperature --z=0.2 --out=./slice_temp.png
 
   # Velocity z-component at z=0.1 (reconstructs from spectral), xy scatter map
-  julia --project=. script/plot_slice_z.jl ./output/combined_time_1p000000.nc \
+  julia --project=. scripts/plot_slice_z.jl ./output/combined_time_1p000000.nc \
         --quantity=velocity_z --z=0.1 --plane=xy --out=./slice_uz.png
 
 Quantities:
@@ -252,4 +252,3 @@ function main()
 end
 
 isinteractive() || main()
-
