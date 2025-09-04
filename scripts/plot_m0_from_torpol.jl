@@ -21,17 +21,17 @@
 #
 # Usage examples:
 #   # Velocity toroidal m=0 (default normalization)
-#   julia --project examples/plot_m0_from_torpol.jl out.nc velocity toroidal
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc velocity toroidal
 #   # Magnetic poloidal m=0 with custom clim
-#   julia --project examples/plot_m0_from_torpol.jl out.nc magnetic poloidal --clim -1 1
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc magnetic poloidal --clim -1 1
 #   # Show both toroidal and poloidal (two subplots)
-#   julia --project examples/plot_m0_from_torpol.jl out.nc velocity both --cmap balance
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc velocity both --cmap balance
 #   # Scalars: temperature m=0 from spectral coeffs (or fall back to phi-average)
-#   julia --project examples/plot_m0_from_torpol.jl out.nc temperature --backend shtns
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc temperature --backend shtns
 #   # Scalars: composition m=0
-#   julia --project examples/plot_m0_from_torpol.jl out.nc composition --backend analytic --cmap magma
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc composition --backend analytic --cmap magma
 #   # Disable Ylm normalization (use raw P_l):
-#   julia --project examples/plot_m0_from_torpol.jl out.nc velocity toroidal --no-norm
+#   julia --project=. scripts/plot_m0_from_torpol.jl out.nc velocity toroidal --no-norm
 
 using NCDatasets
 
