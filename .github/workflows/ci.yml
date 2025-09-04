@@ -153,7 +153,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-        run: julia --project=docs docs/make.jl
+          run: julia --project=docs docs/make.jl
+
+  # Dedicated Ball geometry MPI tests
+  ball-mpi:
+    name: Ball MPI Tests (θ/φ parallelization)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Include a prime (5) and square (4) to exercise different θ×φ factorizations
+        np: [2, 3, 4, 5]
+    env:
+      JULIA_NUM_THREADS: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install OpenMPI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+      - name: Instantiate
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+      - name: Build package
+        uses: julia-actions/julia-buildpkg@v1
+      - name: Run Ball roundtrip tests under MPI (np=${{ matrix.np }})
+        run: mpirun -n ${{ matrix.np }} julia --project=. test/ball_roundtrip.jl
+      - name: Run Ball finiteness tests under MPI (np=${{ matrix.np }})
+        run: mpirun -n ${{ matrix.np }} julia --project=. test/ball_finiteness.jl
 
   # Package quality checks
   quality:
