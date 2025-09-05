@@ -9,7 +9,7 @@ function main()
     set_parameters!(params)
 
     # Build simple state components to access domains
-    state = initialize_shtns_simulation(Float64; include_composition=false)
+    state = initialize_simulation(Float64; include_composition=false)
 
     # Randomize magnetic spectral fields (outer and inner core)
     rand!(parent(state.magnetic.toroidal.data_real))
