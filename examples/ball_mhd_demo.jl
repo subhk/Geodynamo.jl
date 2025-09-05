@@ -55,6 +55,37 @@ if get(ENV, "GEODYNAMO_USE_WS", "1") == "1"
     Geodynamo.set_velocity_workspace!(ws)
 end
 
+# Optional: quick workspace equivalence check (set GEODYNAMO_TEST_WS=1)
+if get(ENV, "GEODYNAMO_TEST_WS", "0") == "1"
+    println("Running workspace equivalence check (GEODYNAMO_TEST_WS=1)...")
+    # Save current workspace
+    saved_ws = Geodynamo.VELOCITY_WS[]
+    # Baseline without workspace
+    Geodynamo.set_velocity_workspace!(nothing)
+    Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
+    base_tor = copy(parent(state.velocity.vort_toroidal.data_real))
+    base_pol = copy(parent(state.velocity.vort_poloidal.data_real))
+    # Zero and recompute with workspace
+    fill!(parent(state.velocity.vort_toroidal.data_real), 0.0)
+    fill!(parent(state.velocity.vort_toroidal.data_imag), 0.0)
+    fill!(parent(state.velocity.vort_poloidal.data_real), 0.0)
+    fill!(parent(state.velocity.vort_poloidal.data_imag), 0.0)
+    # Ensure a workspace is present
+    if saved_ws === nothing
+        ws2 = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
+        Geodynamo.set_velocity_workspace!(ws2)
+    else
+        Geodynamo.set_velocity_workspace!(saved_ws)
+    end
+    Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
+    tor = parent(state.velocity.vort_toroidal.data_real)
+    pol = parent(state.velocity.vort_poloidal.data_real)
+    # Report max abs diff
+    maxdiff_tor = maximum(abs.(tor .- base_tor))
+    maxdiff_pol = maximum(abs.(pol .- base_pol))
+    println("Max abs diff (tor, pol) = ", (maxdiff_tor, maxdiff_pol))
+end
+
 # 3) Temperature boundary conditions (Dirichlet inner/outer)
 #    Options:
 #    - Dirichlet (fixed T): inner_bc_type=1, outer_bc_type=1, values below
