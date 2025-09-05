@@ -155,31 +155,42 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.r, 3)
     
-    nr = oc_domain.N
+    nr = domain.N
     
+    # Scratch buffers reused across modes to avoid allocations
+    nr = oc_domain.N
+    pol_profile_real = zeros(T, nr)
+    pol_profile_imag = zeros(T, nr)
+    tor_profile_real = zeros(T, nr)
+    tor_profile_imag = zeros(T, nr)
+    dpol_dr_real     = similar(pol_profile_real)
+    dpol_dr_imag     = similar(pol_profile_imag)
+    d2pol_dr2_real   = similar(pol_profile_real)
+    d2pol_dr2_imag   = similar(pol_profile_imag)
+
     # Process each (l,m) mode
     @inbounds for lm_idx in lm_range
         if lm_idx <= length(fields.l_factors)
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
             
-            # Extract radial profiles
-            pol_profile_real = extract_local_radial_profile(u_pol_real, local_lm, nr, r_range)
-            pol_profile_imag = extract_local_radial_profile(u_pol_imag, local_lm, nr, r_range)
-            tor_profile_real = extract_local_radial_profile(u_tor_real, local_lm, nr, r_range)
-            tor_profile_imag = extract_local_radial_profile(u_tor_imag, local_lm, nr, r_range)
+            # Extract radial profiles (in-place)
+            extract_local_radial_profile!(pol_profile_real, u_pol_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(tor_profile_real, u_tor_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(tor_profile_imag, u_tor_imag, local_lm, nr, r_range)
             
-            # Compute radial derivatives for poloidal component
-            dpol_dr_real   = apply_derivative_local(fields.dr_matrix, pol_profile_real)
-            dpol_dr_imag   = apply_derivative_local(fields.dr_matrix, pol_profile_imag)
-            d2pol_dr2_real = apply_derivative_local(fields.d2r_matrix, pol_profile_real)
-            d2pol_dr2_imag = apply_derivative_local(fields.d2r_matrix, pol_profile_imag)
+            # Compute radial derivatives for poloidal component (in-place, reuse buffers)
+            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_profile_real)
+            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_profile_imag)
+            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
+            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
             
             # Compute vorticity components
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(ω_tor_real, 3)
-                    r_val = oc_domain.r[r_idx, 4]
+                    r_val = domain.r[r_idx, 4]
                     if r_val == 0.0
                         # At r=0 (ball geometry), regularity implies finite values → set to 0 safely
                         ω_tor_real[local_lm, 1, local_r] = 0
@@ -187,8 +198,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                         ω_pol_real[local_lm, 1, local_r] = 0
                         ω_pol_imag[local_lm, 1, local_r] = 0
                     else
-                        r_inv = oc_domain.r[r_idx, 3]   # 1/r
-                        r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
+                        r_inv = domain.r[r_idx, 3]   # 1/r
+                        r_inv2 = domain.r[r_idx, 2]  # 1/r²
                         # Toroidal vorticity from poloidal velocity (with full derivatives)
                         ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
                                                             - d2pol_dr2_real[r_idx] 
@@ -554,6 +565,24 @@ function extract_local_radial_profile(data::AbstractArray{T,3}, local_lm::Int,
         end
     end
     
+    return profile
+end
+
+
+"""
+    extract_local_radial_profile!(profile, data, local_lm, nr, r_range)
+
+In-place version to avoid allocations; writes the local radial line into
+`profile` for the given `local_lm` using the provided `r_range`.
+"""
+function extract_local_radial_profile!(profile::Vector{T}, data::AbstractArray{T,3},
+                                       local_lm::Int, nr::Int, r_range) where T
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(data, 3) && r_idx <= nr
+            profile[r_idx] = data[local_lm, 1, local_r]
+        end
+    end
     return profile
 end
 

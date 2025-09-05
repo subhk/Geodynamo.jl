@@ -29,44 +29,41 @@ function create_shtns_timestepping_matrices(config::SHTnsKitConfig,
     matrices = BandedMatrix{Float64}[]
     factorizations = Any[]
     l_values = Int[]
-    
-    # Get unique l values from SHTns configuration
+
+    # Precompute l set and invariants
     unique_l = unique(config.l_values)
-    
-    # Create matrix for each l value
+    laplacian = create_radial_laplacian(domain)              # invariant across l
+    r_inv_sq = @views domain.r[1:domain.N, 2]                # 1/r^2 per radius
+
+    # Build a base banded operator: (1/dt) - diffusivity*d_implicit*(d²/dr² + (2/r)d/dr)
+    base_banded = copy(laplacian.data)
+    base_banded[i_KL + 1, :] .+= 1.0 / dt
+    base_banded .*= -diffusivity * d_implicit
+
+    # Preallocate a reusable dense workspace and a dense base
+    base_matrix = BandedMatrix(base_banded, i_KL, domain.N)
+    dense_base = banded_to_dense(base_matrix)
+    dense_work = similar(dense_base)
+
     for l in unique_l
         push!(l_values, l)
-        
-        # Implicit operator: (1/dt - diffusivity * implicit_factor * L_l)
-        # where L_l = d²/dr² + (2/r)d/dr - l(l+1)/r²
-        
-        laplacian = create_radial_laplacian(domain)
-        
-        # Modify for spherical harmonic l
+        # Copy base into work matrix
+        copyto!(dense_work, dense_base)
+
+        # Add spherical-harmonic term on the diagonal: + diffusivity*d_implicit*l(l+1)/r^2
         l_factor = Float64(l * (l + 1))
-        implicit_data = copy(laplacian.data)
-        
-        # Time derivative term
-        implicit_data[i_KL + 1, :] .+= 1.0 / dt
-        
-        # Diffusion term  
-        implicit_data .*= -diffusivity * d_implicit
-        
-        # Spherical harmonic term
-        for n in 1:domain.N
-            r_inv_sq = domain.r[n, 2]  # 1/r²
-            implicit_data[i_KL + 1, n] += diffusivity * d_implicit * l_factor * r_inv_sq
+        @inbounds for n in 1:domain.N
+            dense_work[n, n] += diffusivity * d_implicit * l_factor * r_inv_sq[n]
         end
-        
-        matrix = BandedMatrix(implicit_data, i_KL, domain.N)
-        push!(matrices, matrix)
-        
-        # Create LU factorization
-        dense_matrix = banded_to_dense(matrix)
-        factorization = lu(dense_matrix)
+
+        # Store a lightweight banded descriptor (optional; not used in solve)
+        push!(matrices, base_matrix)
+
+        # Factorize dense_work in-place (LU) and store the factorization
+        factorization = lu(copy(dense_work))
         push!(factorizations, factorization)
     end
-    
+
     return SHTnsImplicitMatrices(matrices, factorizations, l_values)
 end
 

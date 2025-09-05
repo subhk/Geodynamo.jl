@@ -743,16 +743,14 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
     Uses highest two Chebyshev modes as tau functions.
     """
     nr = domain.N
-    
-    # Tau polynomials: T_{N-1}(r) and T_N(r)
-    tau1 = compute_chebyshev_polynomial(nr-1, domain)
-    tau2 = compute_chebyshev_polynomial(nr, domain)
-    
-    # Derivatives of tau polynomials at boundaries
-    dtau1_inner = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
-    dtau1_outer = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
-    dtau2_inner = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
-    dtau2_outer = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
+    # Use cached tau polynomials/derivatives for this nr
+    tau_cache = _get_tau_cache(domain)
+    tau1 = tau_cache.tau1
+    tau2 = tau_cache.tau2
+    dtau1_inner = tau_cache.dtau1_inner
+    dtau1_outer = tau_cache.dtau1_outer
+    dtau2_inner = tau_cache.dtau2_inner
+    dtau2_outer = tau_cache.dtau2_outer
     
     # Solve 2x2 system for tau coefficients
     # [dtau1_inner  dtau2_inner] [c1]   [flux_error_inner]
@@ -982,6 +980,38 @@ function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where
     dx_dr = 2.0 / (ro - ri)
     
     return dTn_dx * dx_dr
+end
+
+# -----------------------------------------------------------------------------
+# Tau cache to avoid recomputation every timestep/mode
+# -----------------------------------------------------------------------------
+mutable struct _TauCache
+    nr::Int
+    tau1::Vector{Float64}
+    tau2::Vector{Float64}
+    dtau1_inner::Float64
+    dtau1_outer::Float64
+    dtau2_inner::Float64
+    dtau2_outer::Float64
+end
+
+const _TAU_CACHE = IdDict{RadialDomain, _TauCache}()
+
+function _get_tau_cache(domain::RadialDomain)
+    nr = domain.N
+    cache = get(_TAU_CACHE, domain, nothing)
+    if cache === nothing || cache.nr != nr || length(cache.tau1) != nr
+        # Recompute cache for current domain
+        tau1 = compute_chebyshev_polynomial(nr-1, domain)
+        tau2 = compute_chebyshev_polynomial(nr, domain)
+        dt1i = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
+        dt1o = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
+        dt2i = evaluate_chebyshev_derivative(nr,   domain.r[1, 4], domain)
+        dt2o = evaluate_chebyshev_derivative(nr,   domain.r[nr, 4], domain)
+        cache = _TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
+        _TAU_CACHE[domain] = cache
+    end
+    return cache
 end
 
 function get_flux_value(lm_idx::Int, boundary::Int, temp_field)
