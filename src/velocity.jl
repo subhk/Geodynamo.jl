@@ -595,7 +595,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
     end
     
     # For no-slip: toroidal field also vanishes
-    # For stress-free: d(rT)/dr = 0 at boundaries
+    # For stress-free: d(rT)/dr = 0 at boundaries (toroidal)
     if i_vel_bc == 1  # No-slip
         if has_inner
             local_r = 1 - first(r_range) + 1
@@ -619,7 +619,10 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
             end
         end
     elseif i_vel_bc == 2  # Stress-free
+        # Toroidal stress-free
         apply_stress_free_bc!(fields, domain)
+        # Poloidal tangential stress: approximate enforcement via radial operator
+        apply_poloidal_stress_free_bc!(fields, domain)
     end
 end
 
@@ -656,6 +659,88 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
                 apply_stress_free_correction!(tor_profile_imag, fields.dr_matrix, domain)
                 store_local_radial_profile!(tor_imag, tor_profile_imag, local_lm,
                                            get_local_range(fields.toroidal.pencil, 3))
+            end
+        end
+    end
+end
+
+"""
+    apply_poloidal_stress_free_bc!(fields, domain)
+
+Approximate stress-free correction for poloidal potential P by enforcing
+S = (1/r) d/dr ( r dP/dr ) ≈ 0 at boundaries. Keeps P=0 (impenetrable).
+Uses a one-step sensitivity update on the neighbor point to the boundary.
+"""
+function apply_poloidal_stress_free_bc!(fields::SHTnsVelocityFields{T}, domain::RadialDomain) where T
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+    lm_range = get_local_range(fields.poloidal.pencil, 1)
+    r_range  = get_local_range(fields.poloidal.pencil, 3)
+    nr = domain.N
+
+    # Helper to compute S at boundary for a given profile
+    function boundary_stress_metric(profile::Vector{T}, boundary::Symbol)
+        # dP/dr
+        dP = similar(profile)
+        apply_derivative_matrix!(dP, fields.dr_matrix, profile)
+        # r * dP/dr
+        Q = similar(profile)
+        @inbounds for i in 1:nr
+            Q[i] = domain.r[i, 4] * dP[i]
+        end
+        # d/dr (r dP/dr)
+        dQ = similar(profile)
+        apply_derivative_matrix!(dQ, fields.dr_matrix, Q)
+        if boundary === :inner
+            ri = domain.r[1, 4]
+            return ri > eps(T) ? dQ[1] / ri : dQ[1] # at r=0, return raw derivative
+        else
+            ro = domain.r[nr, 4]
+            return dQ[nr] / ro
+        end
+    end
+
+    # Apply per (l,m) mode for local boundary planes
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= fields.poloidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            # Inner boundary correction if local and not at r=0 (ball)
+            if (1 in r_range) && domain.r[1, 4] > eps(T)
+                pol_profile = extract_local_radial_profile(pol_real, local_lm, nr, r_range)
+                # Neighbor index
+                k = 2
+                # Keep P(1)=0 (already set), adjust P(2)
+                S0 = boundary_stress_metric(pol_profile, :inner)
+                if S0 != 0
+                    δ = T(1e-8)
+                    pol_profile[k] += δ
+                    S1 = boundary_stress_metric(pol_profile, :inner)
+                    pol_profile[k] -= δ
+                    dS = (S1 - S0) / δ
+                    if dS != 0
+                        pol_profile[k] -= S0 / dS
+                        store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+                    end
+                end
+            end
+
+            # Outer boundary correction if local
+            if (nr in r_range)
+                pol_profile = extract_local_radial_profile(pol_real, local_lm, nr, r_range)
+                k = nr - 1
+                S0 = boundary_stress_metric(pol_profile, :outer)
+                if S0 != 0
+                    δ = T(1e-8)
+                    pol_profile[k] += δ
+                    S1 = boundary_stress_metric(pol_profile, :outer)
+                    pol_profile[k] -= δ
+                    dS = (S1 - S0) / δ
+                    if dS != 0
+                        pol_profile[k] -= S0 / dS
+                        store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+                    end
+                end
             end
         end
     end
