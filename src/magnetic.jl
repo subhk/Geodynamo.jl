@@ -656,18 +656,64 @@ function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T},
     lm_range = range_local(config.pencils.spec, 1)
     r_range = range_local(config.pencils.r, 3)
     
-    # Outer boundary: insulating condition (∂B/∂r = 0)
+    # Outer boundary: insulating condition (∂B/∂r = 0) using derivative operator
     if domain_oc.N in r_range
         local_r = domain_oc.N - first(r_range) + 1
+        # Build first-derivative matrix once
+        dr_matrix = create_derivative_matrix(1, domain_oc)
+        nr = domain_oc.N
+        # Helper to extract full radial profile for local (l,m)
+        extract_profile(data, ll) = begin
+            prof = zeros(T, nr)
+            @inbounds for r_idx in 1:nr
+                if r_idx in r_range
+                    lr = r_idx - first(r_range) + 1
+                    if lr <= size(data, 3)
+                        prof[r_idx] = data[ll, 1, lr]
+                    end
+                end
+            end
+            prof
+        end
+        # Enforce zero derivative at outer boundary with a small sensitivity update
+        function enforce_zero_deriv_outer!(prof::Vector{T})
+            # compute current derivative at outer boundary
+            d = similar(prof)
+            apply_derivative_matrix!(d, dr_matrix, prof)
+            dN = d[end]
+            if dN != 0
+                δ = T(1e-8)
+                prof[end] += δ
+                apply_derivative_matrix!(d, dr_matrix, prof)
+                dN2 = d[end]
+                prof[end] -= δ
+                sens = (dN2 - dN) / δ
+                if sens != 0
+                    prof[end] -= dN / sens
+                end
+            end
+        end
+
         @inbounds for lm_idx in lm_range
             if lm_idx <= mag_fields.toroidal.nlm
                 local_lm = lm_idx - first(lm_range) + 1
-                # Apply insulating condition
-                if local_r > 1 && local_r <= size(tor_real, 3)
-                    tor_real[local_lm, 1, local_r] = tor_real[local_lm, 1, local_r-1]
-                    tor_imag[local_lm, 1, local_r] = tor_imag[local_lm, 1, local_r-1]
-                    pol_real[local_lm, 1, local_r] = pol_real[local_lm, 1, local_r-1]
-                    pol_imag[local_lm, 1, local_r] = pol_imag[local_lm, 1, local_r-1]
+                if local_r <= size(tor_real, 3)
+                    # Real toroidal
+                    prof = extract_profile(tor_real, local_lm)
+                    enforce_zero_deriv_outer!(prof)
+                    tor_real[local_lm, 1, local_r] = prof[end]
+                    # Imag toroidal
+                    prof = extract_profile(tor_imag, local_lm)
+                    enforce_zero_deriv_outer!(prof)
+                    tor_imag[local_lm, 1, local_r] = prof[end]
+                    # Real poloidal
+                    prof = extract_profile(pol_real, local_lm)
+                    enforce_zero_deriv_outer!(prof)
+                    pol_real[local_lm, 1, local_r] = prof[end]
+                    # Imag poloidal
+                    prof = extract_profile(pol_imag, local_lm)
+                    enforce_zero_deriv_outer!(prof)
+                    pol_imag[local_lm, 1, local_r] = prof[end]
                 end
             end
         end
