@@ -75,6 +75,9 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
     lm_range = get_local_range(u.pencil, 1)
     r_range  = get_local_range(u.pencil, 3)
+    nr_full = size(etd.E[1], 1)
+    comm = get_comm()
+    multi = MPI.Comm_size(comm) > 1
     # Build map from lm_idx to l index in etd
     for lm_idx in lm_range
         if lm_idx <= u.nlm
@@ -83,26 +86,33 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
             E = etd.E[lpos]
             P1 = etd.phi1[lpos]
             ll = lm_idx - first(lm_range) + 1
-            # Extract full radial vectors (assume single-rank or full local r)
-            ur = Vector{T}(undef, size(u_real, 3))
-            ui = Vector{T}(undef, size(u_imag, 3))
-            nr_loc = length(ur)
-            @inbounds for k in 1:nr_loc
-                ur[k] = u_real[ll, 1, k]
-                ui[k] = u_imag[ll, 1, k]
+            # Assemble full radial vectors
+            ur = zeros(T, nr_full); ui = zeros(T, nr_full)
+            nrn = zeros(T, nr_full); nin = zeros(T, nr_full)
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    ur[r] = u_real[ll, 1, lr]
+                    ui[r] = u_imag[ll, 1, lr]
+                    nrn[r] = (3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr]
+                    nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
+                end
             end
-            # Nonlinear combo
-            nrn = Vector{T}(undef, nr_loc)
-            nin = Vector{T}(undef, nr_loc)
-            @inbounds for k in 1:nr_loc
-                nrn[k] = (3/2)*n_real[ll,1,k] - (1/2)*p_real[ll,1,k]
-                nin[k] = (3/2)*n_imag[ll,1,k] - (1/2)*p_imag[ll,1,k]
+            if multi
+                MPI.Allreduce!(ur, MPI.SUM, comm)
+                MPI.Allreduce!(ui, MPI.SUM, comm)
+                MPI.Allreduce!(nrn, MPI.SUM, comm)
+                MPI.Allreduce!(nin, MPI.SUM, comm)
             end
             ur_new = E*ur + dt*(P1*nrn)
             ui_new = E*ui + dt*(P1*nin)
-            @inbounds for k in 1:nr_loc
-                u_real[ll,1,k] = ur_new[k]
-                u_imag[ll,1,k] = ui_new[k]
+            # Scatter back to local slab
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    u_real[ll,1,lr] = ur_new[r]
+                    u_imag[ll,1,lr] = ui_new[r]
+                end
             end
         end
     end
