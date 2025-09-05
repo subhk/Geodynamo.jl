@@ -29,6 +29,7 @@ struct SHTnsTemperatureField{T}
     
     # Nonlinear terms (advection)
     nonlinear::SHTnsSpectralField{T}
+    prev_nonlinear::SHTnsSpectralField{T}
     
     # Work arrays for efficient computation
     work_spectral::SHTnsSpectralField{T}
@@ -83,6 +84,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     # Spectral representation using spectral pencil
     spectral  = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     
     # Work arrays
     work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
@@ -116,7 +118,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
     
     return SHTnsTemperatureField{T}(
-        temperature, gradient, spectral, nonlinear,
+        temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         grad_theta_spec, grad_phi_spec, grad_r_spec,
         internal_sources, boundary_values,
