@@ -49,6 +49,12 @@ state = initialize_shtns_simulation(Float64; include_composition=false)
 # Debug: print pencil layouts (axes_in) to verify decomposition
 Geodynamo.print_pencil_axes(state.shtns_config.pencils)
 
+# Optional: register a shared VelocityWorkspace to reduce allocations
+if get(ENV, "GEODYNAMO_USE_WS", "1") == "1"
+    ws = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
+    Geodynamo.set_velocity_workspace!(ws)
+end
+
 # 3) Temperature boundary conditions (Dirichlet inner/outer)
 #    Options:
 #    - Dirichlet (fixed T): inner_bc_type=1, outer_bc_type=1, values below
