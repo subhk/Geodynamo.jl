@@ -1037,7 +1037,7 @@ function compute_composition_nonlinear_master!(state, velocity, domain)
 end
 
 function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
-    # Task-based implicit time integration
+    # Task-based time integration
     task_graph = create_task_graph()
 
     # For CNAB2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
@@ -1067,6 +1067,18 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                              state.temperature.nonlinear, state.temperature.prev_nonlinear, dt)
             solve_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
                                  state.implicit_matrices[:temperature])
+        elseif ts_scheme === :eab2
+            if MPI.Comm_size(get_comm()) > 1
+                @warn "EAB2 currently requires single-rank execution; falling back to CNAB2"
+                build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
+                                 state.temperature.nonlinear, state.temperature.prev_nonlinear, dt)
+                solve_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
+                                     state.implicit_matrices[:temperature])
+            else
+                etd = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Pr, dt)
+                eab2_update!(state.temperature.spectral, state.temperature.nonlinear,
+                             state.temperature.prev_nonlinear, etd, state.shtns_config, dt)
+            end
         else
             solve_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
                                  state.implicit_matrices[:temperature])
@@ -1079,6 +1091,18 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                              state.velocity.nl_toroidal, state.velocity.prev_nl_toroidal, dt)
             solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
+        elseif ts_scheme === :eab2
+            if MPI.Comm_size(get_comm()) > 1
+                @warn "EAB2 currently requires single-rank execution; falling back to CNAB2"
+                build_rhs_cnab2!(state.velocity.work_tor, state.velocity.toroidal,
+                                 state.velocity.nl_toroidal, state.velocity.prev_nl_toroidal, dt)
+                solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
+                                     state.implicit_matrices[:velocity])
+            else
+                etd_v = create_etd_cache(Float64, state.shtns_config, state.oc_domain, d_E, dt)
+                eab2_update!(state.velocity.toroidal, state.velocity.nl_toroidal,
+                             state.velocity.prev_nl_toroidal, etd_v, state.shtns_config, dt)
+            end
         else
             solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                  state.implicit_matrices[:velocity])
@@ -1091,6 +1115,17 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                              state.velocity.nl_poloidal, state.velocity.prev_nl_poloidal, dt)
             solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
+        elseif ts_scheme === :eab2
+            if MPI.Comm_size(get_comm()) > 1
+                build_rhs_cnab2!(state.velocity.work_pol, state.velocity.poloidal,
+                                 state.velocity.nl_poloidal, state.velocity.prev_nl_poloidal, dt)
+                solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
+                                     state.implicit_matrices[:velocity])
+            else
+                etd_v = create_etd_cache(Float64, state.shtns_config, state.oc_domain, d_E, dt)
+                eab2_update!(state.velocity.poloidal, state.velocity.nl_poloidal,
+                             state.velocity.prev_nl_poloidal, etd_v, state.shtns_config, dt)
+            end
         else
             solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                  state.implicit_matrices[:velocity])
@@ -1105,6 +1140,17 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.magnetic.nl_toroidal, state.magnetic.prev_nl_toroidal, dt)
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
+            elseif ts_scheme === :eab2
+                if MPI.Comm_size(get_comm()) > 1
+                    build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.toroidal,
+                                     state.magnetic.nl_toroidal, state.magnetic.prev_nl_toroidal, dt)
+                    solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
+                                         state.implicit_matrices[:magnetic])
+                else
+                    etd_m = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
+                    eab2_update!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
+                                 state.magnetic.prev_nl_toroidal, etd_m, state.shtns_config, dt)
+                end
             else
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                      state.implicit_matrices[:magnetic])
@@ -1116,6 +1162,17 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.magnetic.nl_poloidal, state.magnetic.prev_nl_poloidal, dt)
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
+            elseif ts_scheme === :eab2
+                if MPI.Comm_size(get_comm()) > 1
+                    build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.poloidal,
+                                     state.magnetic.nl_poloidal, state.magnetic.prev_nl_poloidal, dt)
+                    solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
+                                         state.implicit_matrices[:magnetic])
+                else
+                    etd_m = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
+                    eab2_update!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
+                                 state.magnetic.prev_nl_poloidal, etd_m, state.shtns_config, dt)
+                end
             else
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                      state.implicit_matrices[:magnetic])
@@ -1131,6 +1188,17 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.composition.nonlinear, state.composition.prev_nonlinear, dt)
                 solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
                                      state.implicit_matrices[:composition])
+            elseif ts_scheme === :eab2
+                if MPI.Comm_size(get_comm()) > 1
+                    build_rhs_cnab2!(state.composition.work_spectral, state.composition.spectral,
+                                     state.composition.nonlinear, state.composition.prev_nonlinear, dt)
+                    solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
+                                         state.implicit_matrices[:composition])
+                else
+                    etd_c = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Sc, dt)
+                    eab2_update!(state.composition.spectral, state.composition.nonlinear,
+                                 state.composition.prev_nonlinear, etd_c, state.shtns_config, dt)
+                end
             else
                 solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
                                      state.implicit_matrices[:composition])
@@ -1138,11 +1206,11 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end)
     end
     
-    # Execute all implicit solves in parallel
+    # Execute all tasks in parallel
     execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
 
     # Roll nonlinear histories for CNAB2
-    if ts_scheme === :cnab2
+    if ts_scheme === :cnab2 || ts_scheme === :eab2
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
         parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
