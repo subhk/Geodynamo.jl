@@ -480,7 +480,7 @@ end
 # Compositional buoyancy force (similar to thermal but for composition)
 function add_buoyancy_force!(force_r::AbstractArray{T,3}, 
                              comp_field, factor::Float64,
-                             oc_domain::RadialDomain) where T
+                             domain::RadialDomain) where T
     # Add compositional buoyancy force with proper radial scaling
     
     # Get compositional field data
@@ -494,19 +494,22 @@ function add_buoyancy_force!(force_r::AbstractArray{T,3},
     r_range = get_local_range(comp_field.pencil, 3)
     
     # Vectorized addition with radial dependence
-    @inbounds @simd for idx in eachindex(force_r)
-        if idx <= length(comp_data)
-            # Get radial index for this point
-            k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
-            r_idx = k + first(r_range) - 1
-            
-            if r_idx <= oc_domain.N
-                # Include radial dependence for spherical geometry
-                r = oc_domain.r[r_idx, 4]
-                gravity_factor = r^2  # Gravity scales as r² in spherical geometry
-                force_r[idx] += factor * gravity_factor * comp_data[idx]
-            else
-                force_r[idx] += factor * comp_data[idx]
+    # Threaded flat-index iteration (same pattern as thermal buoyancy)
+    Ntot = length(force_r)
+    chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
+    @inbounds Threads.@threads for start in 1:chunk:Ntot
+        stop = min(Ntot, start + chunk - 1)
+        @simd for idx in start:stop
+            if idx <= length(comp_data)
+                k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
+                r_idx = k + first(r_range) - 1
+                if r_idx <= domain.N
+                    r = domain.r[r_idx, 4]
+                    gravity_factor = r^2
+                    force_r[idx] += factor * gravity_factor * comp_data[idx]
+                else
+                    force_r[idx] += factor * comp_data[idx]
+                end
             end
         end
     end
@@ -568,7 +571,8 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
     r_range = range_local(config.pencils.r, 3)
     
     # No-penetration: poloidal field vanishes at boundaries
-    if 1 in r_range
+    has_inner = (1 in r_range) && (domain.r[1, 4] > 0)  # skip r=0 plane for ball geometry
+    if has_inner
         local_r = 1 - first(r_range) + 1
         @inbounds for lm_idx in lm_range
             if lm_idx <= fields.poloidal.nlm
@@ -579,8 +583,8 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
         end
     end
     
-    if oc_domain.N in r_range
-        local_r = oc_domain.N - first(r_range) + 1
+    if domain.N in r_range
+        local_r = domain.N - first(r_range) + 1
         @inbounds for lm_idx in lm_range
             if lm_idx <= fields.poloidal.nlm
                 local_lm = lm_idx - first(lm_range) + 1
@@ -593,7 +597,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
     # For no-slip: toroidal field also vanishes
     # For stress-free: d(rT)/dr = 0 at boundaries
     if i_vel_bc == 1  # No-slip
-        if 1 in r_range
+        if has_inner
             local_r = 1 - first(r_range) + 1
             @inbounds for lm_idx in lm_range
                 if lm_idx <= fields.toroidal.nlm
@@ -604,8 +608,8 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
             end
         end
         
-        if oc_domain.N in r_range
-            local_r = oc_domain.N - first(r_range) + 1
+        if domain.N in r_range
+            local_r = domain.N - first(r_range) + 1
             @inbounds for lm_idx in lm_range
                 if lm_idx <= fields.toroidal.nlm
                     local_lm = lm_idx - first(lm_range) + 1
@@ -615,7 +619,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
             end
         end
     elseif i_vel_bc == 2  # Stress-free
-        apply_stress_free_bc!(fields, oc_domain)
+        apply_stress_free_bc!(fields, domain)
     end
 end
 
@@ -629,7 +633,7 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
     tor_imag = parent(fields.toroidal.data_imag)
     
     lm_range = get_local_range(fields.toroidal.pencil, 1)
-    nr = oc_domain.N
+    nr = domain.N
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
