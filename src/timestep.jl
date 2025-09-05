@@ -123,6 +123,32 @@ function apply_explicit_operator!(output::SHTnsSpectralField{T},
     end
 end
 
+"""
+    build_rhs_cnab2!(rhs, un, nl, nl_prev, dt)
+
+Build RHS for CNAB2 IMEX: rhs = un/dt + (3/2)·nl − (1/2)·nl_prev
+(Linear explicit contribution omitted to match existing operator splitting.)
+"""
+function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
+                          nl::SHTnsSpectralField{T}, nl_prev::SHTnsSpectralField{T}, dt::Float64) where T
+    r_real = parent(rhs.data_real); r_imag = parent(rhs.data_imag)
+    u_real = parent(un.data_real);  u_imag = parent(un.data_imag)
+    n_real = parent(nl.data_real);  n_imag = parent(nl.data_imag)
+    p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
+    lm_range = get_local_range(un.pencil, 1)
+    r_range  = get_local_range(un.pencil, 3)
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= un.nlm
+            ll = lm_idx - first(lm_range) + 1
+            for r in r_range
+                lr = r - first(r_range) + 1
+                r_real[ll,1,lr] = u_real[ll,1,lr]/dt + (3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr]
+                r_imag[ll,1,lr] = u_imag[ll,1,lr]/dt + (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
+            end
+        end
+    end
+    return rhs
+end
 
 function solve_implicit_step!(solution::SHTnsSpectralField{T}, 
                                 rhs::SHTnsSpectralField{T},

@@ -20,6 +20,8 @@ struct SHTnsVelocityFields{T}
     # Nonlinear terms
     nl_toroidal::SHTnsSpectralField{T}
     nl_poloidal::SHTnsSpectralField{T}
+    prev_nl_toroidal::SHTnsSpectralField{T}
+    prev_nl_poloidal::SHTnsSpectralField{T}
     
     # Work arrays for efficient computation
     work_tor::SHTnsSpectralField{T}
@@ -169,6 +171,8 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     vort_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     
     # Work arrays
     work_tor = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
@@ -196,7 +200,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal,
                                   vort_toroidal, vort_poloidal,
-                                  nl_toroidal, nl_poloidal,
+                                  nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   l_factors, coriolis_factors,

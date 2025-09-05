@@ -33,6 +33,8 @@ struct SHTnsMagneticFields{T}
     # Nonlinear terms (induction)
     nl_toroidal::SHTnsSpectralField{T}
     nl_poloidal::SHTnsSpectralField{T}
+    prev_nl_toroidal::SHTnsSpectralField{T}
+    prev_nl_poloidal::SHTnsSpectralField{T}
     
     # Work arrays
     work_tor::SHTnsSpectralField{T}
@@ -80,6 +82,8 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     # Nonlinear terms
     nl_toroidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     nl_poloidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    prev_nl_toroidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    prev_nl_poloidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     
     # Work arrays
     work_tor = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
@@ -98,7 +102,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     return SHTnsMagneticFields{T}(magnetic, current, 
                                 toroidal, poloidal,
                                 ic_toroidal, ic_poloidal, 
-                                nl_toroidal, nl_poloidal,
+                                nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 l_factors,
