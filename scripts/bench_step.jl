@@ -16,7 +16,7 @@ function main()
     )
     set_parameters!(params)
 
-    state = initialize_shtns_simulation(Float64; include_composition=false)
+    state = initialize_simulation(Float64; include_composition=false)
     initialize_fields!(state)
 
     # Warm-up
@@ -38,4 +38,3 @@ function main()
 end
 
 main()
-

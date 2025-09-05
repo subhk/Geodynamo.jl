@@ -9,7 +9,7 @@ function main()
                                  d_E=1e-4, d_Pr=1.0, d_Pm=1.0, d_Ra=1e6, i_B=1)
     set_parameters!(params)
 
-    state = initialize_shtns_simulation(Float64; include_composition=false)
+    state = initialize_simulation(Float64; include_composition=false)
     initialize_fields!(state)
 
     # Baseline compute
@@ -35,4 +35,3 @@ function main()
 end
 
 main()
-
