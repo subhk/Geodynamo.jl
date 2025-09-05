@@ -642,9 +642,8 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
             # Extract radial profile
             tor_profile_real = extract_local_radial_profile(tor_real, local_lm, nr,
                                                            get_local_range(fields.toroidal.pencil, 3))
-            
-            # Apply stress-free correction
-            apply_stress_free_correction!(tor_profile_real, domain)
+            # Apply stress-free correction using derivative operator
+            apply_stress_free_correction!(tor_profile_real, fields.dr_matrix, domain)
             
             # Store corrected profile
             store_local_radial_profile!(tor_real, tor_profile_real, local_lm,
@@ -654,7 +653,7 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
             if any(x -> abs(x) > 1e-12, view(tor_imag, local_lm, 1, :))
                 tor_profile_imag = extract_local_radial_profile(tor_imag, local_lm, nr,
                                                                get_local_range(fields.toroidal.pencil, 3))
-                apply_stress_free_correction!(tor_profile_imag, domain)
+                apply_stress_free_correction!(tor_profile_imag, fields.dr_matrix, domain)
                 store_local_radial_profile!(tor_imag, tor_profile_imag, local_lm,
                                            get_local_range(fields.toroidal.pencil, 3))
             end
@@ -663,26 +662,21 @@ function apply_stress_free_bc!(fields::SHTnsVelocityFields{T},
 end
 
 
-function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain) where T
-    # Modify profile to satisfy d(rT)/dr = 0 at boundaries
-    # This uses linear extrapolation near boundaries
-    
+function apply_stress_free_correction!(profile::Vector{T}, dr_matrix::BandedMatrix{T}, domain::RadialDomain) where T
+    # Enforce d(rT)/dr = 0 at the boundaries using discrete derivative
     N = domain.N
-    
-    # Inner boundary: d(rT)/dr = 0 at r=ri (skip if ri≈0 for ball)
-    r1 = domain.r[1, 4]
-    r2 = domain.r[2, 4]
-    if r1 > eps(T)
-        profile[1] = profile[2] * r2 / r1  # Linear extrapolation
+    dT = Vector{T}(undef, N)
+    apply_derivative_matrix!(dT, dr_matrix, profile)
+    # Inner boundary: T(ri) = -ri * dT/dr(ri); if ri≈0 (ball), set to 0
+    ri = domain.r[1, 4]
+    if ri > eps(T)
+        profile[1] = -ri * dT[1]
     else
-        # For ball geometry (r=0), leave as neighboring value to preserve regularity
-        profile[1] = profile[2]
+        profile[1] = zero(T)
     end
-    
-    # Outer boundary: d(rT)/dr = 0 at r=ro
-    rN = domain.r[N, 4]
-    rN1 = domain.r[N-1, 4]
-    profile[N] = profile[N-1] * rN1 / rN  # Linear extrapolation
+    # Outer boundary: T(ro) = -ro * dT/dr(ro)
+    ro = domain.r[N, 4]
+    profile[N] = -ro * dT[N]
 end
 
 
