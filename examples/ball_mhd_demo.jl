@@ -64,10 +64,44 @@ set_boundary_conditions!(state.temperature;
 #    - Temperature: conductive profile + small perturbation
 set_temperature_ic!(state.temperature, state.oc_domain; perturbation_amplitude=1e-3)
 
+#    - Overwrite l=0,m=0 with conductive profile matching BC values
+function _find_mode_index(config, l_target::Int, m_target::Int)
+    for i in 1:config.nlm
+        if config.l_values[i] == l_target && config.m_values[i] == m_target
+            return i
+        end
+    end
+    return 0
+end
+
+function set_conductive_ic!(temp_field, domain; T_in=1.0, T_out=0.0)
+    spec_r = parent(temp_field.spectral.data_real)
+    spec_i = parent(temp_field.spectral.data_imag)
+    lm_rng = Geodynamo.get_local_range(temp_field.spectral.pencil, 1)
+    r_rng  = Geodynamo.get_local_range(temp_field.spectral.pencil, 3)
+    l0m0 = _find_mode_index(temp_field.config, 0, 0)
+    if l0m0 != 0 && (first(lm_rng) <= l0m0 <= last(lm_rng))
+        ll = l0m0 - first(lm_rng) + 1
+        ri = domain.r[1, 4]
+        ro = domain.r[end, 4]
+        for r_idx in r_rng
+            rr = r_idx - first(r_rng) + 1
+            if rr <= size(spec_r, 3)
+                r = domain.r[r_idx, 4]
+                spec_r[ll, 1, rr] = T_in + (T_out - T_in) * (r - ri) / (ro - ri)
+                spec_i[ll, 1, rr] = 0.0
+            end
+        end
+    end
+end
+
+set_conductive_ic!(state.temperature, state.oc_domain; T_in=1.0, T_out=0.0)
+
 #    - Velocity: starts at zero (recommended). Uncomment to add tiny perturbations:
 # using Random
 # Random.seed!(1234)
-# tor = parent(state.velocity.toroidal.data_real); pol = parent(state.velocity.poloidal.data_real)
+# tor = parent(state.velocity.toroidal.data_real); 
+# pol = parent(state.velocity.poloidal.data_real)
 # lm_range = range_local(state.velocity.toroidal.pencil, 1)
 # r_range  = range_local(state.velocity.toroidal.pencil, 3)
 # @inbounds for lm_idx in lm_range
