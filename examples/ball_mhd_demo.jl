@@ -46,6 +46,9 @@ set_parameters!(params)
 # 2) Initialize basic SHTns simulation (thermal + magnetic, no composition)
 state = initialize_shtns_simulation(Float64; include_composition=false)
 
+# Debug: print pencil layouts (axes_in) to verify decomposition
+Geodynamo.print_pencil_axes(state.shtns_config.pencils)
+
 # 3) Temperature boundary conditions (Dirichlet inner/outer)
 #    Options:
 #    - Dirichlet (fixed T): inner_bc_type=1, outer_bc_type=1, values below

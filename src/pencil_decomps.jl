@@ -441,6 +441,27 @@ function print_pencil_info(pencils)
 end
 
 
+"""
+    print_pencil_axes(pencils)
+
+Print the `axes_in` tuple for each pencil, showing the local index ranges
+for all three axes. This helps verify which axes are distributed (those with
+nontrivial subranges across ranks) and which axis is contiguous locally.
+"""
+function print_pencil_axes(pencils)
+    rank = get_rank()
+    if rank == 0
+        println("\nPencil axes_in (local index ranges per axis):")
+    end
+    for (name, pencil) in pairs(pencils)
+        axes_in = pencil.axes_in
+        if rank == 0
+            println(rpad("  " * String(name), 14), " => ", axes_in)
+        end
+    end
+end
+
+
 # =================================
 # Communication Optimization
 # =================================

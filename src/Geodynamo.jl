@@ -21,7 +21,7 @@ module Geodynamo
     export transpose_with_timer!, print_transpose_statistics
     export analyze_load_balance, estimate_memory_usage
     export create_pencil_array, synchronize_halos!
-    export print_pencil_info, optimize_communication_order
+    export print_pencil_info, print_pencil_axes, optimize_communication_order
     export ENABLE_TIMING
 
 
