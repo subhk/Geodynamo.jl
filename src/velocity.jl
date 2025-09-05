@@ -701,7 +701,11 @@ function apply_poloidal_stress_free_bc!(fields::SHTnsVelocityFields{T}, domain::
     end
 
     # Apply per (l,m) mode for local boundary planes
-    n_iter = 2  # small number of refinement iterations
+    n_iter = max(1, try
+        Geodynamo.i_poloidal_stress_iters === nothing ? 2 : Geodynamo.i_poloidal_stress_iters
+    catch
+        2
+    end)
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.poloidal.nlm
             local_lm = lm_idx - first(lm_range) + 1

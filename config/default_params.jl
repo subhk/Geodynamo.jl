@@ -38,6 +38,7 @@ const i_save_rate2 = 100      # Output frequency
 const i_vel_bc = 1            # Velocity BC: 1=no-slip, 2=stress-free
 const i_tmp_bc = 1            # Temperature BC
 const i_cmp_bc = 1            # Composition BC
+const i_poloidal_stress_iters = 2  # Iterations for poloidal stress-free correction
 
 # Boolean flags
 const b_mag_impose = false    # Imposed magnetic field

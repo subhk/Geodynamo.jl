@@ -51,6 +51,9 @@ Base.@kwdef mutable struct GeodynamoParameters
     i_tmp_bc::Int = 1             # Temperature BC
     i_cmp_bc::Int = 1             # Composition BC
     
+    # BC tuning parameters
+    i_poloidal_stress_iters::Int = 2  # Iterations for poloidal stress-free correction
+    
     # Boolean flags
     b_mag_impose::Bool = false    # Imposed magnetic field
     
@@ -251,6 +254,7 @@ function save_parameters(params::GeodynamoParameters, filename::String)
         println(io, "const i_vel_bc = $(params.i_vel_bc)            # Velocity BC: 1=no-slip, 2=stress-free")
         println(io, "const i_tmp_bc = $(params.i_tmp_bc)            # Temperature BC")
         println(io, "const i_cmp_bc = $(params.i_cmp_bc)            # Composition BC")
+        println(io, "const i_poloidal_stress_iters = $(params.i_poloidal_stress_iters)  # Iterations for poloidal stress-free correction")
         println(io)
         
         println(io, "# Boolean flags")
