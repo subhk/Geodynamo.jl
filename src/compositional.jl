@@ -248,7 +248,7 @@ end
 
 # Boundary conditions in spectral space
 function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompositionField{T}, 
-                                                         oc_domain::RadialDomain) where T
+                                                         domain::RadialDomain) where T
     # Apply boundary conditions in spectral space
     
     spec_real = parent(comp_field.spectral.data_real)
@@ -259,35 +259,145 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
     
     # Check which boundaries are local
     has_inner = 1 in r_range
-    has_outer = oc_domain.N in r_range
+    has_outer = domain.N in r_range
     
     if has_inner || has_outer
         for (local_lm, lm_idx) in enumerate(lm_range)
             bc_inner = comp_field.bc_type_inner[lm_idx]
             bc_outer = comp_field.bc_type_outer[lm_idx]
             
-            # Apply inner boundary condition
-            if has_inner
+            # Apply inner boundary condition (skip at r=0 for ball)
+            if has_inner && domain.r[1,4] > 0
                 r_local = 1
                 if bc_inner == 1  # Fixed composition
                     spec_real[local_lm, 1, r_local] = comp_field.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
                 elseif bc_inner == 2  # No-flux (zero gradient)
-                    # For no-flux, we would set the gradient to zero
-                    # Implementation depends on the specific scheme used
+                    # Defer to full no-flux enforcement after loop
                 end
             end
             
             # Apply outer boundary condition
             if has_outer
-                r_local = oc_domain.N - first(r_range) + 1
+                r_local = domain.N - first(r_range) + 1
                 if r_local <= size(spec_real, 3)
                     if bc_outer == 1  # Fixed composition
                         spec_real[local_lm, 1, r_local] = comp_field.boundary_values[2, lm_idx]
                         spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
                     elseif bc_outer == 2  # No-flux (zero gradient)
-                        # For no-flux, we would set the gradient to zero
-                        # Implementation depends on the specific scheme used
+                        # Defer to full no-flux enforcement after loop
+                    end
+                end
+            end
+        end
+    end
+    # If any no-flux BC present, apply discrete operator-based enforcement
+    if any(comp_field.bc_type_inner .== 2) || any(comp_field.bc_type_outer .== 2)
+        apply_composition_no_flux!(comp_field, domain)
+    end
+end
+
+"""
+    apply_composition_no_flux!(comp_field, domain)
+
+Enforce zero normal derivative (no-flux) at boundaries using the first-derivative
+banded operator. Solves for boundary values directly from the operator row.
+"""
+function apply_composition_no_flux!(comp_field::SHTnsCompositionField{T}, domain::RadialDomain) where T
+    spec_real = parent(comp_field.spectral.data_real)
+    spec_imag = parent(comp_field.spectral.data_imag)
+    lm_range = range_local(comp_field.config.pencils.spec, 1)
+    r_range  = range_local(comp_field.config.pencils.spec, 3)
+    nr = domain.N
+    dr = create_derivative_matrix(1, domain)
+
+    # Helper to gather full radial profile for (l,m)
+    function gather_profile(arr, ll)
+        prof = zeros(T, nr)
+        @inbounds for r in r_range
+            lr = r - first(r_range) + 1
+            if lr <= size(arr, 3)
+                prof[r] = arr[ll, 1, lr]
+            end
+        end
+        if MPI.Comm_size(get_comm()) > 1
+            MPI.Allreduce!(prof, MPI.SUM, get_comm())
+        end
+        prof
+    end
+
+    # Solve banded row M[1,*]·prof = 0 or M[N,*]·prof = 0
+    function enforce_row_zero_deriv!(prof::Vector{T}, which::Symbol)
+        bw = dr.bandwidth
+        if which === :inner
+            if domain.r[1,4] <= 0
+                return
+            end
+            i = 1
+            jmax = min(nr, i + bw)
+            denom = zero(T); s = zero(T)
+            @inbounds for j in i:jmax
+                row = bw + 1 + i - j
+                coeff = (1 <= row <= 2*bw+1) ? dr.data[row, j] : zero(T)
+                if j == i
+                    denom = coeff
+                else
+                    s += coeff * prof[j]
+                end
+            end
+            if denom != 0
+                prof[i] = -s / denom
+            end
+        else
+            i = nr
+            jmin = max(1, i - dr.bandwidth)
+            denom = zero(T); s = zero(T)
+            @inbounds for j in jmin:i
+                row = bw + 1 + i - j
+                coeff = (1 <= row <= 2*bw+1) ? dr.data[row, j] : zero(T)
+                if j == i
+                    denom = coeff
+                else
+                    s += coeff * prof[j]
+                end
+            end
+            if denom != 0
+                prof[i] = -s / denom
+            end
+        end
+    end
+
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= comp_field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            # Real part
+            prof = gather_profile(spec_real, local_lm)
+            if comp_field.bc_type_inner[lm_idx] == 2
+                enforce_row_zero_deriv!(prof, :inner)
+            end
+            if comp_field.bc_type_outer[lm_idx] == 2
+                enforce_row_zero_deriv!(prof, :outer)
+            end
+            # Scatter back to local slab
+            for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(spec_real, 3)
+                    spec_real[local_lm, 1, lr] = prof[r]
+                end
+            end
+            # Imag part if present
+            if any(x -> abs(x) > 1e-14, view(spec_imag, local_lm, 1, :))
+                profi = gather_profile(spec_imag, local_lm)
+                if comp_field.bc_type_inner[lm_idx] == 2
+                    enforce_row_zero_deriv!(profi, :inner)
+                end
+                if comp_field.bc_type_outer[lm_idx] == 2
+                    enforce_row_zero_deriv!(profi, :outer)
+                end
+                for r in r_range
+                    lr = r - first(r_range) + 1
+                    if lr <= size(spec_imag, 3)
+                        spec_imag[local_lm, 1, lr] = profi[r]
                     end
                 end
             end
