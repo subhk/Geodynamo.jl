@@ -397,48 +397,99 @@ Perform bilinear interpolation from source grid to target grid.
 """
 function bilinear_interpolation(src_theta::Vector{T}, src_phi::Vector{T}, src_values::Matrix{T},
                                target_theta::Vector{T}, target_phi::Vector{T}) where T<:AbstractFloat
-    # Nearest-neighbor interpolation with cached index maps
+    # True bilinear interpolation with cached bracketing indices and weights
     nlat_target = length(target_theta)
     nlon_target = length(target_phi)
     result = zeros(T, nlat_target, nlon_target)
 
-    θ_idx_map, φ_idx_map = _get_interp_index_maps(src_theta, src_phi, target_theta, target_phi)
+    (θ0, θ1, aθ, ϕ0, ϕ1, aϕ) = _get_bilinear_weights(src_theta, src_phi, target_theta, target_phi)
 
     @inbounds for i in 1:nlat_target
-        si = θ_idx_map[i]
+        i0 = θ0[i]; i1 = θ1[i]; α = aθ[i]
         for j in 1:nlon_target
-            sj = φ_idx_map[j]
-            result[i, j] = src_values[si, sj]
+            j0 = ϕ0[j]; j1 = ϕ1[j]; β = aϕ[j]
+            f00 = src_values[i0, j0]
+            f01 = src_values[i0, j1]
+            f10 = src_values[i1, j0]
+            f11 = src_values[i1, j1]
+            # Bilinear blend
+            result[i, j] = (1-α) * ((1-β)*f00 + β*f01) + α * ((1-β)*f10 + β*f11)
         end
     end
     return result
 end
 
-# Cache of index maps for (src_theta, src_phi, target_theta, target_phi)
-const _INTERP_CACHE = IdDict{Tuple{Any,Any,Any,Any}, Tuple{Vector{Int}, Vector{Int}}}()
+# Cache of bilinear weights for (src_theta, src_phi, target_theta, target_phi)
+const _BILIN_CACHE = IdDict{Tuple{Any,Any,Any,Any}, Tuple{Vector{Int},Vector{Int},Vector{Float64},Vector{Int},Vector{Int},Vector{Float64}}}()
 
-function _get_interp_index_maps(src_theta::Vector, src_phi::Vector,
-                                target_theta::Vector, target_phi::Vector)
+function _get_bilinear_weights(src_theta::Vector{T}, src_phi::Vector{T},
+                               target_theta::Vector{T}, target_phi::Vector{T}) where T
     key = (src_theta, src_phi, target_theta, target_phi)
-    maps = get(_INTERP_CACHE, key, nothing)
-    if maps === nothing
-        θ_idx = similar(target_theta, Int)
-        φ_idx = similar(target_phi, Int)
-        # Precompute nearest-neighbor indices
-        @inbounds for i in eachindex(target_theta)
-            θ = target_theta[i]
-            _, idx = findmin(abs.(src_theta .- θ))
-            θ_idx[i] = idx
-        end
-        @inbounds for j in eachindex(target_phi)
-            φ = target_phi[j]
-            _, idx = findmin(abs.(src_phi .- φ))
-            φ_idx[j] = idx
-        end
-        maps = (θ_idx, φ_idx)
-        _INTERP_CACHE[key] = maps
+    weights = get(_BILIN_CACHE, key, nothing)
+    if weights === nothing
+        θ0, θ1, aθ = _build_axis_weights(src_theta, target_theta; periodic=false, period=zero(T))
+        ϕ0, ϕ1, aϕ = _build_axis_weights(src_phi,   target_phi;  periodic=true,  period=2π)
+        weights = (θ0, θ1, aθ, ϕ0, ϕ1, aϕ)
+        _BILIN_CACHE[key] = weights
     end
-    return maps
+    return weights
+end
+
+function _build_axis_weights(src::Vector{T}, tgt::Vector{T}; periodic::Bool, period) where T
+    n = length(src)
+    i0 = similar(tgt, Int)
+    i1 = similar(tgt, Int)
+    a  = similar(tgt, Float64)
+    # Ensure monotonic increasing; if not, fall back to nearest
+    inc = all(diff(src) .>= 0)
+    if !inc
+        @inbounds for k in eachindex(tgt)
+            x = tgt[k]
+            # nearest neighbor
+            _, idx = findmin(abs.(src .- x))
+            i0[k] = clamp(idx, 1, max(1, n-1))
+            i1[k] = min(n, i0[k]+1)
+            a[k]  = 0.0
+        end
+        return i0, i1, a
+    end
+    @inbounds for k in eachindex(tgt)
+        x = tgt[k]
+        if periodic
+            # Wrap into [src[1], src[end]) assuming uniform 0..2π-like
+            span = period
+            # Map x near domain
+            xw = x
+            while xw < src[1]; xw += span; end
+            while xw >= src[end]; xw -= span; end
+            pos = searchsortedfirst(src, xw)
+            if pos == 1
+                i0[k] = n
+                i1[k] = 1
+                dx = (src[1] + span) - src[n]
+                a[k] = dx ≈ 0 ? 0.0 : (xw - src[n]) / dx
+            else
+                i0[k] = pos - 1
+                i1[k] = pos <= n ? pos : n
+                dx = src[i1[k]] - src[i0[k]]
+                a[k] = dx ≈ 0 ? 0.0 : (xw - src[i0[k]]) / dx
+            end
+        else
+            # Clamp within bounds
+            if x <= src[1]
+                i0[k] = 1; i1[k] = 2; a[k] = 0.0
+            elseif x >= src[end]
+                i0[k] = n-1; i1[k] = n; a[k] = 1.0
+            else
+                pos = searchsortedfirst(src, x)
+                i0[k] = pos - 1
+                i1[k] = pos
+                dx = src[i1[k]] - src[i0[k]]
+                a[k] = dx ≈ 0 ? 0.0 : (x - src[i0[k]]) / dx
+            end
+        end
+    end
+    return i0, i1, a
 end
 
 """

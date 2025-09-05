@@ -39,6 +39,96 @@ struct SHTnsVelocityFields{T}
     # Transform manager removed; SHTnsKit transforms are used directly
 end
 
+# ---------------------------------
+# Optional shared workspace support
+# ---------------------------------
+struct VelocityWorkspace{T}
+    pol_profile_real::Vector{Vector{T}}
+    pol_profile_imag::Vector{Vector{T}}
+    tor_profile_real::Vector{Vector{T}}
+    tor_profile_imag::Vector{Vector{T}}
+    dpol_dr_real::Vector{Vector{T}}
+    dpol_dr_imag::Vector{Vector{T}}
+    d2pol_dr2_real::Vector{Vector{T}}
+    d2pol_dr2_imag::Vector{Vector{T}}
+end
+
+function create_velocity_workspace(::Type{T}, nr::Int, nthreads::Int=Threads.nthreads()) where T
+    bufs() = [zeros(T, nr) for _ in 1:nthreads]
+    return VelocityWorkspace{T}(
+        bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs()
+    )
+end
+
+function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
+                                          domain::RadialDomain,
+                                          ws::VelocityWorkspace{T}) where T
+    # Same as the threaded version but using provided workspace buffers
+    u_tor_real = parent(fields.toroidal.data_real)
+    u_tor_imag = parent(fields.toroidal.data_imag)
+    u_pol_real = parent(fields.poloidal.data_real)
+    u_pol_imag = parent(fields.poloidal.data_imag)
+    ω_tor_real = parent(fields.vort_toroidal.data_real)
+    ω_tor_imag = parent(fields.vort_toroidal.data_imag)
+    ω_pol_real = parent(fields.vort_poloidal.data_real)
+    ω_pol_imag = parent(fields.vort_poloidal.data_imag)
+
+    config = fields.toroidal.config
+    lm_range = range_local(config.pencils.spec, 1)
+    r_range  = range_local(config.pencils.r, 3)
+    nr = domain.N
+
+    Threads.@threads for lm_idx in lm_range
+        if lm_idx <= length(fields.l_factors)
+            local_lm = lm_idx - first(lm_range) + 1
+            l_factor = fields.l_factors[lm_idx]
+            tid = Threads.threadid()
+            pol_profile_real = ws.pol_profile_real[tid]
+            pol_profile_imag = ws.pol_profile_imag[tid]
+            tor_profile_real = ws.tor_profile_real[tid]
+            tor_profile_imag = ws.tor_profile_imag[tid]
+            dpol_dr_real     = ws.dpol_dr_real[tid]
+            dpol_dr_imag     = ws.dpol_dr_imag[tid]
+            d2pol_dr2_real   = ws.d2pol_dr2_real[tid]
+            d2pol_dr2_imag   = ws.d2pol_dr2_imag[tid]
+
+            extract_local_radial_profile!(pol_profile_real, u_pol_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(tor_profile_real, u_tor_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(tor_profile_imag, u_tor_imag, local_lm, nr, r_range)
+
+            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_profile_real)
+            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_profile_imag)
+            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
+            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
+
+            @inbounds @simd for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(ω_tor_real, 3)
+                    r_val = domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        ω_tor_real[local_lm, 1, local_r] = 0
+                        ω_tor_imag[local_lm, 1, local_r] = 0
+                        ω_pol_real[local_lm, 1, local_r] = 0
+                        ω_pol_imag[local_lm, 1, local_r] = 0
+                    else
+                        r_inv  = domain.r[r_idx, 3]
+                        r_inv2 = domain.r[r_idx, 2]
+                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
+                                                            - d2pol_dr2_real[r_idx]
+                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
+                                                            - d2pol_dr2_imag[r_idx]
+                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
+                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
+                    end
+                end
+            end
+        end
+    end
+end
+
 
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig, 
                                       oc_domain::RadialDomain, 
