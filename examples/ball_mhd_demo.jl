@@ -39,9 +39,11 @@ params = GeodynamoParameters(
     d_timestep = 1e-4,
     i_maxtstep = 500,
     i_save_rate2 = 50,
+    ts_scheme = get(ENV, "GEODYNAMO_TS_SCHEME", "cnab2") == "theta" ? :theta : :cnab2,
 )
 
 set_parameters!(params)
+println("Time-stepping scheme: ", string(Geodynamo.ts_scheme))
 
 # 2) Initialize basic SHTns simulation (thermal + magnetic, no composition)
 state = initialize_simulation(Float64; include_composition=false)
