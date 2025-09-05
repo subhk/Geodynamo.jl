@@ -25,20 +25,25 @@ function main()
     # Apply magnetic BCs
     apply_magnetic_boundary_conditions!(state.magnetic, state.oc_domain, state.ic_domain)
 
-    # Check outer boundary: insulating (∂B/∂r ≈ 0)
+    # Check outer boundary: insulating (∂B/∂r ≈ 0 using derivative operator)
     tor = parent(state.magnetic.toroidal.data_real)
     pol = parent(state.magnetic.poloidal.data_real)
     lm_range = range_local(state.magnetic.toroidal.pencil, 1)
     r_range  = range_local(state.magnetic.toroidal.pencil, 3)
     if state.oc_domain.N in r_range
         rloc = state.oc_domain.N - first(r_range) + 1
-        # Finite-difference check using neighbor
-        rlocm1 = max(1, rloc - 1)
+        # Derivative operator check
+        dr = Geodynamo.create_derivative_matrix(1, state.oc_domain)
         for lm_idx in lm_range
             if lm_idx <= state.magnetic.toroidal.nlm
                 ll = lm_idx - first(lm_range) + 1
-                @test abs(tor[ll,1,rloc] - tor[ll,1,rlocm1]) ≤ 1e-6
-                @test abs(pol[ll,1,rloc] - pol[ll,1,rlocm1]) ≤ 1e-6
+                # Reconstruct profiles and verify derivative at outer boundary ≈ 0
+                prof_t = [ (r in r_range && (r - first(r_range) + 1) <= size(tor,3)) ? tor[ll,1,r - first(r_range) + 1] : 0.0 for r in 1:state.oc_domain.N ]
+                prof_p = [ (r in r_range && (r - first(r_range) + 1) <= size(pol,3)) ? pol[ll,1,r - first(r_range) + 1] : 0.0 for r in 1:state.oc_domain.N ]
+                d_t = zeros(Float64, state.oc_domain.N); Geodynamo.apply_derivative_matrix!(d_t, dr, prof_t)
+                d_p = zeros(Float64, state.oc_domain.N); Geodynamo.apply_derivative_matrix!(d_p, dr, prof_p)
+                @test abs(d_t[end]) ≤ 1e-8
+                @test abs(d_p[end]) ≤ 1e-8
             end
         end
     end

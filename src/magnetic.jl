@@ -677,20 +677,25 @@ function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T},
         end
         # Enforce zero derivative at outer boundary with a small sensitivity update
         function enforce_zero_deriv_outer!(prof::Vector{T})
-            # compute current derivative at outer boundary
-            d = similar(prof)
-            apply_derivative_matrix!(d, dr_matrix, prof)
-            dN = d[end]
-            if dN != 0
-                δ = T(1e-8)
-                prof[end] += δ
-                apply_derivative_matrix!(d, dr_matrix, prof)
-                dN2 = d[end]
-                prof[end] -= δ
-                sens = (dN2 - dN) / δ
-                if sens != 0
-                    prof[end] -= dN / sens
+            # Solve M[N,*]·prof = 0 for prof[N] directly from banded coefficients
+            N = length(prof)
+            bw = dr_matrix.bandwidth
+            jmin = max(1, N - bw)
+            denom = zero(T)
+            s = zero(T)
+            @inbounds for j in jmin:N
+                row = bw + 1 + N - j
+                if 1 <= row <= 2*bw + 1
+                    coeff = dr_matrix.data[row, j]
+                    if j == N
+                        denom = coeff
+                    else
+                        s += coeff * prof[j]
+                    end
                 end
+            end
+            if denom != 0
+                prof[N] = -s / denom
             end
         end
 
