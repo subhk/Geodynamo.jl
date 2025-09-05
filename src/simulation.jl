@@ -1036,42 +1036,78 @@ function compute_composition_nonlinear_master!(state, velocity, domain)
     end
 end
 
-function apply_master_implicit_step!(state::MasterSimulationState{T}, dt::Float64) where T
+function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # Task-based implicit time integration
     task_graph = create_task_graph()
     
     # Create tasks for parallel implicit solve
-    temp_task = add_task!(task_graph, 
-        () -> solve_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                                  state.implicit_matrices[:temperature], dt))
+    temp_task = add_task!(task_graph, () -> begin
+        build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
+                         state.temperature.nonlinear, state.temperature.prev_nonlinear, dt)
+        solve_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
+                             state.implicit_matrices[:temperature])
+    end)
     
-    vel_tor_task = add_task!(task_graph,
-        () -> solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
-                                  state.implicit_matrices[:velocity], dt))
+    vel_tor_task = add_task!(task_graph, () -> begin
+        build_rhs_cnab2!(state.velocity.work_tor, state.velocity.toroidal,
+                         state.velocity.nl_toroidal, state.velocity.prev_nl_toroidal, dt)
+        solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
+                             state.implicit_matrices[:velocity])
+    end)
     
-    vel_pol_task = add_task!(task_graph,
-        () -> solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
-                                  state.implicit_matrices[:velocity], dt))
+    vel_pol_task = add_task!(task_graph, () -> begin
+        build_rhs_cnab2!(state.velocity.work_pol, state.velocity.poloidal,
+                         state.velocity.nl_poloidal, state.velocity.prev_nl_poloidal, dt)
+        solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
+                             state.implicit_matrices[:velocity])
+    end)
     
     # Magnetic field tasks (if enabled)
     if i_B == 1
-        add_task!(task_graph,
-            () -> solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
-                                      state.implicit_matrices[:magnetic], dt))
-        add_task!(task_graph,
-            () -> solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
-                                      state.implicit_matrices[:magnetic], dt))
+        add_task!(task_graph, () -> begin
+            build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.toroidal,
+                             state.magnetic.nl_toroidal, state.magnetic.prev_nl_toroidal, dt)
+            solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
+                                 state.implicit_matrices[:magnetic])
+        end)
+        add_task!(task_graph, () -> begin
+            build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.poloidal,
+                             state.magnetic.nl_poloidal, state.magnetic.prev_nl_poloidal, dt)
+            solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
+                                 state.implicit_matrices[:magnetic])
+        end)
     end
     
     # Composition task (if enabled)
     if state.composition !== nothing
-        add_task!(task_graph,
-            () -> solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                                      state.implicit_matrices[:composition], dt))
+        add_task!(task_graph, () -> begin
+            build_rhs_cnab2!(state.composition.work_spectral, state.composition.spectral,
+                             state.composition.nonlinear, state.composition.prev_nonlinear, dt)
+            solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
+                                 state.implicit_matrices[:composition])
+        end)
     end
     
     # Execute all implicit solves in parallel
     execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
+
+    # Roll nonlinear histories for CNAB2
+    parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
+    parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
+    parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
+    parent(state.velocity.prev_nl_toroidal.data_imag) .= parent(state.velocity.nl_toroidal.data_imag)
+    parent(state.velocity.prev_nl_poloidal.data_real) .= parent(state.velocity.nl_poloidal.data_real)
+    parent(state.velocity.prev_nl_poloidal.data_imag) .= parent(state.velocity.nl_poloidal.data_imag)
+    if i_B == 1
+        parent(state.magnetic.prev_nl_toroidal.data_real) .= parent(state.magnetic.nl_toroidal.data_real)
+        parent(state.magnetic.prev_nl_toroidal.data_imag) .= parent(state.magnetic.nl_toroidal.data_imag)
+        parent(state.magnetic.prev_nl_poloidal.data_real) .= parent(state.magnetic.nl_poloidal.data_real)
+        parent(state.magnetic.prev_nl_poloidal.data_imag) .= parent(state.magnetic.nl_poloidal.data_imag)
+    end
+    if state.composition !== nothing
+        parent(state.composition.prev_nonlinear.data_real) .= parent(state.composition.nonlinear.data_real)
+        parent(state.composition.prev_nonlinear.data_imag) .= parent(state.composition.nonlinear.data_imag)
+    end
 end
 
 function adapt_thread_count!(state::MasterSimulationState, efficiency_history::Vector{Float64})
