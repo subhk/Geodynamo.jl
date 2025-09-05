@@ -110,7 +110,8 @@ end
 # Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T}, 
-                                    vel_fields, rotation_rate; geometry::Symbol = :shell) where T
+                                    vel_fields, oc_domain::RadialDomain, ic_domain::RadialDomain,
+                                    rotation_rate::Float64=0.0; geometry::Symbol = :shell) where T
     # Zero work arrays
     zero_magnetic_work_arrays!(mag_fields)
     
@@ -119,7 +120,7 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
                                mag_fields.magnetic)
     
     # Step 2: Compute current density j = ∇ × B in spectral space
-    compute_current_density_spectral!(mag_fields)
+    compute_current_density_spectral!(mag_fields, oc_domain)
     
     # Step 3: Transform current to physical space
     shtnskit_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol, 

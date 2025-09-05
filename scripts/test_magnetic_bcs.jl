@@ -1,0 +1,63 @@
+#!/usr/bin/env julia
+
+using Geodynamo
+using Test
+
+function main()
+    # Shell geometry to exercise inner/outer boundaries distinctly
+    params = GeodynamoParameters(geometry=:shell, i_N=32, i_Nic=16, i_L=16, i_M=16, i_Th=32, i_Ph=64)
+    set_parameters!(params)
+
+    # Build simple state components to access domains
+    state = initialize_shtns_simulation(Float64; include_composition=false)
+
+    # Randomize magnetic spectral fields (outer and inner core)
+    rand!(parent(state.magnetic.toroidal.data_real))
+    rand!(parent(state.magnetic.toroidal.data_imag))
+    rand!(parent(state.magnetic.poloidal.data_real))
+    rand!(parent(state.magnetic.poloidal.data_imag))
+
+    rand!(parent(state.magnetic.ic_toroidal.data_real))
+    rand!(parent(state.magnetic.ic_toroidal.data_imag))
+    rand!(parent(state.magnetic.ic_poloidal.data_real))
+    rand!(parent(state.magnetic.ic_poloidal.data_imag))
+
+    # Apply magnetic BCs
+    apply_magnetic_boundary_conditions!(state.magnetic, state.oc_domain, state.ic_domain)
+
+    # Check outer boundary: insulating (copy from neighbor → zero derivative approx)
+    tor = parent(state.magnetic.toroidal.data_real)
+    pol = parent(state.magnetic.poloidal.data_real)
+    lm_range = range_local(state.magnetic.toroidal.pencil, 1)
+    r_range  = range_local(state.magnetic.toroidal.pencil, 3)
+    if state.oc_domain.N in r_range
+        rloc = state.oc_domain.N - first(r_range) + 1
+        rlocm1 = max(1, rloc - 1)
+        for lm_idx in lm_range
+            if lm_idx <= state.magnetic.toroidal.nlm
+                ll = lm_idx - first(lm_range) + 1
+                @test tor[ll,1,rloc] ≈ tor[ll,1,rlocm1] atol=1e-12
+                @test pol[ll,1,rloc] ≈ pol[ll,1,rlocm1] atol=1e-12
+            end
+        end
+    end
+
+    # Check inner boundary continuity: match inner core first plane
+    if 1 in r_range
+        rloc = 1 - first(r_range) + 1
+        ic_tor = parent(state.magnetic.ic_toroidal.data_real)
+        ic_pol = parent(state.magnetic.ic_poloidal.data_real)
+        for lm_idx in lm_range
+            if lm_idx <= state.magnetic.toroidal.nlm
+                ll = lm_idx - first(lm_range) + 1
+                @test tor[ll,1,rloc] ≈ ic_tor[ll,1,1] atol=1e-12
+                @test pol[ll,1,rloc] ≈ ic_pol[ll,1,1] atol=1e-12
+            end
+        end
+    end
+
+    println("Magnetic BC tests completed.")
+end
+
+main()
+

@@ -925,7 +925,7 @@ function compute_all_nonlinear_terms!(state::SHTnsSimulationState{T}) where T
     compute_velocity_nonlinear!(state.velocity, state.temperature, 
                                 state.composition, state.magnetic, state.oc_domain)
     
-    compute_magnetic_nonlinear!(state.magnetic, state.velocity, 0.0)  # No inner core rotation for now
+    compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.oc_domain, state.ic_domain, 0.0)  # No inner core rotation for now
     
     compute_temperature_nonlinear!(state.temperature, state.velocity, state.oc_domain)
     
