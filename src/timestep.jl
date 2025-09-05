@@ -212,6 +212,91 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
     end
     return u
 end
+
+"""
+    get_eab2_alu_cache!(caches, key, ν, T, domain) -> Dict{Int,Tuple{BandedMatrix{T},BandedLU{T}}}
+
+Retrieve or initialize a cache mapping l -> (A_banded, LU(A_banded)) for EAB2.
+Reinitializes if ν or nr changed.
+"""
+function get_eab2_alu_cache!(caches::Dict{Symbol,Any}, key::Symbol, ν::Float64, ::Type{T}, domain::RadialDomain) where T
+    entry = get(caches, key, nothing)
+    nr = domain.N
+    if entry === nothing || entry[:ν] != ν || entry[:nr] != nr
+        entry = Dict{Symbol,Any}(:ν => ν, :nr => nr, :map => Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}}())
+        caches[key] = entry
+    end
+    return entry[:map]
+end
+
+"""
+    eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt; m=20)
+
+Same as eab2_update_krylov!, but reuses cached banded A and LU per l.
+"""
+function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
+                                    nl_prev::SHTnsSpectralField{T}, alu_map::Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}},
+                                    domain::RadialDomain, diffusivity::Float64, config::SHTnsKitConfig,
+                                    dt::Float64; m::Int=20) where T
+    u_real = parent(u.data_real); u_imag = parent(u.data_imag)
+    n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
+    p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
+    lm_range = get_local_range(u.pencil, 1)
+    r_range  = get_local_range(u.pencil, 3)
+    nr = domain.N
+    comm = get_comm()
+    multi = MPI.Comm_size(comm) > 1
+    for lm_idx in lm_range
+        if lm_idx <= u.nlm
+            l = config.l_values[lm_idx]
+            ll = lm_idx - first(lm_range) + 1
+            # get or build A and LU for this l
+            tup = get(alu_map, l, nothing)
+            if tup === nothing
+                A_banded = build_banded_A(T, domain, diffusivity, l)
+                A_lu = factorize_banded(A_banded)
+                tup = (A_banded, A_lu)
+                alu_map[l] = tup
+            end
+            A_banded, A_lu = tup
+            # Assembled full vectors
+            ur = zeros(T, nr); ui = zeros(T, nr)
+            nrn = zeros(T, nr); nin = zeros(T, nr)
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    ur[r] = u_real[ll,1,lr]; ui[r] = u_imag[ll,1,lr]
+                    nrn[r] = (3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr]
+                    nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
+                end
+            end
+            if multi
+                MPI.Allreduce!(ur, MPI.SUM, comm)
+                MPI.Allreduce!(ui, MPI.SUM, comm)
+                MPI.Allreduce!(nrn, MPI.SUM, comm)
+                MPI.Allreduce!(nin, MPI.SUM, comm)
+            end
+            # Define Aop! using banded apply
+            tmp = zeros(T, nr)
+            Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
+            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m)
+            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m)
+            @. ur_new = ur_new + dt * add_r
+            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m)
+            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m)
+            @. ui_new = ui_new + dt * add_i
+            # Scatter back
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    u_real[ll,1,lr] = ur_new[r]
+                    u_imag[ll,1,lr] = ui_new[r]
+                end
+            end
+        end
+    end
+    return u
+end
 """
     eab2_update!(u, nl, nl_prev, etd, config)
 
