@@ -44,7 +44,7 @@ params = GeodynamoParameters(
 set_parameters!(params)
 
 # 2) Initialize basic SHTns simulation (thermal + magnetic, no composition)
-state = initialize_shtns_simulation(Float64; include_composition=false)
+state = initialize_simulation(Float64; include_composition=false)
 
 # Debug: print pencil layouts (axes_in) to verify decomposition
 Geodynamo.print_pencil_axes(state.shtns_config.pencils)
@@ -159,4 +159,4 @@ set_conductive_ic!(state.temperature, state.oc_domain; T_in=1.0, T_out=0.0)
 # end
 
 # 5) Run
-run_shtns_simulation!(state)
+run_simulation!(state)
