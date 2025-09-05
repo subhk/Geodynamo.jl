@@ -130,6 +130,7 @@ end
 # =================================================
 # Enhanced vorticity computation with enhanced derivatives
 # =================================================
+using Base.Threads
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
                                          domain::RadialDomain) where T
     # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
@@ -157,23 +158,34 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     
     nr = domain.N
     
-    # Scratch buffers reused across modes to avoid allocations
-    nr = oc_domain.N
-    pol_profile_real = zeros(T, nr)
-    pol_profile_imag = zeros(T, nr)
-    tor_profile_real = zeros(T, nr)
-    tor_profile_imag = zeros(T, nr)
-    dpol_dr_real     = similar(pol_profile_real)
-    dpol_dr_imag     = similar(pol_profile_imag)
-    d2pol_dr2_real   = similar(pol_profile_real)
-    d2pol_dr2_imag   = similar(pol_profile_imag)
+    # Thread-local scratch buffers reused across modes to avoid allocations
+    nT = Threads.nthreads()
+    pol_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
+    pol_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
+    tor_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
+    tor_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
+    dpol_dr_real_bufs     = [zeros(T, nr) for _ in 1:nT]
+    dpol_dr_imag_bufs     = [zeros(T, nr) for _ in 1:nT]
+    d2pol_dr2_real_bufs   = [zeros(T, nr) for _ in 1:nT]
+    d2pol_dr2_imag_bufs   = [zeros(T, nr) for _ in 1:nT]
 
-    # Process each (l,m) mode
-    @inbounds for lm_idx in lm_range
+    # Process each (l,m) mode (parallel over lm)
+    @inbounds Threads.@threads for lm_idx in lm_range
         if lm_idx <= length(fields.l_factors)
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
             
+            # Select thread-local buffers
+            tid = Threads.threadid()
+            pol_profile_real = pol_profile_real_bufs[tid]
+            pol_profile_imag = pol_profile_imag_bufs[tid]
+            tor_profile_real = tor_profile_real_bufs[tid]
+            tor_profile_imag = tor_profile_imag_bufs[tid]
+            dpol_dr_real     = dpol_dr_real_bufs[tid]
+            dpol_dr_imag     = dpol_dr_imag_bufs[tid]
+            d2pol_dr2_real   = d2pol_dr2_real_bufs[tid]
+            d2pol_dr2_imag   = d2pol_dr2_imag_bufs[tid]
+
             # Extract radial profiles (in-place)
             extract_local_radial_profile!(pol_profile_real, u_pol_real, local_lm, nr, r_range)
             extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
