@@ -40,27 +40,23 @@ function create_shtns_timestepping_matrices(config::SHTnsKitConfig,
     base_banded[i_KL + 1, :] .+= 1.0 / dt
     base_banded .*= -diffusivity * d_implicit
 
-    # Preallocate a reusable dense workspace and a dense base
     base_matrix = BandedMatrix(base_banded, i_KL, domain.N)
-    dense_base = banded_to_dense(base_matrix)
-    dense_work = similar(dense_base)
 
     for l in unique_l
         push!(l_values, l)
-        # Copy base into work matrix
-        copyto!(dense_work, dense_base)
-
-        # Add spherical-harmonic term on the diagonal: + diffusivity*d_implicit*l(l+1)/r^2
+        # Create a banded work copy
+        work_banded = copy(base_banded)
+        # Add spherical-harmonic term on the diagonal (banded center row)
         l_factor = Float64(l * (l + 1))
         @inbounds for n in 1:domain.N
-            dense_work[n, n] += diffusivity * d_implicit * l_factor * r_inv_sq[n]
+            work_banded[i_KL + 1, n] += diffusivity * d_implicit * l_factor * r_inv_sq[n]
         end
 
-        # Store a lightweight banded descriptor (optional; not used in solve)
+        # Store descriptor (for completeness)
         push!(matrices, base_matrix)
 
-        # Factorize dense_work in-place (LU) and store the factorization
-        factorization = lu(copy(dense_work))
+        # Factorize banded operator
+        factorization = factorize_banded(BandedMatrix(work_banded, i_KL, domain.N))
         push!(factorizations, factorization)
     end
 
@@ -141,6 +137,11 @@ function solve_implicit_step!(solution::SHTnsSpectralField{T},
     # Get local ranges
     lm_range = get_local_range(solution.pencil, 1)
     
+    # Reusable buffers for RHS/solution to avoid allocations
+    nr = size(rhs_real, 3)
+    tmp_r = Vector{Float64}(undef, nr)
+    tmp_i = Vector{Float64}(undef, nr)
+
     for lm_idx in lm_range
         if lm_idx <= solution.nlm
             l = solution.config.l_values[lm_idx]
@@ -152,12 +153,22 @@ function solve_implicit_step!(solution::SHTnsSpectralField{T},
                 
                 # Solve for real part
                 if local_lm <= size(rhs_real, 1)
-                    rhs_vec_real = rhs_real[local_lm, 1, :]
-                    sol_real[local_lm, 1, :] = factorization \ rhs_vec_real
-                    
-                    # Solve for imaginary part
-                    rhs_vec_imag = rhs_imag[local_lm, 1, :]
-                    sol_imag[local_lm, 1, :] = factorization \ rhs_vec_imag
+                    @inbounds for k in 1:nr
+                        tmp_r[k] = rhs_real[local_lm, 1, k]
+                        tmp_i[k] = rhs_imag[local_lm, 1, k]
+                    end
+                    if factorization isa BandedLU
+                        solve_banded!(tmp_r, factorization, tmp_r)
+                        solve_banded!(tmp_i, factorization, tmp_i)
+                    else
+                        # Fallback to dense LU if present
+                        tmp_r .= factorization \ tmp_r
+                        tmp_i .= factorization \ tmp_i
+                    end
+                    @inbounds for k in 1:nr
+                        sol_real[local_lm, 1, k] = tmp_r[k]
+                        sol_imag[local_lm, 1, k] = tmp_i[k]
+                    end
                 end
             end
         end

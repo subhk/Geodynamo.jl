@@ -12,6 +12,87 @@ struct BandedMatrix{T}
     size::Int                 # Matrix size
 end
 
+# =============================
+# Banded LU factorization/solve
+# =============================
+
+struct BandedLU{T}
+    lu::Matrix{T}     # In-place LU factors in banded storage
+    bandwidth::Int
+    size::Int
+end
+
+@inline function _band_row(i::Int, j::Int, bw::Int)
+    return bw + 1 + i - j
+end
+
+function factorize_banded(A::BandedMatrix{T}) where T
+    N  = A.size
+    bw = A.bandwidth
+    lu = copy(A.data)
+
+    @inbounds for k in 1:N-1
+        # Pivot (no pivoting for banded SPD-like operators)
+        piv_row = _band_row(k, k, bw)
+        if !(1 <= piv_row <= 2*bw+1)
+            continue
+        end
+        piv = lu[piv_row, k]
+        # Eliminate entries below pivot within bandwidth
+        i_max = min(N, k + bw)
+        for i in k+1:i_max
+            row = _band_row(i, k, bw)
+            if 1 <= row <= 2*bw+1
+                L = lu[row, k] / piv
+                lu[row, k] = L  # store L below diagonal
+                # Update row i for columns within band
+                j_max = min(N, k + bw)
+                for j in k+1:j_max
+                    col = _band_row(i, j, bw)
+                    if 1 <= col <= 2*bw+1
+                        urow = _band_row(k, j, bw)
+                        if 1 <= urow <= 2*bw+1
+                            lu[col, j] -= L * lu[urow, j]
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return BandedLU{T}(lu, bw, N)
+end
+
+function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
+    N  = lu.size
+    bw = lu.bandwidth
+    # Forward substitution: L y = b (L has unit diagonal)
+    @inbounds for i in 1:N
+        s = zero(T)
+        j_min = max(1, i - bw)
+        for j in j_min:i-1
+            row = _band_row(i, j, bw)
+            if 1 <= row <= 2*bw+1
+                s += lu.lu[row, j] * x[j]
+            end
+        end
+        x[i] = b[i] - s
+    end
+    # Back substitution: U x = y
+    @inbounds for i in N:-1:1
+        s = zero(T)
+        j_max = min(N, i + bw)
+        for j in i+1:j_max
+            row = _band_row(i, j, bw)
+            if 1 <= row <= 2*bw+1
+                s += lu.lu[row, j] * x[j]
+            end
+        end
+        diag_row = _band_row(i, i, bw)
+        x[i] = (x[i] - s) / lu.lu[diag_row, i]
+    end
+    return x
+end
+
 function create_derivative_matrix(order::Int, domain::RadialDomain)
     # Create finite difference matrix for given derivative order
     N = domain.N
@@ -144,7 +225,8 @@ function apply_derivative_matrix!(output::Vector{T},
 end
 
 
-#export BandedMatrix, create_derivative_matrix, create_radial_laplacian, apply_banded_matrix!
+#export BandedMatrix, BandedLU, create_derivative_matrix, create_radial_laplacian,
+#       apply_banded_matrix!, factorize_banded, solve_banded!
 
 
 #end
