@@ -814,11 +814,9 @@ This is more physical - uses Green's functions approach.
 function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
                                         temp_field, domain, r_range) where T
     
-    # Pre-compute influence functions (could be cached)
-    G_inner, G_outer = compute_influence_functions_flux(domain)
-    
-    # Build influence matrix
-    M = build_influence_matrix(G_inner, G_outer, temp_field.dr_matrix, domain)
+    # Get cached influence functions and matrix for this domain
+    infl = _get_influence_cache(domain, temp_field.dr_matrix)
+    G_inner, G_outer, M = infl.G_inner, infl.G_outer, infl.M
     
     # Get prescribed and current fluxes
     flux_prescribed = [get_flux_value(lm_idx, 1, temp_field),
@@ -871,6 +869,63 @@ function compute_influence_functions_flux(oc_domain::RadialDomain)
     normalize_influence_function!(G_outer, oc_domain, 2)
     
     return G_inner, G_outer
+end
+
+"""
+    normalize_influence_function!(G, domain, which_boundary)
+
+Scale G so that its radial derivative at the specified boundary equals 1.
+`which_boundary` = 1 for inner, 2 for outer.
+"""
+function normalize_influence_function!(G::Vector{T}, domain::RadialDomain, which_boundary::Int) where T
+    dr = create_derivative_matrix(1, domain)
+    dG = apply_derivative_matrix(dr, G)
+    if which_boundary == 1
+        scale = dG[1]
+    else
+        scale = dG[end]
+    end
+    if abs(scale) > eps(T)
+        @. G = G / scale
+    end
+    return G
+end
+
+"""
+    build_influence_matrix(G_inner, G_outer, dr_matrix, domain)
+
+Construct a 2×2 matrix mapping influence amplitudes to boundary flux errors.
+Rows correspond to (inner, outer) boundaries; columns to (inner, outer) influence functions.
+"""
+function build_influence_matrix(G_inner::Vector{T}, G_outer::Vector{T},
+                                dr_matrix::BandedMatrix{T}, domain::RadialDomain) where T
+    dGi = apply_derivative_matrix(dr_matrix, G_inner)
+    dGo = apply_derivative_matrix(dr_matrix, G_outer)
+    return [dGi[1]  dGo[1];
+            dGi[end] dGo[end]]
+end
+
+# -----------------------------------------------------------------------------
+# Influence cache (G_inner, G_outer, M) per domain
+# -----------------------------------------------------------------------------
+mutable struct _InfluenceCache
+    nr::Int
+    G_inner::Vector{Float64}
+    G_outer::Vector{Float64}
+    M::Matrix{Float64}
+end
+
+const _INFLUENCE_CACHE = IdDict{RadialDomain, _InfluenceCache}()
+
+function _get_influence_cache(domain::RadialDomain, dr_matrix::BandedMatrix)
+    cache = get(_INFLUENCE_CACHE, domain, nothing)
+    if cache === nothing || cache.nr != domain.N
+        Gi, Go = compute_influence_functions_flux(domain)
+        M = build_influence_matrix(Gi, Go, dr_matrix, domain)
+        cache = _InfluenceCache(domain.N, Gi, Go, M)
+        _INFLUENCE_CACHE[domain] = cache
+    end
+    return cache
 end
 
 # ============================================================================
