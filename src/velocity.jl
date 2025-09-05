@@ -425,7 +425,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     end
     
     if comp_field !== nothing
-        add_buoyancy_force!(adv_r, comp_field, d_Ra_C * d_Sc, oc_domain)
+        add_buoyancy_force!(adv_r, comp_field, d_Ra_C * d_Sc, domain)
     end
     
     # Add Lorentz force if magnetic field present
@@ -669,10 +669,15 @@ function apply_stress_free_correction!(profile::Vector{T}, domain::RadialDomain)
     
     N = domain.N
     
-    # Inner boundary: d(rT)/dr = 0 at r=ri
+    # Inner boundary: d(rT)/dr = 0 at r=ri (skip if ri≈0 for ball)
     r1 = domain.r[1, 4]
     r2 = domain.r[2, 4]
-    profile[1] = profile[2] * r2 / r1  # Linear extrapolation
+    if r1 > eps(T)
+        profile[1] = profile[2] * r2 / r1  # Linear extrapolation
+    else
+        # For ball geometry (r=0), leave as neighboring value to preserve regularity
+        profile[1] = profile[2]
+    end
     
     # Outer boundary: d(rT)/dr = 0 at r=ro
     rN = domain.r[N, 4]
