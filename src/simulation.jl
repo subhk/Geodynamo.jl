@@ -1090,10 +1090,11 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
-            # Use Krylov-based action to avoid dense exp for large problems or multi-rank
-            eab2_update_krylov!(state.velocity.toroidal, state.velocity.nl_toroidal,
-                                state.velocity.prev_nl_toroidal, state.oc_domain, d_E,
-                                state.shtns_config, dt; m=20)
+            # Use Krylov-based action with cached banded LU per l
+            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_E, T, state.oc_domain)
+            eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nl_toroidal,
+                                       state.velocity.prev_nl_toroidal, alu_map, state.oc_domain, d_E,
+                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
             solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                  state.implicit_matrices[:velocity])
@@ -1107,9 +1108,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
-            eab2_update_krylov!(state.velocity.poloidal, state.velocity.nl_poloidal,
-                                state.velocity.prev_nl_poloidal, state.oc_domain, d_E,
-                                state.shtns_config, dt; m=20)
+            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_E, T, state.oc_domain)
+            eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nl_poloidal,
+                                       state.velocity.prev_nl_poloidal, alu_map, state.oc_domain, d_E,
+                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
             solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                  state.implicit_matrices[:velocity])
@@ -1125,9 +1127,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
-                eab2_update_krylov!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
-                                    state.magnetic.prev_nl_toroidal, state.oc_domain, 1.0/d_Pm,
-                                    state.shtns_config, dt; m=20)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0/d_Pm, T, state.oc_domain)
+                eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
+                                           state.magnetic.prev_nl_toroidal, alu_map, state.oc_domain, 1.0/d_Pm,
+                                           state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                      state.implicit_matrices[:magnetic])
@@ -1140,9 +1143,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
-                eab2_update_krylov!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
-                                    state.magnetic.prev_nl_poloidal, state.oc_domain, 1.0/d_Pm,
-                                    state.shtns_config, dt; m=20)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0/d_Pm, T, state.oc_domain)
+                eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
+                                           state.magnetic.prev_nl_poloidal, alu_map, state.oc_domain, 1.0/d_Pm,
+                                           state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                      state.implicit_matrices[:magnetic])
@@ -1159,9 +1163,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
                                      state.implicit_matrices[:composition])
             elseif ts_scheme === :eab2
-                eab2_update_krylov!(state.composition.spectral, state.composition.nonlinear,
-                                    state.composition.prev_nonlinear, state.oc_domain, 1.0/d_Sc,
-                                    state.shtns_config, dt; m=20)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, 1.0/d_Sc, T, state.oc_domain)
+                eab2_update_krylov_cached!(state.composition.spectral, state.composition.nonlinear,
+                                           state.composition.prev_nonlinear, alu_map, state.oc_domain, 1.0/d_Sc,
+                                           state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
                                      state.implicit_matrices[:composition])

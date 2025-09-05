@@ -99,11 +99,11 @@ function apply_banded_full!(out::Vector{T}, B::BandedMatrix{T}, v::Vector{T}) wh
 end
 
 """
-    exp_action_krylov(Aop!, v, dt; m=20) -> y ≈ exp(dt A) v
+    exp_action_krylov(Aop!, v, dt; m=20, tol=1e-8) -> y ≈ exp(dt A) v
 
 Simple Arnoldi-based approximation of the exponential action.
 """
-function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20) where T
+function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     n = length(v)
     V = Matrix{T}(undef, n, m)
     H = zeros(T, m, m)
@@ -127,6 +127,17 @@ function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20) where T
                 break
             end
             V[:, j+1] = w / H[j+1, j]
+            # Adaptive residual-based stopping criterion
+            # Estimate residual: r ≈ |h_{j+1,j}| * |e_j^T exp(dt H_j) (beta*e1)|
+            # Stop if r <= tol * ||exp(dt H_j) (beta*e1)||
+            Hred_j = dt .* @view H[1:j, 1:j]
+            e1 = zeros(T, j); e1[1] = one(T)
+            y_small_j = exp(Hred_j) * (beta .* e1)
+            res_est = abs(H[j+1, j]) * abs(y_small_j[end])
+            if res_est <= tol * norm(y_small_j)
+                kmax = j
+                break
+            end
         end
     end
     Hred = dt .* H[1:kmax, 1:kmax]
@@ -136,12 +147,12 @@ function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20) where T
 end
 
 """
-    phi1_action_krylov(BA, LU_A, v, dt; m=20) -> y ≈ φ1(dt A) v
+    phi1_action_krylov(BA, LU_A, v, dt; m=20, tol=1e-8) -> y ≈ φ1(dt A) v
 
 Compute φ1(dt A) v = A^{-1}[(exp(dt A) − I) v]/dt using Krylov exp(action) and banded solve.
 """
-function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; m::Int=20) where T
-    ev = exp_action_krylov(Aop!, v, dt; m)
+function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; m::Int=20, tol::Float64=1e-8) where T
+    ev = exp_action_krylov(Aop!, v, dt; m, tol)
     c = ev .- v
     x = copy(c)
     solve_banded!(x, A_lu, c)
@@ -150,14 +161,14 @@ function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; 
 end
 
 """
-    eab2_update_krylov!(u, nl, nl_prev, domain, diffusivity, config, dt; m=20)
+    eab2_update_krylov!(u, nl, nl_prev, domain, diffusivity, config, dt; m=20, tol=1e-8)
 
 EAB2 update using Krylov exp/φ1 actions and banded LU for φ1.
 """
 function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                              nl_prev::SHTnsSpectralField{T}, domain::RadialDomain,
                              diffusivity::Float64, config::SHTnsKitConfig,
-                             dt::Float64; m::Int=20) where T
+                             dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
     n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
@@ -193,12 +204,12 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
             tmp = zeros(T, nr)
             Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
             # Real
-            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m)
-            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m)
+            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m, tol)
+            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m, tol)
             @. ur_new = ur_new + dt * add_r
             # Imag
-            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m)
-            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m)
+            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m, tol)
+            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m, tol)
             @. ui_new = ui_new + dt * add_i
             # Scatter back
             @inbounds for r in r_range
@@ -230,14 +241,14 @@ function get_eab2_alu_cache!(caches::Dict{Symbol,Any}, key::Symbol, ν::Float64,
 end
 
 """
-    eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt; m=20)
+    eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt; m=20, tol=1e-8)
 
 Same as eab2_update_krylov!, but reuses cached banded A and LU per l.
 """
 function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                                     nl_prev::SHTnsSpectralField{T}, alu_map::Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}},
                                     domain::RadialDomain, diffusivity::Float64, config::SHTnsKitConfig,
-                                    dt::Float64; m::Int=20) where T
+                                    dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
     n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
@@ -279,11 +290,11 @@ function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralF
             # Define Aop! using banded apply
             tmp = zeros(T, nr)
             Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
-            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m)
-            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m)
+            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m, tol)
+            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m, tol)
             @. ur_new = ur_new + dt * add_r
-            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m)
-            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m)
+            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m, tol)
+            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m, tol)
             @. ui_new = ui_new + dt * add_i
             # Scatter back
             @inbounds for r in r_range

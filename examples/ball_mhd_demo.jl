@@ -39,11 +39,18 @@ params = GeodynamoParameters(
     d_timestep = 1e-4,
     i_maxtstep = 500,
     i_save_rate2 = 50,
-    ts_scheme = get(ENV, "GEODYNAMO_TS_SCHEME", "cnab2") == "theta" ? :theta : :cnab2,
+    ts_scheme = begin
+        s = lowercase(get(ENV, "GEODYNAMO_TS_SCHEME", "cnab2"))
+        s == "theta" ? :theta : (s == "eab2" ? :eab2 : :cnab2)
+    end,
+    # Krylov controls (optional overrides via env)
+    i_etd_m = parse(Int, get(ENV, "GEODYNAMO_ETD_M", "20")),
+    d_krylov_tol = parse(Float64, get(ENV, "GEODYNAMO_KRYLOV_TOL", "1e-8")),
 )
 
 set_parameters!(params)
 println("Time-stepping scheme: ", string(Geodynamo.ts_scheme))
+println("Krylov m, tol: ", (Geodynamo.i_etd_m, Geodynamo.d_krylov_tol))
 
 # 2) Initialize basic SHTns simulation (thermal + magnetic, no composition)
 state = initialize_simulation(Float64; include_composition=false)
@@ -162,3 +169,7 @@ set_conductive_ic!(state.temperature, state.oc_domain; T_in=1.0, T_out=0.0)
 
 # 5) Run
 run_simulation!(state)
+
+# Single-rank quick test:
+#   GEODYNAMO_TS_SCHEME=eab2 GEODYNAMO_ETD_M=30 GEODYNAMO_KRYLOV_TOL=1e-8 \
+#   JULIA_NUM_THREADS=1 julia --project examples/ball_mhd_demo.jl

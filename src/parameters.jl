@@ -46,6 +46,9 @@ Base.@kwdef mutable struct GeodynamoParameters
     i_maxtstep::Int = 10000       # Maximum timesteps
     i_save_rate2::Int = 100       # Output frequency
     ts_scheme::Symbol = :cnab2    # :cnab2 or :theta (legacy)
+    # ETD/Krylov controls
+    i_etd_m::Int = 20             # Max Arnoldi dimension for exp/phi actions
+    d_krylov_tol::Float64 = 1e-8  # Residual tolerance for adaptive Arnoldi
     
     # Boundary condition flags
     i_vel_bc::Int = 1             # Velocity BC: 1=no-slip, 2=stress-free
@@ -249,7 +252,9 @@ function save_parameters(params::GeodynamoParameters, filename::String)
         println(io, "const d_courant = $(params.d_courant)         # CFL factor")
         println(io, "const i_maxtstep = $(params.i_maxtstep)      # Maximum timesteps")
         println(io, "const i_save_rate2 = $(params.i_save_rate2)      # Output frequency")
-        println(io, "const ts_scheme = :$(params.ts_scheme)        # :cnab2 or :theta")
+        println(io, "const ts_scheme = :$(params.ts_scheme)        # :cnab2, :theta, or :eab2")
+        println(io, "const i_etd_m = $(params.i_etd_m)            # Krylov max subspace size")
+        println(io, "const d_krylov_tol = $(params.d_krylov_tol)   # Krylov residual tolerance")
         println(io)
         
         println(io, "# Boundary condition flags")
