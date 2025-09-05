@@ -591,34 +591,39 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     
     # Check which boundaries are local
     has_inner = 1 in r_range
-    has_outer = oc_domain.N in r_range
+    has_outer = domain.N in r_range
     
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_field.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
             
-            # Inner boundary
-            if has_inner
+            # Inner boundary (skip at r=0 for ball geometry)
+            if has_inner && domain.r[1, 4] > 0
                 if temp_field.bc_type_inner[lm_idx] == 1    # Dirichlet
                     local_r = 1 - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
                 elseif temp_field.bc_type_inner[lm_idx] == 2  # Neumann
-                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, 1, domain)
+                    # Defer to full flux BC application after loop
+                    # (handled by apply_flux_bc_spectral!(temp_field, domain))
                 end
             end
             
             # Outer boundary
             if has_outer
                 if temp_field.bc_type_outer[lm_idx] == 1      # Dirichlet
-                    local_r = oc_domain.N - first(r_range) + 1
+                    local_r = domain.N - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
                 elseif temp_field.bc_type_outer[lm_idx] == 2  # Neumann
-                    apply_flux_bc_spectral!(temp_field, lm_idx, local_lm, oc_domain.N, oc_domain)
+                    # Defer to full flux BC application after loop
                 end
             end
         end
+    end
+    # If any Neumann BCs present, apply the complete spectral flux BC correction
+    if any(temp_field.bc_type_inner .== 2) || any(temp_field.bc_type_outer .== 2)
+        apply_flux_bc_spectral!(temp_field, domain)
     end
 end
 
@@ -648,7 +653,7 @@ function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T},
             local_lm = lm_idx - first(lm_range) + 1
             
             # Check BC types for this mode
-            apply_inner = (temp_field.bc_type_inner[lm_idx] == 2) && (1 in r_range)
+            apply_inner = (temp_field.bc_type_inner[lm_idx] == 2) && (1 in r_range) && (domain.r[1, 4] > 0)
             apply_outer = (temp_field.bc_type_outer[lm_idx] == 2) && (domain.N in r_range)
             
             if apply_inner || apply_outer
@@ -1395,18 +1400,18 @@ function set_internal_heating!(temp_field::SHTnsTemperatureField{T},
         fill!(temp_field.internal_sources, amplitude)
     elseif heating_type == :gaussian
         # Gaussian heating profile centered at mid-radius
-        r_mid = 0.5 * (oc_domain.r[1, 4] + oc_domain.r[end, 4])
-        sigma = 0.1 * (oc_domain.r[end, 4] - oc_domain.r[1, 4])
+        r_mid = 0.5 * (domain.r[1, 4] + domain.r[end, 4])
+        sigma = 0.1 * (domain.r[end, 4] - domain.r[1, 4])
         
-        for i in 1:oc_domain.N
-            r = oc_domain.r[i, 4]
+        for i in 1:domain.N
+            r = domain.r[i, 4]
             temp_field.internal_sources[i] = amplitude * exp(-((r - r_mid)/sigma)^2)
         end
     elseif heating_type == :bottom
         # Heating concentrated near bottom
-        for i in 1:oc_domain.N
-            r = oc_domain.r[i, 4]
-            r_norm = (r - oc_domain.r[1, 4]) / (oc_domain.r[end, 4] - oc_domain.r[1, 4])
+        for i in 1:domain.N
+            r = domain.r[i, 4]
+            r_norm = (r - domain.r[1, 4]) / (domain.r[end, 4] - domain.r[1, 4])
             temp_field.internal_sources[i] = amplitude * exp(-5.0 * r_norm)
         end
     else
