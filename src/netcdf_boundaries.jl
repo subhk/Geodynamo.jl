@@ -397,25 +397,48 @@ Perform bilinear interpolation from source grid to target grid.
 """
 function bilinear_interpolation(src_theta::Vector{T}, src_phi::Vector{T}, src_values::Matrix{T},
                                target_theta::Vector{T}, target_phi::Vector{T}) where T<:AbstractFloat
-    
+    # Nearest-neighbor interpolation with cached index maps
     nlat_target = length(target_theta)
     nlon_target = length(target_phi)
     result = zeros(T, nlat_target, nlon_target)
-    
-    # Simple nearest-neighbor for now (can be enhanced with true bilinear)
-    for (i, theta_target) in enumerate(target_theta)
-        # Find nearest theta index
-        _, theta_idx = findmin(abs.(src_theta .- theta_target))
-        
-        for (j, phi_target) in enumerate(target_phi)
-            # Find nearest phi index  
-            _, phi_idx = findmin(abs.(src_phi .- phi_target))
-            
-            result[i, j] = src_values[theta_idx, phi_idx]
+
+    θ_idx_map, φ_idx_map = _get_interp_index_maps(src_theta, src_phi, target_theta, target_phi)
+
+    @inbounds for i in 1:nlat_target
+        si = θ_idx_map[i]
+        for j in 1:nlon_target
+            sj = φ_idx_map[j]
+            result[i, j] = src_values[si, sj]
         end
     end
-    
     return result
+end
+
+# Cache of index maps for (src_theta, src_phi, target_theta, target_phi)
+const _INTERP_CACHE = IdDict{Tuple{Any,Any,Any,Any}, Tuple{Vector{Int}, Vector{Int}}}()
+
+function _get_interp_index_maps(src_theta::Vector, src_phi::Vector,
+                                target_theta::Vector, target_phi::Vector)
+    key = (src_theta, src_phi, target_theta, target_phi)
+    maps = get(_INTERP_CACHE, key, nothing)
+    if maps === nothing
+        θ_idx = similar(target_theta, Int)
+        φ_idx = similar(target_phi, Int)
+        # Precompute nearest-neighbor indices
+        @inbounds for i in eachindex(target_theta)
+            θ = target_theta[i]
+            _, idx = findmin(abs.(src_theta .- θ))
+            θ_idx[i] = idx
+        end
+        @inbounds for j in eachindex(target_phi)
+            φ = target_phi[j]
+            _, idx = findmin(abs.(src_phi .- φ))
+            φ_idx[j] = idx
+        end
+        maps = (θ_idx, φ_idx)
+        _INTERP_CACHE[key] = maps
+    end
+    return maps
 end
 
 """
