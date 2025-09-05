@@ -63,6 +63,156 @@ function create_etd_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDomai
 end
 
 """
+    build_banded_A(T, domain, diffusivity, l) -> BandedMatrix{T}
+
+Construct banded A = ν*(d²/dr² + (2/r)d/dr − l(l+1)/r²) in banded storage.
+"""
+function build_banded_A(::Type{T}, domain::RadialDomain, diffusivity::Float64, l::Int) where T
+    lap = create_radial_laplacian(domain)
+    data = diffusivity .* lap.data
+    nr = domain.N
+    r_inv2 = @views domain.r[1:nr, 2]
+    lfac = Float64(l * (l + 1))
+    @inbounds for n in 1:nr
+        data[i_KL + 1, n] -= diffusivity * lfac * r_inv2[n]
+    end
+    return BandedMatrix{T}(Matrix{T}(data), i_KL, nr)
+end
+
+"""
+    apply_banded_full!(out, B, v)
+
+Apply banded matrix to full vector.
+"""
+function apply_banded_full!(out::Vector{T}, B::BandedMatrix{T}, v::Vector{T}) where T
+    fill!(out, zero(T))
+    N = B.size; bw = B.bandwidth
+    @inbounds for j in 1:N
+        for i in max(1, j - bw):min(N, j + bw)
+            row = bw + 1 + i - j
+            if 1 <= row <= 2*bw+1
+                out[i] += B.data[row, j] * v[j]
+            end
+        end
+    end
+    return out
+end
+
+"""
+    exp_action_krylov(Aop!, v, dt; m=20) -> y ≈ exp(dt A) v
+
+Simple Arnoldi-based approximation of the exponential action.
+"""
+function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20) where T
+    n = length(v)
+    V = Matrix{T}(undef, n, m)
+    H = zeros(T, m, m)
+    beta = norm(v)
+    if beta == 0
+        return zeros(T, n)
+    end
+    V[:, 1] = v / beta
+    w = similar(v)
+    kmax = m
+    for j in 1:m
+        Aop!(w, view(V, :, j))
+        for i in 1:j
+            H[i, j] = dot(view(V, :, i), w)
+            @. w = w - H[i, j] * V[:, i]
+        end
+        if j < m
+            H[j+1, j] = norm(w)
+            if H[j+1, j] == 0
+                kmax = j
+                break
+            end
+            V[:, j+1] = w / H[j+1, j]
+        end
+    end
+    Hred = dt .* H[1:kmax, 1:kmax]
+    e1 = zeros(T, kmax); e1[1] = one(T)
+    y_small = exp(Hred) * (beta .* e1)
+    return V[:, 1:kmax] * y_small
+end
+
+"""
+    phi1_action_krylov(BA, LU_A, v, dt; m=20) -> y ≈ φ1(dt A) v
+
+Compute φ1(dt A) v = A^{-1}[(exp(dt A) − I) v]/dt using Krylov exp(action) and banded solve.
+"""
+function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; m::Int=20) where T
+    ev = exp_action_krylov(Aop!, v, dt; m)
+    c = ev .- v
+    x = copy(c)
+    solve_banded!(x, A_lu, c)
+    @. x = x / dt
+    return x
+end
+
+"""
+    eab2_update_krylov!(u, nl, nl_prev, domain, diffusivity, config, dt; m=20)
+
+EAB2 update using Krylov exp/φ1 actions and banded LU for φ1.
+"""
+function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
+                             nl_prev::SHTnsSpectralField{T}, domain::RadialDomain,
+                             diffusivity::Float64, config::SHTnsKitConfig,
+                             dt::Float64; m::Int=20) where T
+    u_real = parent(u.data_real); u_imag = parent(u.data_imag)
+    n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
+    p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
+    lm_range = get_local_range(u.pencil, 1)
+    r_range  = get_local_range(u.pencil, 3)
+    nr = domain.N
+    comm = get_comm()
+    multi = MPI.Comm_size(comm) > 1
+    for lm_idx in lm_range
+        if lm_idx <= u.nlm
+            l = config.l_values[lm_idx]
+            ll = lm_idx - first(lm_range) + 1
+            A_banded = build_banded_A(T, domain, diffusivity, l)
+            A_lu = factorize_banded(A_banded)
+            # Assembled full vectors
+            ur = zeros(T, nr); ui = zeros(T, nr)
+            nrn = zeros(T, nr); nin = zeros(T, nr)
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    ur[r] = u_real[ll,1,lr]; ui[r] = u_imag[ll,1,lr]
+                    nrn[r] = (3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr]
+                    nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
+                end
+            end
+            if multi
+                MPI.Allreduce!(ur, MPI.SUM, comm)
+                MPI.Allreduce!(ui, MPI.SUM, comm)
+                MPI.Allreduce!(nrn, MPI.SUM, comm)
+                MPI.Allreduce!(nin, MPI.SUM, comm)
+            end
+            # Define Aop! using banded apply
+            tmp = zeros(T, nr)
+            Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
+            # Real
+            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m)
+            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m)
+            @. ur_new = ur_new + dt * add_r
+            # Imag
+            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m)
+            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m)
+            @. ui_new = ui_new + dt * add_i
+            # Scatter back
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    u_real[ll,1,lr] = ur_new[r]
+                    u_imag[ll,1,lr] = ui_new[r]
+                end
+            end
+        end
+    end
+    return u
+end
+"""
     eab2_update!(u, nl, nl_prev, etd, config)
 
 Apply EAB2 update per (l,m): u^{n+1} = E u^n + dt*phi1*(3/2 nl^n − 1/2 nl^{n−1}).
