@@ -17,6 +17,7 @@ const i_Ma = i_M ÷ 2
 # Physical parameters
 const d_PI = π
 const d_rratio = 0.35         # Inner/outer core radius ratio
+const d_R_outer = 1.0         # Ball outer radius (unit length by default)
 const d_Ra = 1e6              # Rayleigh number
 const d_E = 1e-4              # Ekman number
 const d_Pr = 1.0              # Prandtl number

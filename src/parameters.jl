@@ -29,6 +29,7 @@ Base.@kwdef mutable struct GeodynamoParameters
     
     # Physical parameters
     d_rratio::Float64 = 0.35      # Inner/outer core radius ratio
+    d_R_outer::Float64 = 1.0      # Ball outer radius (unit length by default)
     d_Ra::Float64 = 1e6           # Rayleigh number
     d_E::Float64 = 1e-4           # Ekman number
     d_Pr::Float64 = 1.0           # Prandtl number
@@ -227,6 +228,7 @@ function save_parameters(params::GeodynamoParameters, filename::String)
         
         println(io, "# Physical parameters")
         println(io, "const d_rratio = $(params.d_rratio)         # Inner/outer core radius ratio")
+        println(io, "const d_R_outer = $(params.d_R_outer)       # Ball outer radius (1.0 by default)")
         println(io, "const d_Ra = $(params.d_Ra)              # Rayleigh number")
         println(io, "const d_E = $(params.d_E)              # Ekman number")
         println(io, "const d_Pr = $(params.d_Pr)              # Prandtl number")

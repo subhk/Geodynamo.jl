@@ -42,7 +42,20 @@ function create_ball_radial_domain(nr::Int = Geodynamo.i_N)
         # map to [0,1]
         r[n, 4] = 0.5 * (1.0 + x)
     end
-    # Fill powers of r in other columns for compatibility
+    # Optionally scale to a physical outer radius R>0
+    R = try
+        Geodynamo.get_parameters().d_R_outer
+    catch
+        1.0
+    end
+    if !(R > 0)
+        error("d_R_outer must be > 0 for ball geometry (got $(R))")
+    end
+    if R != 1.0
+        r[:, 4] .*= R
+    end
+
+    # Fill powers of r in other columns for compatibility (after any scaling)
     for p in 1:7
         if p != 4
             power = p - 4
