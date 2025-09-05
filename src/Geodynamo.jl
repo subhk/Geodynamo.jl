@@ -88,9 +88,8 @@ module Geodynamo
     export create_programmatic_boundary, create_hybrid_temperature_boundaries, create_hybrid_composition_boundaries
     export create_time_dependent_programmatic_boundary
 
-    # exports simulation.jl
-    export SHTnsSimulationState, initialize_shtns_simulation, run_shtns_simulation!
-    export run_shtns_geodynamo_simulation
+    # exports simulation.jl (single unified state)
+    export SimulationState, initialize_simulation, run_simulation!
 
     # exports outputs_writer.jl
     export OutputConfig, FieldInfo, TimeTracker
@@ -118,10 +117,7 @@ module Geodynamo
     export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
     export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!
 
-    # exports simulation.jl (includes basic and enhanced simulation)
-    export EnhancedSimulationState, initialize_enhanced_simulation, run_enhanced_simulation!
-    export MasterSimulationState, initialize_master_simulation, run_master_simulation!
-    export run_enhanced_geodynamo_simulation, run_master_geodynamo_simulation
+    # (deprecated) enhanced/master types removed in favor of unified SimulationState
 
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
