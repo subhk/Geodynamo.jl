@@ -1090,13 +1090,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
-            etd_v = haskey(state.etd_caches, :vel) ? state.etd_caches[:vel] : nothing
-            if etd_v === nothing || etd_v.dt != dt
-                etd_v = create_etd_cache(Float64, state.shtns_config, state.oc_domain, d_E, dt)
-                state.etd_caches[:vel] = etd_v
-            end
-            eab2_update!(state.velocity.toroidal, state.velocity.nl_toroidal,
-                         state.velocity.prev_nl_toroidal, etd_v, state.shtns_config, dt)
+            # Use Krylov-based action to avoid dense exp for large problems or multi-rank
+            eab2_update_krylov!(state.velocity.toroidal, state.velocity.nl_toroidal,
+                                state.velocity.prev_nl_toroidal, state.oc_domain, d_E,
+                                state.shtns_config, dt; m=20)
         else
             solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                  state.implicit_matrices[:velocity])
@@ -1110,13 +1107,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
-            etd_v = haskey(state.etd_caches, :vel) ? state.etd_caches[:vel] : nothing
-            if etd_v === nothing || etd_v.dt != dt
-                etd_v = create_etd_cache(Float64, state.shtns_config, state.oc_domain, d_E, dt)
-                state.etd_caches[:vel] = etd_v
-            end
-            eab2_update!(state.velocity.poloidal, state.velocity.nl_poloidal,
-                         state.velocity.prev_nl_poloidal, etd_v, state.shtns_config, dt)
+            eab2_update_krylov!(state.velocity.poloidal, state.velocity.nl_poloidal,
+                                state.velocity.prev_nl_poloidal, state.oc_domain, d_E,
+                                state.shtns_config, dt; m=20)
         else
             solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                  state.implicit_matrices[:velocity])
@@ -1132,13 +1125,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
-                etd_m = haskey(state.etd_caches, :mag) ? state.etd_caches[:mag] : nothing
-                if etd_m === nothing || etd_m.dt != dt
-                    etd_m = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
-                    state.etd_caches[:mag] = etd_m
-                end
-                eab2_update!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
-                             state.magnetic.prev_nl_toroidal, etd_m, state.shtns_config, dt)
+                eab2_update_krylov!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
+                                    state.magnetic.prev_nl_toroidal, state.oc_domain, 1.0/d_Pm,
+                                    state.shtns_config, dt; m=20)
             else
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                      state.implicit_matrices[:magnetic])
@@ -1151,13 +1140,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
-                etd_m = haskey(state.etd_caches, :mag) ? state.etd_caches[:mag] : nothing
-                if etd_m === nothing || etd_m.dt != dt
-                    etd_m = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Pm, dt)
-                    state.etd_caches[:mag] = etd_m
-                end
-                eab2_update!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
-                             state.magnetic.prev_nl_poloidal, etd_m, state.shtns_config, dt)
+                eab2_update_krylov!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
+                                    state.magnetic.prev_nl_poloidal, state.oc_domain, 1.0/d_Pm,
+                                    state.shtns_config, dt; m=20)
             else
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                      state.implicit_matrices[:magnetic])
@@ -1174,13 +1159,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
                                      state.implicit_matrices[:composition])
             elseif ts_scheme === :eab2
-                etd_c = haskey(state.etd_caches, :comp) ? state.etd_caches[:comp] : nothing
-                if etd_c === nothing || etd_c.dt != dt
-                    etd_c = create_etd_cache(Float64, state.shtns_config, state.oc_domain, 1.0/d_Sc, dt)
-                    state.etd_caches[:comp] = etd_c
-                end
-                eab2_update!(state.composition.spectral, state.composition.nonlinear,
-                             state.composition.prev_nonlinear, etd_c, state.shtns_config, dt)
+                eab2_update_krylov!(state.composition.spectral, state.composition.nonlinear,
+                                    state.composition.prev_nonlinear, state.oc_domain, 1.0/d_Sc,
+                                    state.shtns_config, dt; m=20)
             else
                 solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
                                      state.implicit_matrices[:composition])
