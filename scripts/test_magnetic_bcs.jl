@@ -48,16 +48,25 @@ function main()
         end
     end
 
-    # Check inner boundary continuity: match inner core first plane
+    # Check inner boundary continuity: match inner core first plane and derivative continuity (poloidal)
     if 1 in r_range
         rloc = 1 - first(r_range) + 1
         ic_tor = parent(state.magnetic.ic_toroidal.data_real)
         ic_pol = parent(state.magnetic.ic_poloidal.data_real)
+        dr_oc = Geodynamo.create_derivative_matrix(1, state.oc_domain)
+        dr_ic = Geodynamo.create_derivative_matrix(1, state.ic_domain)
         for lm_idx in lm_range
             if lm_idx <= state.magnetic.toroidal.nlm
                 ll = lm_idx - first(lm_range) + 1
                 @test tor[ll,1,rloc] ≈ ic_tor[ll,1,1] atol=1e-12
                 @test pol[ll,1,rloc] ≈ ic_pol[ll,1,1] atol=1e-12
+                # Derivative continuity check for poloidal
+                prof_oc = [ (r in r_range && (r - first(r_range) + 1) <= size(pol,3)) ? pol[ll,1,r - first(r_range) + 1] : 0.0 for r in 1:state.oc_domain.N ]
+                # Build a simple IC profile vector from the first radial plane (limited by local data)
+                prof_ic = [ ic_pol[ll,1,1] for _ in 1:state.ic_domain.N ]
+                d_oc = zeros(Float64, state.oc_domain.N); Geodynamo.apply_derivative_matrix!(d_oc, dr_oc, prof_oc)
+                d_ic = zeros(Float64, state.ic_domain.N); Geodynamo.apply_derivative_matrix!(d_ic, dr_ic, prof_ic)
+                @test abs(d_oc[1] - d_ic[1]) ≤ 1e-6
             end
         end
     end

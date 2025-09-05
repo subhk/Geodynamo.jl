@@ -724,24 +724,75 @@ function apply_magnetic_boundary_conditions!(mag_fields::SHTnsMagneticFields{T},
         end
     end
     
-    # Inner boundary: coupling with inner core
-    if 1 in r_range
+    # Inner boundary: continuity with inner core (value + derivative for poloidal)
+    if 1 in r_range && domain_oc.r[1,4] > 0  # shell geometry inner boundary
         local_r = 1 - first(r_range) + 1
+        # Build first derivative operators for OC and IC
+        dr_oc = create_derivative_matrix(1, domain_oc)
+        dr_ic = create_derivative_matrix(1, domain_ic)
+        nr_oc = domain_oc.N
+        nr_ic = domain_ic.N
+
+        # Helper to extract full radial profiles for a given local (l,m)
+        function extract_prof_at_lm(data, ll, r_range_local, nr)
+            prof = zeros(T, nr)
+            @inbounds for r_idx in 1:nr
+                if r_idx in r_range_local
+                    lr = r_idx - first(r_range_local) + 1
+                    if lr <= size(data, 3)
+                        prof[r_idx] = data[ll, 1, lr]
+                    end
+                end
+            end
+            prof
+        end
+
+        # Sensitivity-based adjustment of OC neighbor to match IC derivative at inner boundary
+        function match_inner_derivative_poloidal!(oc_prof::Vector{T}, ic_prof::Vector{T})
+            d_oc = similar(oc_prof); apply_derivative_matrix!(d_oc, dr_oc, oc_prof)
+            d_ic = similar(ic_prof); apply_derivative_matrix!(d_ic, dr_ic, ic_prof)
+            target = d_ic[1]
+            err = d_oc[1] - target
+            if err == 0; return; end
+            k = 2  # adjust neighbor
+            δ = T(1e-8)
+            oc_prof[k] += δ
+            apply_derivative_matrix!(d_oc, dr_oc, oc_prof)
+            sens = (d_oc[1] - target) - err
+            oc_prof[k] -= δ
+            if sens != 0
+                oc_prof[k] -= err / sens
+            end
+        end
+
         @inbounds for lm_idx in lm_range
             if lm_idx <= mag_fields.toroidal.nlm
                 local_lm = lm_idx - first(lm_range) + 1
-                # Apply continuity condition with inner core
                 if local_r <= size(tor_real, 3) && local_lm <= size(mag_fields.ic_toroidal.data_real, 1)
                     ic_tor_real = parent(mag_fields.ic_toroidal.data_real)
                     ic_tor_imag = parent(mag_fields.ic_toroidal.data_imag)
                     ic_pol_real = parent(mag_fields.ic_poloidal.data_real)
                     ic_pol_imag = parent(mag_fields.ic_poloidal.data_imag)
-                    
-                    # Continuity at inner core boundary
+
+                    # Value continuity at inner boundary (toroidal and poloidal)
                     tor_real[local_lm, 1, local_r] = ic_tor_real[local_lm, 1, 1]
                     tor_imag[local_lm, 1, local_r] = ic_tor_imag[local_lm, 1, 1]
                     pol_real[local_lm, 1, local_r] = ic_pol_real[local_lm, 1, 1]
                     pol_imag[local_lm, 1, local_r] = ic_pol_imag[local_lm, 1, 1]
+
+                    # Derivative continuity for poloidal (approximate, adjust OC neighbor)
+                    # Real part
+                    oc_prof = extract_prof_at_lm(pol_real, local_lm, r_range, nr_oc)
+                    ic_prof = [ic_pol_real[local_lm,1,min(r, nr_ic)] for r in 1:nr_ic]
+                    match_inner_derivative_poloidal!(oc_prof, ic_prof)
+                    store_local_radial_profile!(pol_real, oc_prof, local_lm, r_range)
+                    # Imag part (only if significant)
+                    if any(x -> abs(x) > 1e-14, view(pol_imag, local_lm, 1, :))
+                        oc_prof_i = extract_prof_at_lm(pol_imag, local_lm, r_range, nr_oc)
+                        ic_prof_i = [ic_pol_imag[local_lm,1,min(r, nr_ic)] for r in 1:nr_ic]
+                        match_inner_derivative_poloidal!(oc_prof_i, ic_prof_i)
+                        store_local_radial_profile!(pol_imag, oc_prof_i, local_lm, r_range)
+                    end
                 end
             end
         end
