@@ -60,6 +60,20 @@ function create_velocity_workspace(::Type{T}, nr::Int, nthreads::Int=Threads.nth
     )
 end
 
+# Global optional workspace reference (set by user to enable reuse across steps)
+const VELOCITY_WS = Ref{Any}(nothing)
+
+"""
+    set_velocity_workspace!(ws)
+
+Register a global VelocityWorkspace to be used by velocity kernels when available.
+Pass `nothing` to disable and fall back to internal buffers.
+"""
+function set_velocity_workspace!(ws)
+    VELOCITY_WS[] = ws
+    return ws
+end
+
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                                           domain::RadialDomain,
                                           ws::VelocityWorkspace{T}) where T
@@ -223,6 +237,11 @@ end
 using Base.Threads
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
                                          domain::RadialDomain) where T
+    # If a compatible workspace is registered, use it
+    ws_any = VELOCITY_WS[]
+    if ws_any !== nothing && ws_any isa VelocityWorkspace{T}
+        return compute_vorticity_spectral_full!(fields, domain, ws_any)
+    end
     # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
     # For toroidal-poloidal decomposition:
     # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol

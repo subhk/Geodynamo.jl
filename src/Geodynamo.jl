@@ -44,6 +44,7 @@ module Geodynamo
 
     # exports velocity.jl
     export SHTnsVelocityFields, create_shtns_velocity_fields
+    export VelocityWorkspace, create_velocity_workspace, set_velocity_workspace!
     export compute_velocity_nonlinear!, compute_vorticity_spectral_full!
     export compute_kinetic_energy, compute_reynolds_stress
     export zero_velocity_work_arrays!
