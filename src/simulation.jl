@@ -1039,6 +1039,26 @@ end
 function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # Task-based implicit time integration
     task_graph = create_task_graph()
+
+    # For CNAB2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
+    if ts_scheme === :cnab2 && state.timestep_state.step == 0
+        parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
+        parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
+        parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
+        parent(state.velocity.prev_nl_toroidal.data_imag) .= parent(state.velocity.nl_toroidal.data_imag)
+        parent(state.velocity.prev_nl_poloidal.data_real) .= parent(state.velocity.nl_poloidal.data_real)
+        parent(state.velocity.prev_nl_poloidal.data_imag) .= parent(state.velocity.nl_poloidal.data_imag)
+        if i_B == 1
+            parent(state.magnetic.prev_nl_toroidal.data_real) .= parent(state.magnetic.nl_toroidal.data_real)
+            parent(state.magnetic.prev_nl_toroidal.data_imag) .= parent(state.magnetic.nl_toroidal.data_imag)
+            parent(state.magnetic.prev_nl_poloidal.data_real) .= parent(state.magnetic.nl_poloidal.data_real)
+            parent(state.magnetic.prev_nl_poloidal.data_imag) .= parent(state.magnetic.nl_poloidal.data_imag)
+        end
+        if state.composition !== nothing
+            parent(state.composition.prev_nonlinear.data_real) .= parent(state.composition.nonlinear.data_real)
+            parent(state.composition.prev_nonlinear.data_imag) .= parent(state.composition.nonlinear.data_imag)
+        end
+    end
     
     # Create tasks for parallel implicit solve
     temp_task = add_task!(task_graph, () -> begin
