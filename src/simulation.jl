@@ -6,78 +6,12 @@ using MPI
 using Base.Threads
 using LinearAlgebra
 
-# ============================================================================
-# BASIC SIMULATION STRUCTURES
-# ============================================================================
-
-# Main simulation state with SHTns
-struct SHTnsSimulationState{T}
-    # Field variables
-    velocity::SHTnsVelocityFields{T}
-    magnetic::SHTnsMagneticFields{T}
-    temperature::SHTnsTemperatureField{T}
-    composition::Union{SHTnsCompositionField{T}, Nothing}
-    
-    # Geometric data
-    shtns_config::SHTnsKitConfig
-    oc_domain::RadialDomain
-    ic_domain::RadialDomain
-    
-    # Pencil decomposition
-    pencils::Tuple{Pencil{3}, Pencil{3}, Pencil{3}}
-    pencil_spec::Pencil{3}
-    transforms::NamedTuple
-    
-    # Timestepping
-    timestep_state::TimestepState
-    implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
-    
-    # I/O
-    output_counter::Int
-    geometry::Symbol
-end
-
-# ============================================================================
-# ENHANCED SIMULATION STRUCTURES
-# ============================================================================
-
 """
-    EnhancedSimulationState{T}
+    SimulationState{T}
     
-Enhanced simulation state with advanced parallelization features.
+Unified simulation state with comprehensive parallelization and diagnostics.
 """
-struct EnhancedSimulationState{T}
-    # Original components
-    velocity::SHTnsVelocityFields{T}
-    magnetic::SHTnsMagneticFields{T}
-    temperature::SHTnsTemperatureField{T}
-    composition::Union{SHTnsCompositionField{T}, Nothing}
-    
-    # Geometric data
-    shtns_config::SHTnsKitConfig
-    oc_domain::RadialDomain
-    ic_domain::RadialDomain
-    
-    # Enhanced parallelization
-    hybrid_parallelizer::HybridParallelizer{T}
-    performance_monitor::PerformanceMonitor
-    
-    # Timestepping
-    timestep_state::TimestepState
-    implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
-    
-    # Enhanced I/O
-    output_counter::Int
-    auto_optimization::Bool
-    geometry::Symbol
-end
-
-"""
-    MasterSimulationState{T}
-    
-High-performance simulation state with unified parallelization system.
-"""
-struct MasterSimulationState{T}
+struct SimulationState{T}
     # Original components
     velocity::SHTnsVelocityFields{T}
     magnetic::SHTnsMagneticFields{T}
@@ -107,69 +41,7 @@ end
 # BASIC SIMULATION INITIALIZATION
 # ============================================================================
 
-function initialize_shtns_simulation(::Type{T} = Float64; include_composition::Bool = true) where T
-    # Initialize MPI first
-    if !MPI.Initialized()
-        MPI.Init()
-    end
-    
-    # Create SHTnsKit configuration  
-    shtns_config = create_shtnskit_config(lmax=i_L, mmax=i_M, nlat=i_Th, nlon=i_Ph)
-    
-    # Initialize pencil decomposition with SHTns grid
-    pencils = create_pencil_topology(shtns_config)
-    pencil_θ = pencils.θ
-    pencil_φ = pencils.φ  
-    pencil_r = pencils.r
-    pencil_spec = pencils.spec
-    
-    # Create transform operations (placeholder - transforms handled by SHTns config)
-    transforms = ()
-    
-    # Geometry-aware domains and fields
-    geom = get_parameters().geometry
-    pencils = (pencil_θ, pencil_φ, pencil_r)
-    if geom === :ball
-        using .GeodynamoBall
-        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
-        ic_domain = oc_domain
-        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
-    else
-        using .GeodynamoShell
-        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
-        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
-        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
-    end
-    
-    # Initialize timestepping
-    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
-    
-    # Create implicit matrices for each equation
-    implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
-    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, d_E, d_timestep)
-    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, 1.0/d_Pm, d_timestep)
-    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        shtns_config, oc_domain, 1.0/d_Pr, d_timestep)
-    
-    # Add compositional diffusion matrix if composition is included
-    if include_composition
-        implicit_matrices[:composition] = create_shtns_timestepping_matrices(
-            shtns_config, oc_domain, 1.0/d_Sc, d_timestep)  # Schmidt number controls compositional diffusion
-    end
-    
-    return SHTnsSimulationState{T}(velocity, magnetic, temperature, composition,
-                                    shtns_config, oc_domain, ic_domain,
-                                    pencils, pencil_spec, transforms, timestep_state,
-                                    implicit_matrices, 0, geom)
-end
+initialize_shtns_simulation(::Type{T}=Float64; include_composition::Bool=true) where T = initialize_simulation(T; include_composition)
 
 # ============================================================================
 # ENHANCED SIMULATION INITIALIZATION
@@ -264,7 +136,7 @@ end
     
 Initialize simulation with comprehensive CPU parallelization.
 """
-function initialize_master_simulation(::Type{T}=Float64; 
+function initialize_simulation(::Type{T}=Float64; 
                                               include_composition::Bool=true,
                                               auto_optimize::Bool=true,
                                               adaptive_threading::Bool=true,
@@ -351,7 +223,7 @@ function initialize_master_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, oc_domain, 1.0/d_Sc, d_timestep)
     end
     
-    return MasterSimulationState{T}(
+    return SimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, oc_domain, ic_domain,
         master_parallelizer,
@@ -364,7 +236,10 @@ end
 # BASIC SIMULATION RUNNER
 # ============================================================================
 
-function run_shtns_simulation!(state::SHTnsSimulationState{T}) where T
+## Backward-compatibility thin wrappers (optional, non-exported)
+function run_shtns_simulation!(state)
+    run_simulation!(state)
+end
     comm = get_comm()
     rank = get_rank()
     
@@ -633,7 +508,7 @@ end
     
 Run geodynamo simulation with maximum CPU parallelization optimizations.
 """
-function run_master_simulation!(state::MasterSimulationState{T}) where T
+function run_simulation!(state::SimulationState{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
