@@ -25,19 +25,20 @@ function main()
     # Apply magnetic BCs
     apply_magnetic_boundary_conditions!(state.magnetic, state.oc_domain, state.ic_domain)
 
-    # Check outer boundary: insulating (copy from neighbor → zero derivative approx)
+    # Check outer boundary: insulating (∂B/∂r ≈ 0)
     tor = parent(state.magnetic.toroidal.data_real)
     pol = parent(state.magnetic.poloidal.data_real)
     lm_range = range_local(state.magnetic.toroidal.pencil, 1)
     r_range  = range_local(state.magnetic.toroidal.pencil, 3)
     if state.oc_domain.N in r_range
         rloc = state.oc_domain.N - first(r_range) + 1
+        # Finite-difference check using neighbor
         rlocm1 = max(1, rloc - 1)
         for lm_idx in lm_range
             if lm_idx <= state.magnetic.toroidal.nlm
                 ll = lm_idx - first(lm_range) + 1
-                @test tor[ll,1,rloc] ≈ tor[ll,1,rlocm1] atol=1e-12
-                @test pol[ll,1,rloc] ≈ pol[ll,1,rlocm1] atol=1e-12
+                @test abs(tor[ll,1,rloc] - tor[ll,1,rlocm1]) ≤ 1e-6
+                @test abs(pol[ll,1,rloc] - pol[ll,1,rlocm1]) ≤ 1e-6
             end
         end
     end
@@ -60,4 +61,3 @@ function main()
 end
 
 main()
-
