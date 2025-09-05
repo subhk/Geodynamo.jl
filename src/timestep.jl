@@ -15,6 +15,99 @@ mutable struct TimestepState
     converged::Bool
 end
 
+# ================================
+# Exponential AB2 (EAB2) Utilities
+# ================================
+
+struct ETDCache{T}
+    dt::Float64
+    l_values::Vector{Int}
+    E::Vector{Matrix{T}}      # exp(dt A_l) per l
+    phi1::Vector{Matrix{T}}   # phi1(dt A_l) per l
+end
+
+"""
+    create_etd_cache(config, domain, diffusivity, dt) -> ETDCache
+
+Build per-l exponential cache for the linear operator A_l = diffusivity*(d²/dr² + (2/r)d/dr − l(l+1)/r²).
+Computes exp(dt A_l) and phi1(dt A_l) via dense methods. Single-rank recommended.
+"""
+function create_etd_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                          diffusivity::Float64, dt::Float64) where T
+    lap = create_radial_laplacian(domain)
+    nr = domain.N
+    r_inv2 = @views domain.r[1:nr, 2]
+    lvals = unique(config.l_values)
+    E = Matrix{T}[]
+    PHI1 = Matrix{T}[]
+    for l in lvals
+        # Build banded for A = ν*(d² + (2/r)d − l(l+1)/r²)
+        Adata = diffusivity .* lap.data
+        # Convert to dense and subtract l(l+1)/r² on diagonal
+        Adense = banded_to_dense(BandedMatrix(Adata, i_KL, nr))
+        lfac = Float64(l * (l + 1))
+        @inbounds for n in 1:nr
+            Adense[n, n] -= diffusivity * lfac * r_inv2[n]
+        end
+        # exp(dt A)
+        Adt = dt .* Adense
+        E_l = exp(Adt)
+        push!(E, Matrix{T}(E_l))
+        # phi1(dt A) = A^{-1} * (exp(dt A) − I) / dt
+        F = (E_l - I) / dt
+        fac = lu(Adense)
+        phi1_l = fac \ F
+        push!(PHI1, Matrix{T}(phi1_l))
+    end
+    return ETDCache{T}(dt, lvals, E, PHI1)
+end
+
+"""
+    eab2_update!(u, nl, nl_prev, etd, config)
+
+Apply EAB2 update per (l,m): u^{n+1} = E u^n + dt*phi1*(3/2 nl^n − 1/2 nl^{n−1}).
+"""
+function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
+                      nl_prev::SHTnsSpectralField{T}, etd::ETDCache{T}, config::SHTnsKitConfig,
+                      dt::Float64) where T
+    u_real = parent(u.data_real); u_imag = parent(u.data_imag)
+    n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
+    p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
+    lm_range = get_local_range(u.pencil, 1)
+    r_range  = get_local_range(u.pencil, 3)
+    # Build map from lm_idx to l index in etd
+    for lm_idx in lm_range
+        if lm_idx <= u.nlm
+            l = config.l_values[lm_idx]
+            lpos = findfirst(==(l), etd.l_values)
+            E = etd.E[lpos]
+            P1 = etd.phi1[lpos]
+            ll = lm_idx - first(lm_range) + 1
+            # Extract full radial vectors (assume single-rank or full local r)
+            ur = Vector{T}(undef, size(u_real, 3))
+            ui = Vector{T}(undef, size(u_imag, 3))
+            nr_loc = length(ur)
+            @inbounds for k in 1:nr_loc
+                ur[k] = u_real[ll, 1, k]
+                ui[k] = u_imag[ll, 1, k]
+            end
+            # Nonlinear combo
+            nrn = Vector{T}(undef, nr_loc)
+            nin = Vector{T}(undef, nr_loc)
+            @inbounds for k in 1:nr_loc
+                nrn[k] = (3/2)*n_real[ll,1,k] - (1/2)*p_real[ll,1,k]
+                nin[k] = (3/2)*n_imag[ll,1,k] - (1/2)*p_imag[ll,1,k]
+            end
+            ur_new = E*ur + dt*(P1*nrn)
+            ui_new = E*ui + dt*(P1*nin)
+            @inbounds for k in 1:nr_loc
+                u_real[ll,1,k] = ur_new[k]
+                u_imag[ll,1,k] = ui_new[k]
+            end
+        end
+    end
+    return u
+end
 # Implicit matrices for each spherical harmonic mode (SHTns version)
 struct SHTnsImplicitMatrices{T}
     matrices::Vector{BandedMatrix{T}}  # One for each l value
