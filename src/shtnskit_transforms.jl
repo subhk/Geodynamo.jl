@@ -158,16 +158,18 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     topology = TopoCtor(comm, proc_dims)
     
     # Physical space pencils for theta-phi parallelization
+    # Note: The tuple passed to Pencil specifies the two distributed axes.
+    #       The remaining axis (not listed) is locally contiguous.
     dims = (nlat, nlon, nr)
-    pencil_theta = Pencil(topology, dims, (2, 3))  # Theta-contiguous (phi distributed)
-    pencil_phi = Pencil(topology, dims, (1, 3))    # Phi-contiguous (theta distributed)
-    pencil_r = Pencil(topology, dims, (1, 2))      # Radial-contiguous
+    pencil_theta = Pencil(topology, dims, (2, 3))  # Theta contiguous; distributes phi and r
+    pencil_phi   = Pencil(topology, dims, (1, 3))  # Phi contiguous; distributes theta and r
+    pencil_r     = Pencil(topology, dims, (1, 2))  # Radial contiguous; distributes theta and phi
     
     # Spectral space pencil (for (l,m) modes)
     # Use SHTnsKit configuration's nlm
     nlm = sht_config.nlm
     spec_dims = (nlm, 1, nr)
-    pencil_spec = Pencil(topology, spec_dims, (2, 3))
+    pencil_spec = Pencil(topology, spec_dims, (2, 3))  # lm contiguous; distributes dummy axis and r
     
     return (theta = pencil_theta, 
             phi = pencil_phi, 
