@@ -701,18 +701,19 @@ function apply_poloidal_stress_free_bc!(fields::SHTnsVelocityFields{T}, domain::
     end
 
     # Apply per (l,m) mode for local boundary planes
+    n_iter = 2  # small number of refinement iterations
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.poloidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
             # Inner boundary correction if local and not at r=0 (ball)
             if (1 in r_range) && domain.r[1, 4] > eps(T)
+                # Real part
                 pol_profile = extract_local_radial_profile(pol_real, local_lm, nr, r_range)
-                # Neighbor index
-                k = 2
-                # Keep P(1)=0 (already set), adjust P(2)
-                S0 = boundary_stress_metric(pol_profile, :inner)
-                if S0 != 0
+                k = 2  # neighbor index
+                for _ in 1:n_iter
+                    S0 = boundary_stress_metric(pol_profile, :inner)
+                    if S0 == 0; break; end
                     δ = T(1e-8)
                     pol_profile[k] += δ
                     S1 = boundary_stress_metric(pol_profile, :inner)
@@ -720,17 +721,41 @@ function apply_poloidal_stress_free_bc!(fields::SHTnsVelocityFields{T}, domain::
                     dS = (S1 - S0) / δ
                     if dS != 0
                         pol_profile[k] -= S0 / dS
-                        store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+                    else
+                        break
                     end
+                end
+                store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+
+                # Imag part (only if there are non-zero values nearby)
+                if any(x -> abs(x) > 1e-14, view(pol_imag, local_lm, 1, :))
+                    pol_profile_i = extract_local_radial_profile(pol_imag, local_lm, nr, r_range)
+                    for _ in 1:n_iter
+                        S0 = boundary_stress_metric(pol_profile_i, :inner)
+                        if S0 == 0; break; end
+                        δ = T(1e-8)
+                        pol_profile_i[k] += δ
+                        S1 = boundary_stress_metric(pol_profile_i, :inner)
+                        pol_profile_i[k] -= δ
+                        dS = (S1 - S0) / δ
+                        if dS != 0
+                            pol_profile_i[k] -= S0 / dS
+                        else
+                            break
+                        end
+                    end
+                    store_local_radial_profile!(pol_imag, pol_profile_i, local_lm, r_range)
                 end
             end
 
             # Outer boundary correction if local
             if (nr in r_range)
+                # Real part
                 pol_profile = extract_local_radial_profile(pol_real, local_lm, nr, r_range)
                 k = nr - 1
-                S0 = boundary_stress_metric(pol_profile, :outer)
-                if S0 != 0
+                for _ in 1:n_iter
+                    S0 = boundary_stress_metric(pol_profile, :outer)
+                    if S0 == 0; break; end
                     δ = T(1e-8)
                     pol_profile[k] += δ
                     S1 = boundary_stress_metric(pol_profile, :outer)
@@ -738,8 +763,30 @@ function apply_poloidal_stress_free_bc!(fields::SHTnsVelocityFields{T}, domain::
                     dS = (S1 - S0) / δ
                     if dS != 0
                         pol_profile[k] -= S0 / dS
-                        store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+                    else
+                        break
                     end
+                end
+                store_local_radial_profile!(pol_real, pol_profile, local_lm, r_range)
+
+                # Imag part
+                if any(x -> abs(x) > 1e-14, view(pol_imag, local_lm, 1, :))
+                    pol_profile_i = extract_local_radial_profile(pol_imag, local_lm, nr, r_range)
+                    for _ in 1:n_iter
+                        S0 = boundary_stress_metric(pol_profile_i, :outer)
+                        if S0 == 0; break; end
+                        δ = T(1e-8)
+                        pol_profile_i[k] += δ
+                        S1 = boundary_stress_metric(pol_profile_i, :outer)
+                        pol_profile_i[k] -= δ
+                        dS = (S1 - S0) / δ
+                        if dS != 0
+                            pol_profile_i[k] -= S0 / dS
+                        else
+                            break
+                        end
+                    end
+                    store_local_radial_profile!(pol_imag, pol_profile_i, local_lm, r_range)
                 end
             end
         end
