@@ -260,13 +260,13 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     # Use pencil ranges for enhanced loop bounds
     r_range = range_local(config.pencils.r, 3)
     
-    # Main fused computation loop with enhanced indexing
-    @inbounds for k in 1:local_size[3]
+    # Main fused computation loop with enhanced indexing (parallel over r-slices)
+    @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
-        if r_idx <= oc_domain.N
-            r = oc_domain.r[r_idx, 4]
-            r_inv = oc_domain.r[r_idx, 3]
+        if r_idx <= domain.N
+            r = domain.r[r_idx, 4]
+            r_inv = domain.r[r_idx, 3]
         else
             r = 1.0
             r_inv = 1.0
@@ -312,7 +312,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add buoyancy forces with proper scaling
     if temp_field !== nothing
-        add_thermal_buoyancy_force!(adv_r, temp_field, d_Ra * d_Pr, oc_domain)
+        add_thermal_buoyancy_force!(adv_r, temp_field, d_Ra * d_Pr, domain)
     end
     
     if comp_field !== nothing
@@ -321,7 +321,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add Lorentz force if magnetic field present
     if mag_field !== nothing
-        add_lorentz_force!(fields, mag_field, oc_domain)
+        add_lorentz_force!(fields, mag_field, domain)
     end
 end
 
@@ -344,20 +344,25 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
     # Get local radial range
     r_range = get_local_range(scalar_field.pencil, 3)
     
-    # Vectorized addition with radial dependence
-    @inbounds @simd for idx in eachindex(force_r)
-        if idx <= length(scalar_data)
-            # Get radial index for this point
-            k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
-            r_idx = k + first(r_range) - 1
-            
-            if r_idx <= oc_domain.N
-                # Include radial dependence for spherical geometry
-                r = oc_domain.r[r_idx, 4]
-                gravity_factor = r^2  # Gravity scales as r² in spherical geometry
-                force_r[idx] += factor * gravity_factor * scalar_data[idx]
-            else
-                force_r[idx] += factor * scalar_data[idx]
+    # Vectorized addition with radial dependence (threaded in flat index space)
+    Ntot = length(force_r)
+    chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
+    @inbounds Threads.@threads for start in 1:chunk:Ntot
+        stop = min(Ntot, start + chunk - 1)
+        @simd for idx in start:stop
+            if idx <= length(scalar_data)
+                # Get radial index for this point
+                k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
+                r_idx = k + first(r_range) - 1
+                
+                if r_idx <= domain.N
+                    # Include radial dependence for spherical geometry
+                    r = domain.r[r_idx, 4]
+                    gravity_factor = r^2  # Gravity scales as r² in spherical geometry
+                    force_r[idx] += factor * gravity_factor * scalar_data[idx]
+                else
+                    force_r[idx] += factor * scalar_data[idx]
+                end
             end
         end
     end
