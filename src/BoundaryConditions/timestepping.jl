@@ -116,6 +116,48 @@ function get_boundary_data(field, field_type::FieldType)
 end
 
 """
+    get_time_index(field, field_type::FieldType)
+
+Get current time index from field using unified interface with fallback support.
+"""
+function get_time_index(field, field_type::FieldType)
+    if field_type == TEMPERATURE
+        if hasfield(typeof(field), :boundary_time_index)
+            return field.boundary_time_index[]
+        else
+            # Use fallback cache system if available
+            if isdefined(@__MODULE__, :_temperature_boundary_cache)
+                field_id = objectid(field)
+                if haskey(_temperature_boundary_cache, field_id)
+                    return _temperature_boundary_cache[field_id][:time_index]
+                end
+            end
+        end
+    elseif field_type == COMPOSITION
+        if hasfield(typeof(field), :boundary_time_index)
+            return field.boundary_time_index[]
+        else
+            # Use fallback cache system if available
+            if isdefined(@__MODULE__, :_composition_boundary_cache)
+                field_id = objectid(field)
+                if haskey(_composition_boundary_cache, field_id)
+                    return _composition_boundary_cache[field_id][:time_index]
+                end
+            end
+        end
+    elseif field_type == VELOCITY
+        if hasfield(typeof(field), :boundary_time_index)
+            return field.boundary_time_index[]
+        end
+    elseif field_type == MAGNETIC
+        if hasfield(typeof(field), :boundary_time_index)
+            return field.boundary_time_index[]
+        end
+    end
+    return 1  # Default time index
+end
+
+"""
     get_field_from_state(state, field_type::FieldType)
 
 Extract the appropriate field from simulation state.
@@ -325,7 +367,13 @@ function enforce_boundary_conditions_in_solution!(solution, state, field_type::F
     
     field = get_field_from_state(state, field_type)
     
-    if field === nothing || field.boundary_condition_set === nothing
+    if field === nothing
+        return solution
+    end
+    
+    # Check if field has boundary conditions using unified interface
+    boundary_set, _ = get_boundary_data(field, field_type)
+    if boundary_set === nothing
         return solution
     end
     
@@ -350,19 +398,22 @@ Enforce temperature boundary conditions in solution vector.
 """
 function enforce_temperature_bc_in_solution!(solution, temp_field)
     
-    if temp_field.boundary_condition_set === nothing
+    # Get boundary data using unified interface
+    boundary_set, _ = get_boundary_data(temp_field, TEMPERATURE)
+    if boundary_set === nothing
         return solution
     end
     
-    # Get boundary values
-    inner_bc = temp_field.boundary_values[1, :]
-    outer_bc = temp_field.boundary_values[2, :]
-    
-    # Enforce Dirichlet boundary conditions by directly setting solution values
-    # at boundary points - implementation depends on discretization scheme
-    
-    # For spectral methods, this might involve setting specific coefficients
-    # For finite difference methods, this involves setting boundary grid points
+    # Get boundary values if available
+    if hasfield(typeof(temp_field), :boundary_values)
+        inner_bc = temp_field.boundary_values[1, :]
+        outer_bc = temp_field.boundary_values[2, :]
+        
+        # Enforce Dirichlet boundary conditions by directly setting solution values
+        # For spectral methods, this involves constraining boundary modes
+        # The actual implementation depends on how the solution vector is organized
+        # This is a framework - specific solver implementations will use boundary_values
+    end
     
     return solution
 end
@@ -374,15 +425,23 @@ Enforce composition boundary conditions in solution vector.
 """
 function enforce_composition_bc_in_solution!(solution, comp_field)
     
-    if comp_field.boundary_condition_set === nothing
+    # Get boundary data using unified interface
+    boundary_set, _ = get_boundary_data(comp_field, COMPOSITION)
+    if boundary_set === nothing
         return solution
     end
     
-    inner_bc = comp_field.boundary_values[1, :]
-    outer_bc = comp_field.boundary_values[2, :]
-    
-    # Similar implementation to temperature
-    # Additionally ensure composition values remain in [0, 1] range
+    # Get boundary values if available
+    if hasfield(typeof(comp_field), :boundary_values)
+        inner_bc = comp_field.boundary_values[1, :]
+        outer_bc = comp_field.boundary_values[2, :]
+        
+        # Similar implementation to temperature
+        # Additionally ensure composition values remain in [0, 1] range
+        # Clamp boundary values to physical range
+        clamp!(real(inner_bc), 0.0, 1.0)
+        clamp!(real(outer_bc), 0.0, 1.0)
+    end
     
     return solution
 end
@@ -394,13 +453,26 @@ Enforce velocity boundary conditions in solution vector.
 """
 function enforce_velocity_bc_in_solution!(solution, velocity_field)
     
-    if velocity_field.boundary_condition_set === nothing
+    # Get boundary data using unified interface
+    boundary_set, _ = get_boundary_data(velocity_field, VELOCITY)
+    if boundary_set === nothing
         return solution
     end
     
     # Enforce no-slip or stress-free boundary conditions
-    # This typically involves setting velocity components to zero at boundaries
-    # or enforcing specific stress conditions
+    # For no-slip: velocity components = 0 at boundaries
+    # For stress-free: tangential stress = 0, radial velocity = 0
+    # The specific implementation depends on the solver's solution vector structure
+    
+    # Toroidal component enforcement
+    if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
+        # Use boundary values to constrain solution
+    end
+    
+    # Poloidal component enforcement
+    if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+        # Use boundary values to constrain solution
+    end
     
     return solution
 end
@@ -412,13 +484,27 @@ Enforce magnetic field boundary conditions in solution vector.
 """
 function enforce_magnetic_bc_in_solution!(solution, magnetic_field)
     
-    if magnetic_field.boundary_condition_set === nothing
+    # Get boundary data using unified interface
+    boundary_set, _ = get_boundary_data(magnetic_field, MAGNETIC)
+    if boundary_set === nothing
         return solution
     end
     
     # Enforce insulating or perfect conductor boundary conditions
     # For insulating: match potential field at boundary
     # For perfect conductor: enforce specific field continuity conditions
+    
+    # Toroidal component enforcement
+    if hasfield(typeof(magnetic_field), :toroidal) && hasfield(typeof(magnetic_field.toroidal), :boundary_values)
+        # Insulating: ∂(rB_tor)/∂r = 0
+        # Perfect conductor: B_tor = 0
+    end
+    
+    # Poloidal component enforcement
+    if hasfield(typeof(magnetic_field), :poloidal) && hasfield(typeof(magnetic_field.poloidal), :boundary_values)
+        # Insulating: match potential field
+        # Perfect conductor: ∂B_pol/∂r = 0
+    end
     
     return solution
 end
@@ -500,13 +586,21 @@ function log_boundary_condition_status(state, rank::Int=0)
         if field !== nothing
             println("$field_name Field:")
             
-            if hasfield(typeof(field), :boundary_condition_set) && field.boundary_condition_set !== nothing
-                boundary_set = field.boundary_condition_set
-                
+            # Use unified interface to check for boundary conditions
+            boundary_set, _ = get_boundary_data(field, field_type)
+            
+            if boundary_set !== nothing
                 println("  Boundary conditions loaded")
-                println("    Time index: $(field.boundary_time_index[])")
-                println("    Inner: $(basename(boundary_set.inner_boundary.file_path))")
-                println("    Outer: $(basename(boundary_set.outer_boundary.file_path))")
+                
+                # Get time index using unified interface
+                time_index = get_time_index(field, field_type)
+                println("    Time index: $(time_index)")
+                
+                # Display file information if available
+                inner_file = get(boundary_set.inner_boundary, :file_path, "programmatic")
+                outer_file = get(boundary_set.outer_boundary, :file_path, "programmatic")
+                println("    Inner: $(basename(inner_file))")
+                println("    Outer: $(basename(outer_file))")
                 
                 if boundary_set.inner_boundary.is_time_dependent || boundary_set.outer_boundary.is_time_dependent
                     println("    Time-dependent: Yes")
@@ -532,3 +626,4 @@ end
 export update_boundary_conditions_for_timestep!
 export apply_boundary_conditions_to_rhs!, enforce_boundary_conditions_in_solution!
 export compute_boundary_condition_residual, log_boundary_condition_status
+export get_boundary_data, get_time_index, get_field_from_state
