@@ -121,24 +121,25 @@ Unified interface to load boundary conditions for any field type.
 # Examples
 ```julia
 # Temperature boundaries
-load_boundary_conditions!(temp_field, TEMPERATURE, Dict(
-    :inner => "cmb_temperature.nc",
-    :outer => "surface_temperature.nc"
-))
+    load_boundary_conditions!(temp_field, TEMPERATURE, Dict(
+        :inner => "cmb_temperature.nc",
+        :outer => "surface_temperature.nc"
+    ))
 
 # Velocity boundaries (no-slip at both boundaries)
-load_boundary_conditions!(velocity_field, VELOCITY, Dict(
-    :inner => (:no_slip, 0.0),
-    :outer => (:no_slip, 0.0)
-))
+    load_boundary_conditions!(velocity_field, VELOCITY, Dict(
+        :inner => (:no_slip, 0.0),
+        :outer => (:no_slip, 0.0)
+    ))
 
 # Magnetic boundaries (potential field at outer boundary)
-load_boundary_conditions!(magnetic_field, MAGNETIC, Dict(
-    :inner => (:insulating, 0.0),
-    :outer => (:potential_field, "field_coefficients.nc")
-))
+    load_boundary_conditions!(magnetic_field, MAGNETIC, Dict(
+        :inner => (:insulating, 0.0),
+        :outer => (:potential_field, "field_coefficients.nc")
+    ))
 ```
 """
+
 function load_boundary_conditions!(field, field_type::FieldType, boundary_specs::Dict)
     if field_type == TEMPERATURE
         return load_temperature_boundary_conditions!(field, boundary_specs)
