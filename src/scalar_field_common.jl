@@ -213,12 +213,12 @@ function compute_phi_gradient_spectral!(field::AbstractScalarField{T}) where T
 end
 
 """
-    compute_radial_gradient_spectral!(field::AbstractScalarField{T}) where T
+    compute_radial_gradient_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
 
 Compute ∂field/∂r using banded matrix derivative operator in spectral space (local operation).
 This uses the pre-computed derivative matrices from the field for optimal accuracy and efficiency.
 """
-function compute_radial_gradient_spectral!(field::AbstractScalarField{T}) where T
+function compute_radial_gradient_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
     grad_r_real = parent(field.grad_r_spec.data_real)
@@ -229,7 +229,6 @@ function compute_radial_gradient_spectral!(field::AbstractScalarField{T}) where 
     
     # Use the banded matrix derivative operator from the field
     bandwidth = field.dr_matrix.bandwidth
-    domain = get_domain(field)
     nr = domain.N
     
     @inbounds for lm_idx in lm_range
@@ -266,12 +265,12 @@ function compute_radial_gradient_spectral!(field::AbstractScalarField{T}) where 
 end
 
 """
-    apply_geometric_factors_spectral!(field::AbstractScalarField{T}) where T
+    apply_geometric_factors_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
 
 Apply geometric factors (1/r, 1/(r sin θ)) in spectral space.
 For gradients in spherical coordinates. This is generic.
 """
-function apply_geometric_factors_spectral!(field::AbstractScalarField{T}) where T
+function apply_geometric_factors_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
     grad_θ_real = parent(field.grad_theta_spec.data_real)
     grad_θ_imag = parent(field.grad_theta_spec.data_imag)
     grad_φ_real = parent(field.grad_phi_spec.data_real)
@@ -280,9 +279,7 @@ function apply_geometric_factors_spectral!(field::AbstractScalarField{T}) where 
     r_range  = range_local(field.config.pencils.spec, 3)
     lm_range = range_local(field.config.pencils.spec, 1)
     
-    # Get domain information - this needs to be provided by each field type
-    # since the domain access pattern varies between implementations
-    domain = get_domain(field)
+    # Use provided domain information
     
     @inbounds for r_idx in r_range
         if r_idx <= domain.N
@@ -318,21 +315,21 @@ function apply_geometric_factors_spectral!(field::AbstractScalarField{T}) where 
 end
 
 """
-    compute_all_gradients_spectral!(field::AbstractScalarField{T}) where T
+    compute_all_gradients_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
 
 Compute all gradient components (θ, φ, r) in spectral space.
 This is the main driver function that works for any scalar field.
 """
-function compute_all_gradients_spectral!(field::AbstractScalarField{T}) where T
+function compute_all_gradients_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
     # Compute θ and φ gradients using SH derivatives (local operation)  
     compute_theta_gradient_spectral!(field)
     compute_phi_gradient_spectral!(field)
     
-    # Compute radial gradient using finite differences (local operation)
-    compute_radial_gradient_spectral!(field)
+    # Compute radial gradient using banded matrix derivative operator (local operation)
+    compute_radial_gradient_spectral!(field, domain)
     
     # Apply geometric factors for spherical coordinates (local operation)
-    apply_geometric_factors_spectral!(field)
+    apply_geometric_factors_spectral!(field, domain)
 end
 
 # ============================================================================
@@ -367,10 +364,6 @@ end
 # Helper function to get the appropriate main physical field
 # This needs to be specialized for each field type
 function get_main_physical_field end
-
-# Helper function to get the domain from each field type
-# This needs to be specialized for each field type since domain access varies
-function get_domain end
 
 # ============================================================================
 # Local physical space operations (SHARED)

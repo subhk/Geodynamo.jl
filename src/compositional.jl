@@ -18,9 +18,8 @@ using SparseArrays
 
 include("scalar_field_common.jl")
 
-# Specializations for composition field
+# Specialization for composition field
 get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composition
-get_domain(field::SHTnsCompositionField{T}) where T = field.config.domain
 
 struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
@@ -152,7 +151,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 2: Compute gradient in physical space if needed for diffusion
-    compute_composition_gradient_local!(comp_field)
+    compute_composition_gradient_local!(comp_field, oc_domain)
     
     # Step 3: Compute advection term -u·∇C in physical space (local operation)
     if vel_fields !== nothing
@@ -188,13 +187,13 @@ function zero_composition_work_arrays!(comp_field::SHTnsCompositionField{T}) whe
     fill!(parent(comp_field.nonlinear.data_imag), zero(T))
 end
 
-function compute_composition_gradient_local!(comp_field::SHTnsCompositionField{T}) where T
+function compute_composition_gradient_local!(comp_field::SHTnsCompositionField{T}, oc_domain::RadialDomain) where T
     """
     Complete composition gradient computation (θ, φ, r) in spectral space
     This is completely local - no MPI communication required
     """
     # 1. Compute spectral gradients (local operation)
-    compute_all_gradients_spectral!(comp_field)
+    compute_all_gradients_spectral!(comp_field, oc_domain)
     
     # 2. Transform all components to physical space (batched operation)
     transform_field_and_gradients_to_physical!(comp_field)

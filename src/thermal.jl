@@ -21,9 +21,8 @@ using SparseArrays
 
 include("scalar_field_common.jl")
 
-# Specializations for temperature field
+# Specialization for temperature field
 get_main_physical_field(field::SHTnsTemperatureField{T}) where T = field.temperature
-get_domain(field::SHTnsTemperatureField{T}) where T = field.config.domain
 
 struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     # Physical space temperature
@@ -158,7 +157,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(temp_field)
+    compute_all_gradients_spectral!(temp_field, oc_domain)
     temp_field.spectral_time[] += MPI.Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
