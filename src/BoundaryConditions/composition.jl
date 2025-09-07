@@ -2,10 +2,8 @@
 # Composition Boundary Conditions
 # ============================================================================
 
-using SHTnsKit
-using PencilArrays
-using PencilFFTs
-using Statistics
+# Composition boundary conditions are implemented within the BoundaryConditions module
+# All required types and functions are available within the module scope
 
 """
     load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
@@ -54,7 +52,7 @@ function load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
         boundary_set = create_hybrid_composition_boundaries(inner_spec, outer_spec, comp_field.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_composition_boundaries(outer_spec, inner_spec, comp_field.config, swap_boundaries=true)
+        boundary_set = create_hybrid_composition_boundaries(outer_spec, inner_spec, comp_field.config; swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
         boundary_set = create_programmatic_composition_boundaries(inner_spec, outer_spec, comp_field.config)
@@ -62,12 +60,25 @@ function load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    # Store boundary conditions in field
-    comp_field.boundary_condition_set = boundary_set
-    comp_field.boundary_time_index[] = 1
-    
-    # Create interpolation cache
-    comp_field.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, comp_field.config)
+    # Store boundary conditions in field (if supported by field structure)
+    if hasfield(typeof(comp_field), :boundary_condition_set)
+        comp_field.boundary_condition_set = boundary_set
+        comp_field.boundary_time_index[] = 1
+        # Create interpolation cache
+        comp_field.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, comp_field.config)
+    else
+        # Fallback for legacy field structure - store in global Dict
+        # This is temporary until field structures are updated
+        if !isdefined(@__MODULE__, :_composition_boundary_cache)
+            global _composition_boundary_cache = Dict{UInt64, Any}()
+        end
+        field_id = objectid(comp_field)
+        _composition_boundary_cache[field_id] = Dict(
+            :boundary_set => boundary_set,
+            :interpolation_cache => create_composition_interpolation_cache(boundary_set, comp_field.config),
+            :time_index => 1
+        )
+    end
     
     # Apply initial boundary conditions
     apply_composition_boundary_conditions!(comp_field)
@@ -98,9 +109,20 @@ function load_composition_boundaries_from_files(inner_file::String, outer_file::
     inner_data = read_netcdf_boundary_data(inner_file, precision=config.T)
     outer_data = read_netcdf_boundary_data(outer_file, precision=config.T)
     
-    # Update field type for composition
-    inner_data.field_type = "composition"
-    outer_data.field_type = "composition"
+    # Create new data structures with correct field type for composition
+    inner_data = create_boundary_data(
+        inner_data.values, "composition";
+        theta=inner_data.theta, phi=inner_data.phi, time=inner_data.time,
+        units=inner_data.units, description=inner_data.description,
+        file_path=inner_data.file_path
+    )
+    
+    outer_data = create_boundary_data(
+        outer_data.values, "composition";
+        theta=outer_data.theta, phi=outer_data.phi, time=outer_data.time,
+        units=outer_data.units, description=outer_data.description,
+        file_path=outer_data.file_path
+    )
     
     # Validate composition range [0, 1]
     validate_composition_range(inner_data)
@@ -145,8 +167,13 @@ Create hybrid composition boundaries (one from file, one programmatic).
 function create_hybrid_composition_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
     
     # Load file-based boundary
-    file_data = read_netcdf_boundary_data(file_spec, precision=config.T)
-    file_data.field_type = "composition"
+    temp_data = read_netcdf_boundary_data(file_spec, precision=config.T)
+    file_data = create_boundary_data(
+        temp_data.values, "composition";
+        theta=temp_data.theta, phi=temp_data.phi, time=temp_data.time,
+        units=temp_data.units, description=temp_data.description,
+        file_path=temp_data.file_path
+    )
     validate_composition_range(file_data)
     
     # Create programmatic boundary
@@ -264,13 +291,12 @@ Apply composition boundary conditions to the field.
 """
 function apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
     
-    if comp_field.boundary_condition_set === nothing
+    # Get boundary data (from field or fallback cache)
+    boundary_set, cache = get_composition_boundary_data(comp_field)
+    if boundary_set === nothing
         @warn "No boundary conditions loaded for composition field"
         return comp_field
     end
-    
-    boundary_set = comp_field.boundary_condition_set
-    cache = comp_field.boundary_interpolation_cache
     
     # Interpolate boundary data to simulation grid
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -280,16 +306,16 @@ function apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
     inner_physical .= clamp.(inner_physical, 0.0, 1.0)
     outer_physical .= clamp.(outer_physical, 0.0, 1.0)
     
-    # Transform to spectral space
-    inner_spectral = physical_to_spectral_boundary(inner_physical, comp_field.config)
-    outer_spectral = physical_to_spectral_boundary(outer_physical, comp_field.config)
+    # Transform to spectral space using SHTnsKit
+    inner_spectral = shtns_physical_to_spectral(inner_physical, comp_field.config)
+    outer_spectral = shtns_physical_to_spectral(outer_physical, comp_field.config)
     
     # Apply to boundary arrays
     comp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
     comp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
     
-    # Update time index
-    comp_field.boundary_time_index[] = time_index
+    # Update time index (in field or fallback cache)
+    update_composition_time_index!(comp_field, time_index)
     
     return comp_field
 end
@@ -301,22 +327,22 @@ Update time-dependent composition boundary conditions.
 """
 function update_time_dependent_composition_boundaries!(comp_field, current_time::Float64)
     
-    if comp_field.boundary_condition_set === nothing
+    boundary_set, _ = get_composition_boundary_data(comp_field)
+    if boundary_set === nothing
         return comp_field
     end
-    
-    boundary_set = comp_field.boundary_condition_set
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
         return comp_field  # Nothing to update
     end
     
-    # Find time index for current time
-    time_index = find_boundary_time_index(boundary_set, current_time)
+    # Find time index for current time  
+    time_index = find_composition_boundary_time_index(boundary_set, current_time)
     
     # Only update if time index has changed
-    if time_index != comp_field.boundary_time_index[]
+    current_time_index = get_composition_time_index(comp_field)
+    if time_index != current_time_index
         apply_composition_boundary_conditions!(comp_field, time_index)
         
         if get_rank() == 0
@@ -334,13 +360,12 @@ Get current composition boundary conditions.
 """
 function get_current_composition_boundaries(comp_field)
     
-    if comp_field.boundary_condition_set === nothing
+    boundary_set, cache = get_composition_boundary_data(comp_field)
+    if boundary_set === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    boundary_set = comp_field.boundary_condition_set
-    time_index = comp_field.boundary_time_index[]
-    cache = comp_field.boundary_interpolation_cache
+    time_index = get_composition_time_index(comp_field)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -490,6 +515,121 @@ function create_layered_composition_boundary(config, layer_specs::Vector{Tuple{R
         description="Layered composition boundary ($(length(layer_specs)) layers)",
         file_path="programmatic"
     )
+end
+
+"""
+    find_composition_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+
+Find the appropriate time index for the current simulation time.
+"""
+function find_composition_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+    
+    # Use time coordinates from inner boundary (both should be compatible)
+    time_coords = boundary_set.inner_boundary.time
+    
+    if time_coords === nothing
+        return 1  # Time-independent
+    end
+    
+    # Find closest time index
+    if current_time <= time_coords[1]
+        return 1
+    elseif current_time >= time_coords[end]
+        return length(time_coords)
+    else
+        # Linear search for closest time
+        for i in 1:(length(time_coords)-1)
+            if time_coords[i] <= current_time <= time_coords[i+1]
+                # Choose closer time point
+                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
+                    return i
+                else
+                    return i + 1
+                end
+            end
+        end
+    end
+    
+    return 1  # Fallback
+end
+
+"""
+    shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+
+Transform physical boundary data to spectral coefficients using SHTnsKit.
+"""
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+    
+    # Create temporary transform object with proper SHTnsKit interface
+    nlat, nlon = size(physical_data)
+    transform = SHTnsKit.SHTnsTransform(config.lmax, nlat, nlon)
+    
+    # Perform forward transform
+    spectral_coeffs = SHTnsKit.analysis!(transform, physical_data)
+    
+    return spectral_coeffs
+end
+
+"""
+    get_composition_boundary_data(comp_field)
+
+Get boundary data from field or fallback cache.
+"""
+function get_composition_boundary_data(comp_field)
+    if hasfield(typeof(comp_field), :boundary_condition_set)
+        boundary_set = comp_field.boundary_condition_set
+        cache = comp_field.boundary_interpolation_cache
+        return boundary_set, cache
+    else
+        # Use fallback cache
+        if isdefined(@__MODULE__, :_composition_boundary_cache)
+            field_id = objectid(comp_field)
+            if haskey(_composition_boundary_cache, field_id)
+                data = _composition_boundary_cache[field_id]
+                return data[:boundary_set], data[:interpolation_cache]
+            end
+        end
+        return nothing, nothing
+    end
+end
+
+"""
+    get_composition_time_index(comp_field)
+
+Get current time index from field or fallback cache.
+"""
+function get_composition_time_index(comp_field)
+    if hasfield(typeof(comp_field), :boundary_time_index)
+        return comp_field.boundary_time_index[]
+    else
+        # Use fallback cache
+        if isdefined(@__MODULE__, :_composition_boundary_cache)
+            field_id = objectid(comp_field)
+            if haskey(_composition_boundary_cache, field_id)
+                return _composition_boundary_cache[field_id][:time_index]
+            end
+        end
+        return 1
+    end
+end
+
+"""
+    update_composition_time_index!(comp_field, time_index::Int)
+
+Update time index in field or fallback cache.
+"""
+function update_composition_time_index!(comp_field, time_index::Int)
+    if hasfield(typeof(comp_field), :boundary_time_index)
+        comp_field.boundary_time_index[] = time_index
+    else
+        # Use fallback cache
+        if isdefined(@__MODULE__, :_composition_boundary_cache)
+            field_id = objectid(comp_field)
+            if haskey(_composition_boundary_cache, field_id)
+                _composition_boundary_cache[field_id][:time_index] = time_index
+            end
+        end
+    end
 end
 
 export load_composition_boundary_conditions!, set_programmatic_composition_boundaries!

@@ -96,6 +96,25 @@ function load_temperature_boundaries_from_files(inner_file::String, outer_file::
     inner_data = read_netcdf_boundary_data(inner_file, precision=config.T)
     outer_data = read_netcdf_boundary_data(outer_file, precision=config.T)
     
+    # Create new data structures with correct field type for temperature
+    inner_data = create_boundary_data(
+        inner_data.values, "temperature";
+        theta=inner_data.theta, phi=inner_data.phi, time=inner_data.time,
+        units=inner_data.units, description=inner_data.description,
+        file_path=inner_data.file_path
+    )
+    
+    outer_data = create_boundary_data(
+        outer_data.values, "temperature";
+        theta=outer_data.theta, phi=outer_data.phi, time=outer_data.time,
+        units=outer_data.units, description=outer_data.description,
+        file_path=outer_data.file_path
+    )
+    
+    # Validate temperature ranges
+    validate_temperature_range(inner_data)
+    validate_temperature_range(outer_data)
+    
     # Validate compatibility
     validate_boundary_compatibility(inner_data, outer_data, "temperature")
     
@@ -115,7 +134,14 @@ Create hybrid temperature boundaries (one from file, one programmatic).
 function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
     
     # Load file-based boundary
-    file_data = read_netcdf_boundary_data(file_spec, precision=config.T)
+    temp_data = read_netcdf_boundary_data(file_spec, precision=config.T)
+    file_data = create_boundary_data(
+        temp_data.values, "temperature";
+        theta=temp_data.theta, phi=temp_data.phi, time=temp_data.time,
+        units=temp_data.units, description=temp_data.description,
+        file_path=temp_data.file_path
+    )
+    validate_temperature_range(file_data)
     
     # Create programmatic boundary
     pattern, amplitude = prog_spec[1], prog_spec[2]
@@ -125,6 +151,9 @@ function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tupl
         pattern, config, amplitude; 
         parameters=parameters, field_type="temperature"
     )
+    
+    # Validate temperature range for programmatic data
+    validate_temperature_range(prog_data)
     
     # Ensure same grid resolution
     if file_data.nlat != config.nlat || file_data.nlon != config.nlon
@@ -140,6 +169,8 @@ function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tupl
             units=file_data.units, description=file_data.description,
             file_path=file_data.file_path
         )
+        
+        validate_temperature_range(file_data)
     end
     
     # Assign boundaries based on swap_boundaries flag
@@ -185,6 +216,10 @@ function create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spe
         parameters=outer_parameters, field_type="temperature"
     )
     
+    # Validate temperature ranges
+    validate_temperature_range(inner_data)
+    validate_temperature_range(outer_data)
+    
     # Validate compatibility
     validate_boundary_compatibility(inner_data, outer_data, "temperature")
     
@@ -223,13 +258,12 @@ Apply temperature boundary conditions to the field.
 """
 function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     
-    if temp_field.boundary_condition_set === nothing
+    # Get boundary data (from field)
+    boundary_set, cache = get_temperature_boundary_data(temp_field)
+    if boundary_set === nothing
         @warn "No boundary conditions loaded for temperature field"
         return temp_field
     end
-    
-    boundary_set = temp_field.boundary_condition_set
-    cache = temp_field.boundary_interpolation_cache
     
     # Interpolate boundary data to simulation grid
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -244,7 +278,7 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     temp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
     
     # Update time index
-    temp_field.boundary_time_index[] = time_index
+    update_temperature_time_index!(temp_field, time_index)
     
     return temp_field
 end
@@ -256,11 +290,10 @@ Update time-dependent temperature boundary conditions.
 """
 function update_time_dependent_temperature_boundaries!(temp_field, current_time::Float64)
     
-    if temp_field.boundary_condition_set === nothing
+    boundary_set, _ = get_temperature_boundary_data(temp_field)
+    if boundary_set === nothing
         return temp_field
     end
-    
-    boundary_set = temp_field.boundary_condition_set
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
@@ -268,10 +301,11 @@ function update_time_dependent_temperature_boundaries!(temp_field, current_time:
     end
     
     # Find time index for current time
-    time_index = find_boundary_time_index(boundary_set, current_time)
+    time_index = find_temperature_boundary_time_index(boundary_set, current_time)
     
     # Only update if time index has changed
-    if time_index != temp_field.boundary_time_index[]
+    current_time_index = get_temperature_time_index(temp_field)
+    if time_index != current_time_index
         apply_temperature_boundary_conditions!(temp_field, time_index)
         
         if get_rank() == 0
@@ -283,11 +317,11 @@ function update_time_dependent_temperature_boundaries!(temp_field, current_time:
 end
 
 """
-    find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+    find_temperature_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
 
 Find the appropriate time index for the current simulation time.
 """
-function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+function find_temperature_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
     
     # Use time coordinates from inner boundary (both should be compatible)
     time_coords = boundary_set.inner_boundary.time
@@ -336,19 +370,69 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 end
 
 """
+    get_temperature_boundary_data(temp_field)
+
+Get boundary data from field.
+"""
+function get_temperature_boundary_data(temp_field)
+    boundary_set = temp_field.boundary_condition_set
+    cache = temp_field.boundary_interpolation_cache
+    return boundary_set, cache
+end
+
+"""
+    get_temperature_time_index(temp_field)
+
+Get current time index from field.
+"""
+function get_temperature_time_index(temp_field)
+    return temp_field.boundary_time_index[]
+end
+
+"""
+    update_temperature_time_index!(temp_field, time_index::Int)
+
+Update time index in field.
+"""
+function update_temperature_time_index!(temp_field, time_index::Int)
+    temp_field.boundary_time_index[] = time_index
+end
+
+"""
+    validate_temperature_range(boundary_data::BoundaryData)
+
+Validate that temperature values are in a reasonable physical range.
+"""
+function validate_temperature_range(boundary_data::BoundaryData)
+    
+    min_val = minimum(boundary_data.values)
+    max_val = maximum(boundary_data.values)
+    
+    # Check for reasonable temperature range (assuming Kelvin or dimensionless)
+    if min_val < 0.0
+        @warn "Temperature values below zero: min = $min_val (assuming Kelvin)"
+    end
+    
+    if max_val > 10000.0  # Arbitrary but reasonable upper bound
+        @warn "Very high temperature values: max = $max_val"
+    end
+    
+    return boundary_data
+end
+
+"""
     get_current_temperature_boundaries(temp_field)
 
 Get current temperature boundary conditions.
 """
 function get_current_temperature_boundaries(temp_field)
     
-    if temp_field.boundary_condition_set === nothing
+    boundary_set, cache = get_temperature_boundary_data(temp_field)
+    if boundary_set === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    boundary_set = temp_field.boundary_condition_set
-    time_index = temp_field.boundary_time_index[]
-    cache = temp_field.boundary_interpolation_cache
+    time_index = get_temperature_time_index(temp_field)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -433,6 +517,62 @@ function validate_temperature_boundary_files(boundary_specs::Dict, config)
     return true
 end
 
+"""
+    create_layered_temperature_boundary(config, layer_specs::Vector{Tuple{Real, Real, Real}})
+
+Create layered temperature boundary conditions.
+
+# Arguments
+- `layer_specs`: Vector of (colatitude_start, colatitude_end, temperature) tuples
+
+# Example
+```julia
+# Create three-layer temperature structure
+layer_specs = [
+    (0.0, π/3, 1000.0),    # High temperature in top layer
+    (π/3, 2π/3, 500.0),   # Medium temperature in middle layer  
+    (2π/3, π, 100.0)      # Low temperature in bottom layer
+]
+```
+"""
+function create_layered_temperature_boundary(config, layer_specs::Vector{Tuple{Real, Real, Real}})
+    
+    if isempty(layer_specs)
+        throw(ArgumentError("At least one layer specification required"))
+    end
+    
+    # Create coordinate grids
+    theta = collect(range(0, π, length=config.nlat))
+    phi = collect(range(0, 2π, length=config.nlon+1)[1:end-1])
+    
+    # Initialize temperature array
+    values = zeros(config.T, config.nlat, config.nlon)
+    
+    # Apply layered structure
+    for (i, θ) in enumerate(theta)
+        for (θ_start, θ_end, temperature) in layer_specs
+            if θ_start <= θ <= θ_end
+                values[i, :] .= temperature
+                break
+            end
+        end
+    end
+    
+    # Create boundary data
+    boundary_data = create_boundary_data(
+        values, "temperature";
+        theta=theta, phi=phi, time=nothing,
+        units="K",
+        description="Layered temperature boundary ($(length(layer_specs)) layers)",
+        file_path="programmatic"
+    )
+    
+    # Validate temperature range
+    validate_temperature_range(boundary_data)
+    
+    return boundary_data
+end
+
 export load_temperature_boundary_conditions!, set_programmatic_temperature_boundaries!
 export update_time_dependent_temperature_boundaries!, get_current_temperature_boundaries
-export validate_temperature_boundary_files
+export validate_temperature_boundary_files, create_layered_temperature_boundary
