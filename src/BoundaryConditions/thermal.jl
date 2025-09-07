@@ -2,10 +2,8 @@
 # Temperature Boundary Conditions
 # ============================================================================
 
-using SHTnsKit
-using PencilArrays
-using PencilFFTs
-using Statistics
+# Temperature boundary conditions are implemented within the BoundaryConditions module
+# All required types and functions are available within the module scope
 
 """
     load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
@@ -54,7 +52,7 @@ function load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
         boundary_set = create_hybrid_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_temperature_boundaries(outer_spec, inner_spec, temp_field.config, swap_boundaries=true)
+        boundary_set = create_hybrid_temperature_boundaries(outer_spec, inner_spec, temp_field.config; swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
         boundary_set = create_programmatic_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
@@ -237,9 +235,9 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
-    # Transform to spectral space
-    inner_spectral = physical_to_spectral_boundary(inner_physical, temp_field.config)
-    outer_spectral = physical_to_spectral_boundary(outer_physical, temp_field.config)
+    # Transform to spectral space using SHTnsKit
+    inner_spectral = shtns_physical_to_spectral(inner_physical, temp_field.config)
+    outer_spectral = shtns_physical_to_spectral(outer_physical, temp_field.config)
     
     # Apply to boundary arrays
     temp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
@@ -321,14 +319,15 @@ function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_ti
 end
 
 """
-    physical_to_spectral_boundary(physical_data::Matrix{T}, config) where T
+    shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 
-Transform physical boundary data to spectral coefficients.
+Transform physical boundary data to spectral coefficients using SHTnsKit.
 """
-function physical_to_spectral_boundary(physical_data::Matrix{T}, config) where T
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
     
-    # Create temporary transform object
-    transform = SHTnsKit.SHTnsTransform(config.lmax, physical_data)
+    # Create temporary transform object with proper SHTnsKit interface
+    nlat, nlon = size(physical_data)
+    transform = SHTnsKit.SHTnsTransform(config.lmax, nlat, nlon)
     
     # Perform forward transform
     spectral_coeffs = SHTnsKit.analysis!(transform, physical_data)

@@ -72,21 +72,14 @@ module Geodynamo
     export set_composition_ic!, set_composition_boundary_conditions!
     export apply_composition_boundary_conditions_spectral!
     
-    # exports netcdf_boundaries.jl
-    export BoundaryData, BoundaryConditionSet
-    export read_netcdf_boundary_data, load_temperature_boundaries, load_composition_boundaries
-    export interpolate_boundary_to_grid, get_boundary_statistics, print_boundary_info
-    export validate_boundary_compatibility
-    
-    # NetCDF boundary integration exports
-    export apply_netcdf_temperature_boundaries!, update_temperature_boundaries_from_netcdf!
-    export apply_netcdf_composition_boundaries!, update_composition_boundaries_from_netcdf!
-    export validate_netcdf_temperature_compatibility, validate_netcdf_composition_compatibility
-    
-    # Hybrid boundary exports (mix NetCDF + programmatic)
-    export load_single_temperature_boundary, load_single_composition_boundary
-    export create_programmatic_boundary, create_hybrid_temperature_boundaries, create_hybrid_composition_boundaries
-    export create_time_dependent_programmatic_boundary
+    # exports BoundaryConditions module
+    export AbstractBoundaryCondition
+    export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
+    export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN
+    export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
+    export load_boundary_conditions!, update_time_dependent_boundaries!
+    export validate_boundary_files, get_current_boundaries, print_boundary_summary
+    export get_boundary_module_info
 
     # exports simulation.jl (single unified state)
     export SimulationState, initialize_simulation, run_simulation!
@@ -134,7 +127,7 @@ module Geodynamo
     include("linear_algebra.jl")
     # include("shtns_transforms.jl")  # Legacy - replaced by shtnskit_transforms.jl
     # include("shtns_config.jl")      # Legacy - replaced by SHTnsKit configurations
-    include("netcdf_boundaries.jl")
+    include("BoundaryConditions/BoundaryConditions.jl")
     include("timestep.jl")
     include("velocity.jl")
     include("magnetic.jl")
