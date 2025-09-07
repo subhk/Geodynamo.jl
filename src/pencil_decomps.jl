@@ -812,20 +812,51 @@ function optimize_communication_order(plans::Dict)
     comm_costs = Dict{Symbol, Float64}()
     
     for (name, plan) in plans
-        # Estimate communication cost based on data volume and process mapping
-        # This is a simplified model - actual cost depends on network topology
-        src_pencil = plan.src
-        dest_pencil = plan.dest
+        # Extract pencil information from TransposeOperator
+        # For TransposeOperator, we need to infer source/destination from the operation name
+        src_pencil, dest_pencil = infer_pencils_from_transpose_name(name, plan)
         
-        data_volume = prod(size_global(src_pencil))
-        comm_distance = estimate_communication_distance(src_pencil, dest_pencil)
-        
-        comm_costs[name] = data_volume * comm_distance
+        if src_pencil !== nothing && dest_pencil !== nothing
+            # Estimate communication cost based on data volume and process mapping
+            # This is a simplified model - actual cost depends on network topology
+            data_volume = prod(size_global(src_pencil))
+            comm_distance = estimate_communication_distance(src_pencil, dest_pencil)
+            
+            comm_costs[name] = data_volume * comm_distance
+        else
+            # Fallback: assign default cost if we can't determine pencils
+            comm_costs[name] = 1.0
+        end
     end
     
     # Return sorted list of operations by cost
     return sort(collect(comm_costs), by=x->x[2])
 end
+
+
+"""
+    infer_pencils_from_transpose_name(name::Symbol, plan) -> (src_pencil, dest_pencil)
+    
+Infer source and destination pencils from transpose operation name and plan.
+For TransposeOperator, we need to extract pencil info from context since the 
+operator itself doesn't expose src/dest pencils directly.
+"""
+function infer_pencils_from_transpose_name(name::Symbol, plan)
+    # This is a workaround since TransposeOperator doesn't expose src/dest pencils
+    # We'll try to extract them from the plan object if possible, otherwise return nothing
+    
+    # Try to access fields that might contain pencil information
+    if hasfield(typeof(plan), :src_pencil) && hasfield(typeof(plan), :dest_pencil)
+        return plan.src_pencil, plan.dest_pencil
+    elseif hasfield(typeof(plan), :src) && hasfield(typeof(plan), :dest)
+        return plan.src, plan.dest
+    else
+        # Fallback: can't determine pencils from TransposeOperator alone
+        @debug "Cannot infer pencils from TransposeOperator $name - communication optimization disabled"
+        return nothing, nothing
+    end
+end
+
 
 function estimate_communication_distance(src::Pencil, dest::Pencil)
     # Estimate "distance" between pencil orientations
