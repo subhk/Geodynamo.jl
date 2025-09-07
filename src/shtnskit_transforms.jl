@@ -978,7 +978,7 @@ export shtnskit_vector_synthesis!, shtnskit_vector_analysis!
 export batch_shtnskit_transforms!
 export get_shtnskit_performance_stats
 export batch_spectral_to_physical!
-export optimize_erk2_transforms!, validate_pencil_decomposition
+export optimize_erk2_transforms!, validate_pencil_decomposition, create_erk2_config
 
 # ============================================================================
 # MPI and PencilFFTs Synchronization Utilities  
@@ -1134,14 +1134,14 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
 end
 
 """
-    create_erk2_optimized_config(; lmax, mmax, nlat, nlon, optimize_for_erk2=true)
+    create_erk2_config(; lmax, mmax, nlat, nlon, optimize_for_erk2=true)
 
-Create an SHTnsKit configuration specifically optimized for ERK2 timestepping.
+Create an SHTnsKit configuration for ERK2 timestepping.
 """
-function create_erk2_optimized_config(; lmax::Int, mmax::Int=lmax, 
-                                      nlat::Int=max(lmax+2, i_Th), 
-                                      nlon::Int=max(2*lmax+1, 4, i_Ph),
-                                      optimize_for_erk2::Bool=true)
+function create_erk2_config(; lmax::Int, mmax::Int=lmax, 
+                           nlat::Int=max(lmax+2, i_Th), 
+                           nlon::Int=max(2*lmax+1, 4, i_Ph),
+                           optimize_for_erk2::Bool=true)
     
     # Create base configuration
     config = create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, optimize_decomp=true)
@@ -1151,7 +1151,7 @@ function create_erk2_optimized_config(; lmax::Int, mmax::Int=lmax,
         optimize_erk2_transforms!(config)
         
         if get_rank() == 0
-            @info "ERK2-optimized SHTnsKit configuration created"
+            @info "ERK2 SHTnsKit configuration created"
         end
     end
     
