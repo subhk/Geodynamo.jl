@@ -3,6 +3,7 @@
 # ============================================================================
 
 using PencilArrays.Transpositions
+using PencilArrays: Transpose
 
 
 # Global MPI state management
@@ -204,26 +205,26 @@ Create enhanced transpose plans between pencil orientations.
 Includes caching and communication optimization.
 """
 function create_transpose_plans(pencils)
-    # Create transpose plans for common transitions
-    plans = Dict{Symbol, Transpositions.Plan}()
+    # Create transpose operators for common transitions using the same pattern as shtnskit_transforms.jl
+    plans = Dict{Symbol, PencilArrays.TransposeOperator}()
     
     # Physical space transitions
-    plans[:θ_to_φ] = Transpositions.Plan(pencils.θ, pencils.φ)
-    plans[:φ_to_r] = Transpositions.Plan(pencils.φ, pencils.r)
-    plans[:r_to_θ] = Transpositions.Plan(pencils.r, pencils.θ)
+    plans[:θ_to_φ] = Transpose(pencils.θ => pencils.φ)
+    plans[:φ_to_r] = Transpose(pencils.φ => pencils.r)
+    plans[:r_to_θ] = Transpose(pencils.r => pencils.θ)
     
     # Reverse transitions
-    plans[:φ_to_θ] = Transpositions.Plan(pencils.φ, pencils.θ)
-    plans[:r_to_φ] = Transpositions.Plan(pencils.r, pencils.φ)
-    plans[:θ_to_r] = Transpositions.Plan(pencils.θ, pencils.r)
+    plans[:φ_to_θ] = Transpose(pencils.φ => pencils.θ)
+    plans[:r_to_φ] = Transpose(pencils.r => pencils.φ)
+    plans[:θ_to_r] = Transpose(pencils.θ => pencils.r)
     
     # Spectral transitions
-    plans[:r_to_spec] = Transpositions.Plan(pencils.r, pencils.spec)
-    plans[:spec_to_r] = Transpositions.Plan(pencils.spec, pencils.r)
+    plans[:r_to_spec] = Transpose(pencils.r => pencils.spec)
+    plans[:spec_to_r] = Transpose(pencils.spec => pencils.r)
     
     # Mixed transitions (for hybrid operations)
-    plans[:mixed_to_r] = Transpositions.Plan(pencils.mixed, pencils.r)
-    plans[:r_to_mixed] = Transpositions.Plan(pencils.r, pencils.mixed)
+    plans[:mixed_to_r] = Transpose(pencils.mixed => pencils.r)
+    plans[:r_to_mixed] = Transpose(pencils.r => pencils.mixed)
     
     return plans
 end
@@ -239,17 +240,17 @@ end
 Perform transpose with optional timing and statistics.
 """
 function transpose_with_timer!(dest::PencilArray, src::PencilArray, 
-                               plan::Transpositions.Plan, label::Symbol=:default)
+                               plan::PencilArrays.TransposeOperator, label::Symbol=:default)
     if ENABLE_TIMING[]
         t_start = MPI.Wtime()
-        transpose!(dest, src, plan)
+        mul!(dest, plan, src)
         t_end = MPI.Wtime()
         
         # Accumulate timing statistics
         TRANSPOSE_TIMES[label] = get(TRANSPOSE_TIMES, label, 0.0) + (t_end - t_start)
         TRANSPOSE_COUNTS[label] = get(TRANSPOSE_COUNTS, label, 0) + 1
     else
-        transpose!(dest, src, plan)
+        mul!(dest, plan, src)
     end
 end
 
