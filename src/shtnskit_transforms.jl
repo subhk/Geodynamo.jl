@@ -160,6 +160,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # Physical space pencils for theta-phi parallelization
     # Note: The tuple passed to Pencil specifies the two distributed axes.
     #       The remaining axis (not listed) is locally contiguous.
+    
     dims = (nlat, nlon, nr)
     pencil_theta = Pencil(topology, dims, (2, 3))  # Theta contiguous; distributes phi and r
     pencil_phi   = Pencil(topology, dims, (1, 3))  # Phi contiguous; distributes theta and r
@@ -744,7 +745,7 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     coeffs = zeros(ComplexF64, lmax+1, mmax+1)
     
     # Fill from local spectral data
-    Threads.@threads for lm_idx in 1:size(spec_real, 1)
+    Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if l <= lmax && m <= mmax && r_local <= size(spec_real, 3)
             real_part = spec_real[lm_idx, 1, r_local]
@@ -767,7 +768,7 @@ Store coefficients from SHTnsKit format back to spectral field.
 function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, r_local, config)
     lmax, mmax = config.lmax, config.mmax
     
-    Threads.@threads for lm_idx in 1:size(spec_real, 1)
+    Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if l <= lmax && m <= mmax && r_local <= size(spec_real, 3)
             coeff = coeffs_matrix[l+1, m+1]
