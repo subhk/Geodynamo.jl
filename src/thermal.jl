@@ -47,6 +47,11 @@ struct SHTnsTemperatureField{T}
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
     
+    # File-based boundary condition support
+    boundary_condition_set::Union{BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
+    boundary_interpolation_cache::Dict{String, Any}                  # Cached interpolated data
+    boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
+    
     # Pre-computed coefficients
     l_factors::Vector{Float64}         # l(l+1) values
     
@@ -104,6 +109,9 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     bc_type_inner = ones(Int, config.nlm)  # Default to fixed temperature
     bc_type_outer = ones(Int, config.nlm)
     
+    # Storage for file-based boundary conditions
+    boundary_data_cache = Dict{String, Any}()
+    
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
     
@@ -123,6 +131,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
         grad_theta_spec, grad_phi_spec, grad_r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
+        nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
