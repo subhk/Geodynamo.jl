@@ -751,7 +751,7 @@ end
 """
     compute_phi1_function(A, expA)
 
-Compute φ1(A) = A^(-1) * (exp(A) - I) efficiently.
+Compute φ1(A) = A^(-1) * (exp(A) - I) efficiently with comprehensive error handling.
 """
 function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     nr = size(A, 1)
@@ -760,20 +760,47 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     # φ1(A) = A^(-1) * (exp(A) - I)
     diff = expA - I_mat
     
+    # Check for NaN or Inf in inputs
+    if !all(isfinite.(A)) || !all(isfinite.(expA))
+        @warn "Non-finite values detected in φ1 computation, using identity approximation"
+        return I_mat
+    end
+    
     # Use lu factorization for stable inversion
     try
         lu_A = lu(A)
-        return lu_A \ diff
-    catch
-        # Fallback for singular/near-singular matrices
-        return pinv(A) * diff
+        
+        # Check condition number
+        if rcond(lu_A) < sqrt(eps(T))
+            @warn "Ill-conditioned matrix in φ1 computation (rcond = $(rcond(lu_A))), using pseudoinverse"
+            result = pinv(A) * diff
+        else
+            result = lu_A \ diff
+        end
+        
+        # Validate result
+        if !all(isfinite.(result))
+            @warn "Non-finite result in φ1 computation, falling back to pseudoinverse"
+            result = pinv(A) * diff
+        end
+        
+        return result
+        
+    catch e
+        @warn "LU factorization failed in φ1 computation: $e, using pseudoinverse"
+        try
+            return pinv(A) * diff
+        catch e2
+            @error "Complete failure in φ1 computation: $e2, returning identity"
+            return I_mat
+        end
     end
 end
 
 """
     compute_phi2_function(A, expA)
 
-Compute φ2(A) = A^(-2) * (exp(A) - I - A) efficiently.
+Compute φ2(A) = A^(-2) * (exp(A) - I - A) efficiently with comprehensive error handling.
 """
 function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
     nr = size(A, 1)
@@ -782,14 +809,44 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
     # φ2(A) = A^(-2) * (exp(A) - I - A)
     diff = expA - I_mat - A
     
+    # Check for NaN or Inf in inputs
+    if !all(isfinite.(A)) || !all(isfinite.(expA))
+        @warn "Non-finite values detected in φ2 computation, using zero approximation"
+        return zeros(T, nr, nr)
+    end
+    
     try
         lu_A = lu(A)
-        temp = lu_A \ diff
-        return lu_A \ temp  # A^(-1) * A^(-1) * diff
-    catch
-        # Fallback
-        A_inv = pinv(A)
-        return A_inv * A_inv * diff
+        
+        # Check condition number
+        rcond_val = rcond(lu_A)
+        if rcond_val < eps(T)
+            @warn "Extremely ill-conditioned matrix in φ2 computation (rcond = $rcond_val), using pseudoinverse"
+            A_inv = pinv(A)
+            result = A_inv * A_inv * diff
+        else
+            temp = lu_A \ diff
+            result = lu_A \ temp  # A^(-1) * A^(-1) * diff
+        end
+        
+        # Validate result
+        if !all(isfinite.(result))
+            @warn "Non-finite result in φ2 computation, falling back to pseudoinverse"
+            A_inv = pinv(A)
+            result = A_inv * A_inv * diff
+        end
+        
+        return result
+        
+    catch e
+        @warn "LU factorization failed in φ2 computation: $e, using pseudoinverse"
+        try
+            A_inv = pinv(A)
+            return A_inv * A_inv * diff
+        catch e2
+            @error "Complete failure in φ2 computation: $e2, returning zero matrix"
+            return zeros(T, nr, nr)
+        end
     end
 end
 
