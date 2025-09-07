@@ -411,7 +411,7 @@ function log_boundary_condition_status(state, rank::Int=0)
             if hasfield(typeof(field), :boundary_condition_set) && field.boundary_condition_set !== nothing
                 boundary_set = field.boundary_condition_set
                 
-                println("  ✓ Boundary conditions loaded")
+                println("  Boundary conditions loaded")
                 println("    Time index: $(field.boundary_time_index[])")
                 println("    Inner: $(basename(boundary_set.inner_boundary.file_path))")
                 println("    Outer: $(basename(boundary_set.outer_boundary.file_path))")
@@ -427,7 +427,7 @@ function log_boundary_condition_status(state, rank::Int=0)
                 println("    Residual: $(round(residual, digits=6))")
                 
             else
-                println("  ✗ No boundary conditions")
+                println("  No boundary conditions")
             end
             
             println()
