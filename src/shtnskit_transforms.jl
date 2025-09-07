@@ -811,9 +811,12 @@ function store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
     nlat, nlon = config.nlat, config.nlon
     
     # Store respecting the phi-local layout
-    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
-        for j in 1:min(size(phys_data, 2), nlon)
-            if r_local <= size(phys_data, 3) && i <= size(phys_slice, 1) && j <= size(phys_slice, 2)
+    common_i_range = 1:min(size(phys_data, 1), nlat, size(phys_slice, 1))
+    common_j_range = 1:min(size(phys_data, 2), nlon, size(phys_slice, 2))
+    
+    Threads.@threads for i in common_i_range
+        for j in common_j_range
+            if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]
             end
         end
