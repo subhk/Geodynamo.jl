@@ -898,8 +898,11 @@ function extract_vector_component_generic(v_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
     component = zeros(eltype(v_data), nlat, nlon)
     
-    for i in 1:min(size(v_data, 1), nlat)
-        for j in 1:min(size(v_data, 2), nlon)
+    common_i_range = 1:min(size(v_data, 1), nlat)
+    common_j_range = 1:min(size(v_data, 2), nlon)
+    
+    for i in common_i_range
+        for j in common_j_range
             if r_local <= size(v_data, 3)
                 component[i, j] = v_data[i, j, r_local]
             end
@@ -915,8 +918,11 @@ end
 Store vector components for any pencil orientation.
 """
 function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
-    for i in 1:min(size(v_theta, 1), size(vt_field, 1))
-        for j in 1:min(size(v_theta, 2), size(vt_field, 2))
+    common_i_range = 1:min(size(v_theta, 1), size(vt_field, 1))
+    common_j_range = 1:min(size(v_theta, 2), size(vt_field, 2))
+    
+    for i in common_i_range
+        for j in common_j_range
             if r_local <= size(v_theta, 3) && r_local <= size(v_phi, 3)
                 v_theta[i, j, r_local] = vt_field[i, j]
                 v_phi[i, j, r_local] = vp_field[i, j]
@@ -944,7 +950,7 @@ function batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
     end
     
     # Process in parallel using threading
-    @threads for batch_idx in 1:length(specs)
+    @threads for batch_idx in eachindex(specs)
         shtnskit_spectral_to_physical!(specs[batch_idx], physs[batch_idx])
     end
 end

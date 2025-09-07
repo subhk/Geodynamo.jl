@@ -619,7 +619,7 @@ end
 Create array slice for boundary data extraction.
 """
 function create_boundary_slice(size_arr::Tuple, dim::Int, side::Symbol, width::Int)
-    slices = [Colon() for _ in 1:length(size_arr)]
+    slices = [Colon() for _ in eachindex(size_arr)]
     
     if side == :left
         slices[dim] = (width+1):(2*width)
@@ -639,7 +639,7 @@ end
 Create array slice for halo region insertion.
 """
 function create_halo_slice(size_arr::Tuple, dim::Int, side::Symbol, width::Int)
-    slices = [Colon() for _ in 1:length(size_arr)]
+    slices = [Colon() for _ in eachindex(size_arr)]
     
     if side == :left
         slices[dim] = 1:width
