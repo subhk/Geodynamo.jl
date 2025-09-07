@@ -830,8 +830,11 @@ Generic storage for any pencil orientation.
 """
 function store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
     # This is a generic fallback - may not be optimal for all pencil orientations
-    Threads.@threads for i in 1:min(size(phys_data, 1), size(phys_slice, 1))
-        for j in 1:min(size(phys_data, 2), size(phys_slice, 2))
+    common_i_range = 1:min(size(phys_data, 1), size(phys_slice, 1))
+    common_j_range = 1:min(size(phys_data, 2), size(phys_slice, 2))
+    
+    Threads.@threads for i in common_i_range
+        for j in common_j_range
             if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]
             end
