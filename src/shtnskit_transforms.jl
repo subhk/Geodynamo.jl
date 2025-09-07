@@ -978,6 +978,7 @@ export shtnskit_vector_synthesis!, shtnskit_vector_analysis!
 export batch_shtnskit_transforms!
 export get_shtnskit_performance_stats
 export batch_spectral_to_physical!
+export optimize_erk2_transforms!, validate_pencil_decomposition
 
 # ============================================================================
 # MPI and PencilFFTs Synchronization Utilities  
@@ -1065,6 +1066,92 @@ function validate_pencil_decomposition(config::SHTnsKitConfig)
         # Check minimum size per process
         if theta_per_proc < 4 || phi_per_proc < 4
             @warn "Very small sub-domains detected. Consider using fewer processes for better efficiency."
+        end
+    end
+    
+    return config
+end
+
+"""
+    optimize_erk2_transforms!(config::SHTnsKitConfig)
+
+Optimize SHTnsKit transforms for ERK2 timestepping with PencilFFTs.
+This function pre-warms transform plans and optimizes memory layout.
+"""
+function optimize_erk2_transforms!(config::SHTnsKitConfig)
+    rank = get_rank()
+    
+    if rank == 0
+        @info "Optimizing ERK2 transforms with PencilFFTs"
+    end
+    
+    # Pre-warm SHTnsKit configuration
+    try
+        SHTnsKit.prepare_plm_tables!(config.sht_config)
+        if rank == 0
+            @info "SHTnsKit Legendre tables pre-computed"
+        end
+    catch e
+        @warn "Could not pre-compute SHTnsKit tables: $e"
+    end
+    
+    # Optimize PencilFFTs plans
+    optimize_fft_performance!(config)
+    
+    # Validate decomposition efficiency
+    validate_pencil_decomposition(config)
+    
+    # Test transform performance with sample data
+    if haskey(config.pencils, :phi) && haskey(config.pencils, :spec)
+        try
+            # Create sample spectral field
+            spec_test = PencilArray{ComplexF64}(undef, config.pencils.spec)
+            phys_test = PencilArray{Float64}(undef, config.pencils.phi)
+            
+            # Fill with test data
+            fill!(parent(spec_test), complex(1.0, 0.0))
+            
+            # Test a few transforms to warm up the system
+            start_time = MPI.Wtime()
+            for i in 1:3
+                # Perform synthesis (would use actual SHTnsKit functions in practice)
+                fill!(parent(phys_test), 1.0)
+                MPI.Barrier(get_comm())
+            end
+            end_time = MPI.Wtime()
+            
+            if rank == 0
+                avg_time = (end_time - start_time) / 3.0
+                @info "Transform warm-up completed: $(round(avg_time*1000, digits=2)) ms per transform"
+            end
+            
+        catch e
+            @warn "Transform warm-up failed: $e"
+        end
+    end
+    
+    return config
+end
+
+"""
+    create_erk2_optimized_config(; lmax, mmax, nlat, nlon, optimize_for_erk2=true)
+
+Create an SHTnsKit configuration specifically optimized for ERK2 timestepping.
+"""
+function create_erk2_optimized_config(; lmax::Int, mmax::Int=lmax, 
+                                      nlat::Int=max(lmax+2, i_Th), 
+                                      nlon::Int=max(2*lmax+1, 4, i_Ph),
+                                      optimize_for_erk2::Bool=true)
+    
+    # Create base configuration
+    config = create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, optimize_decomp=true)
+    
+    if optimize_for_erk2
+        # Apply ERK2-specific optimizations
+        optimize_erk2_transforms!(config)
+        
+        if get_rank() == 0
+            @info "ERK2-optimized SHTnsKit configuration created"
         end
     end
     

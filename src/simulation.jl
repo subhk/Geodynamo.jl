@@ -1216,8 +1216,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     # Execute all tasks in parallel
     execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
 
-    # Roll nonlinear histories for CNAB2
-    if ts_scheme === :cnab2 || ts_scheme === :eab2
+    # Roll nonlinear histories for CNAB2, EAB2, and ERK2
+    if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
         parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
