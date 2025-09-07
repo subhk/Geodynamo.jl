@@ -90,8 +90,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     ω_pol_imag = parent(fields.vort_poloidal.data_imag)
 
     config = fields.toroidal.config
-    lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.r, 3)
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range  = get_local_range(fields.toroidal.pencil, 3)
     nr = domain.N
 
     Threads.@threads for lm_idx in lm_range

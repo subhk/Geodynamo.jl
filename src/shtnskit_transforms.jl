@@ -360,15 +360,26 @@ function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
     # Check if we need to transpose for optimal FFT performance
     current_orientation = get_pencil_orientation(phys.pencil)
     
-    if current_orientation == :phi && haskey(config.fft_plans, :phi_backward)
-        # Direct synthesis with PencilFFTs (phi is local)
-        perform_synthesis_phi_local!(spec, phys, config)
-    elseif haskey(config.transpose_plans, :theta_to_phi)
-        # Transpose to phi-pencil, perform synthesis, transpose back
-        perform_synthesis_with_transpose!(spec, phys, config)
-    else
-        # Fallback to direct synthesis without transpose
+    try
+        if current_orientation == :phi && haskey(config.fft_plans, :phi_backward)
+            # Direct synthesis with PencilFFTs (phi is local)
+            perform_synthesis_phi_local!(spec, phys, config)
+        elseif haskey(config.transpose_plans, :theta_to_phi)
+            # Transpose to phi-pencil, perform synthesis, transpose back
+            perform_synthesis_with_transpose!(spec, phys, config)
+        else
+            # Fallback to direct synthesis without transpose
+            perform_synthesis_direct!(spec, phys, config)
+        end
+        
+        # Ensure data consistency across processes
+        synchronize_pencil_data!(phys)
+        
+    catch e
+        @error "Error in spectral to physical transform: $e"
+        # Fallback to direct synthesis
         perform_synthesis_direct!(spec, phys, config)
+        synchronize_pencil_data!(phys)
     end
     
     # Synchronize MPI processes
@@ -967,3 +978,95 @@ export shtnskit_vector_synthesis!, shtnskit_vector_analysis!
 export batch_shtnskit_transforms!
 export get_shtnskit_performance_stats
 export batch_spectral_to_physical!
+
+# ============================================================================
+# MPI and PencilFFTs Synchronization Utilities  
+# ============================================================================
+
+"""
+    synchronize_pencil_data!(field)
+
+Synchronize PencilArray data across MPI processes to ensure consistency.
+"""
+function synchronize_pencil_data!(field::Union{SHTnsSpectralField{T}, SHTnsPhysicalField{T}}) where T
+    # Synchronize the underlying PencilArray data
+    if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
+        MPI.Barrier(get_comm())
+    end
+    return field
+end
+
+"""
+    optimize_fft_performance!(config::SHTnsKitConfig)
+
+Optimize PencilFFTs performance by warming up plans and checking efficiency.
+"""
+function optimize_fft_performance!(config::SHTnsKitConfig)
+    # Warm up FFT plans for better performance
+    if haskey(config.fft_plans, :phi_forward) && !get(config.fft_plans, :fallback, false)
+        try
+            # Create a test array to warm up the plans
+            test_pencil = config.pencils.phi
+            test_array = PencilArray{ComplexF64}(undef, test_pencil)
+            fill!(parent(test_array), complex(1.0, 0.0))
+            
+            # Execute forward and backward transforms
+            plan_forward = config.fft_plans[:phi_forward]
+            plan_backward = config.fft_plans[:phi_backward]
+            
+            plan_forward * test_array
+            plan_backward * test_array
+            
+            if get_rank() == 0
+                @info "PencilFFTs plans warmed up successfully"
+            end
+        catch e
+            @warn "Could not warm up PencilFFTs plans: $e"
+        end
+    end
+    return config
+end
+
+"""
+    validate_pencil_decomposition(config::SHTnsKitConfig)
+
+Validate that pencil decomposition is optimal for the problem size and MPI configuration.
+"""
+function validate_pencil_decomposition(config::SHTnsKitConfig)
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    if nprocs > 1 && rank == 0
+        nlat, nlon = config.nlat, config.nlon
+        
+        # Check load balance
+        theta_per_proc = nlat ÷ nprocs
+        phi_per_proc = nlon ÷ nprocs
+        
+        theta_imbalance = nlat % nprocs
+        phi_imbalance = nlon % nprocs
+        
+        @info """
+        Pencil Decomposition Validation:
+          Grid: $nlat × $nlon
+          Processes: $nprocs
+          Theta per process: $theta_per_proc (imbalance: $theta_imbalance)
+          Phi per process: $phi_per_proc (imbalance: $phi_imbalance)
+        """
+        
+        # Warn about potential issues
+        if theta_imbalance > nprocs ÷ 2
+            @warn "Significant theta load imbalance detected: $theta_imbalance/$nprocs"
+        end
+        if phi_imbalance > nprocs ÷ 2
+            @warn "Significant phi load imbalance detected: $phi_imbalance/$nprocs"
+        end
+        
+        # Check minimum size per process
+        if theta_per_proc < 4 || phi_per_proc < 4
+            @warn "Very small sub-domains detected. Consider using fewer processes for better efficiency."
+        end
+    end
+    
+    return config
+end

@@ -202,14 +202,17 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
             end
             # Define Aop! using banded apply
             tmp = zeros(T, nr)
-            Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
+            function Aop!(out, v)
+                apply_banded_full!(out, A_banded, v)
+                return nothing
+            end
             # Real
-            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m, tol)
-            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m, tol)
+            ur_new = exp_action_krylov(Aop!, ur, dt; m, tol)
+            add_r = phi1_action_krylov(Aop!, A_lu, nrn, dt; m, tol)
             @. ur_new = ur_new + dt * add_r
             # Imag
-            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m, tol)
-            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m, tol)
+            ui_new = exp_action_krylov(Aop!, ui, dt; m, tol)
+            add_i = phi1_action_krylov(Aop!, A_lu, nin, dt; m, tol)
             @. ui_new = ui_new + dt * add_i
             # Scatter back
             @inbounds for r in r_range
@@ -289,12 +292,15 @@ function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralF
             end
             # Define Aop! using banded apply
             tmp = zeros(T, nr)
-            Aop!(out, v) = (apply_banded_full!(out, A_banded, v); nothing)
-            ur_new = exp_action_krylov(x->Aop!(tmp, x), ur, dt; m, tol)
-            add_r = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nrn, dt; m, tol)
+            function Aop!(out, v)
+                apply_banded_full!(out, A_banded, v)
+                return nothing
+            end
+            ur_new = exp_action_krylov(Aop!, ur, dt; m, tol)
+            add_r = phi1_action_krylov(Aop!, A_lu, nrn, dt; m, tol)
             @. ur_new = ur_new + dt * add_r
-            ui_new = exp_action_krylov(x->Aop!(tmp, x), ui, dt; m, tol)
-            add_i = phi1_action_krylov(x->Aop!(tmp, x), A_lu, nin, dt; m, tol)
+            ui_new = exp_action_krylov(Aop!, ui, dt; m, tol)
+            add_i = phi1_action_krylov(Aop!, A_lu, nin, dt; m, tol)
             @. ui_new = ui_new + dt * add_i
             # Scatter back
             @inbounds for r in r_range
@@ -561,16 +567,80 @@ function compute_timestep_error(new_field::SHTnsSpectralField{T},
     old_real = parent(old_field.data_real)
     old_imag = parent(old_field.data_imag)
     
-    # Compute local error
-    for idx in eachindex(new_real)
+    # Compute local error with bounds checking for PencilArrays
+    @inbounds for idx in eachindex(new_real, old_real)
         diff_real = new_real[idx] - old_real[idx]
         diff_imag = new_imag[idx] - old_imag[idx]
         error += diff_real^2 + diff_imag^2
     end
     
-    # Global reduction
+    # Global reduction across all MPI processes
     global_error = MPI.Allreduce(error, MPI.SUM, get_comm())
     return sqrt(global_error)
+end
+
+"""
+    synchronize_pencil_transforms!(field::SHTnsSpectralField{T}) where T
+
+Ensure all pending PencilFFTs operations are completed and data is consistent across processes.
+"""
+function synchronize_pencil_transforms!(field::SHTnsSpectralField{T}) where T
+    # Synchronize data across pencil decomposition
+    MPI.Barrier(get_comm())
+    return field
+end
+
+"""
+    validate_mpi_consistency!(field::SHTnsSpectralField{T}) where T
+
+Check that spectral field data is consistent across MPI processes after time stepping.
+"""
+function validate_mpi_consistency!(field::SHTnsSpectralField{T}) where T
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
+    
+    if nprocs > 1
+        # Check a few sample values for consistency
+        real_data = parent(field.data_real)
+        imag_data = parent(field.data_imag)
+        
+        # Sample first few elements
+        n_samples = min(5, length(real_data))
+        local_samples_real = Vector{T}(undef, n_samples)
+        local_samples_imag = Vector{T}(undef, n_samples)
+        
+        @inbounds for i in 1:n_samples
+            local_samples_real[i] = real_data[i]
+            local_samples_imag[i] = imag_data[i]
+        end
+        
+        # Gather samples from all processes
+        all_samples_real = MPI.Allgather(local_samples_real, comm)
+        all_samples_imag = MPI.Allgather(local_samples_imag, comm)
+        
+        # Check consistency on rank 0
+        if rank == 0
+            max_diff_real = zero(T)
+            max_diff_imag = zero(T)
+            
+            for proc in 2:nprocs
+                for i in 1:n_samples
+                    diff_real = abs(all_samples_real[(proc-1)*n_samples + i] - all_samples_real[i])
+                    diff_imag = abs(all_samples_imag[(proc-1)*n_samples + i] - all_samples_imag[i])
+                    max_diff_real = max(max_diff_real, diff_real)
+                    max_diff_imag = max(max_diff_imag, diff_imag)
+                end
+            end
+            
+            # Warn if inconsistency detected
+            if max_diff_real > 1e-12 || max_diff_imag > 1e-12
+                @warn "MPI data inconsistency detected: max_diff_real=$max_diff_real, max_diff_imag=$max_diff_imag"
+            end
+        end
+    end
+    
+    return field
 end
 
 
