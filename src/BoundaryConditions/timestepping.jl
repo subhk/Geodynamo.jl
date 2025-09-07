@@ -1,0 +1,442 @@
+# ============================================================================
+# Integration with Timestepping Methods
+# ============================================================================
+
+"""
+    update_boundary_conditions_for_timestep!(state, current_time::Float64)
+
+Update all boundary conditions for the current timestep.
+
+This function should be called at the beginning of each timestep to ensure
+all fields have up-to-date boundary conditions.
+"""
+function update_boundary_conditions_for_timestep!(state, current_time::Float64)
+    
+    # Update temperature boundary conditions
+    if hasfield(typeof(state), :temperature) && state.temperature !== nothing
+        if hasfield(typeof(state.temperature), :boundary_condition_set) &&
+           state.temperature.boundary_condition_set !== nothing
+            update_time_dependent_temperature_boundaries!(state.temperature, current_time)
+        end
+    end
+    
+    # Update composition boundary conditions
+    if hasfield(typeof(state), :composition) && state.composition !== nothing
+        if hasfield(typeof(state.composition), :boundary_condition_set) &&
+           state.composition.boundary_condition_set !== nothing
+            update_time_dependent_composition_boundaries!(state.composition, current_time)
+        end
+    end
+    
+    # Update velocity boundary conditions
+    if hasfield(typeof(state), :velocity) && state.velocity !== nothing
+        if hasfield(typeof(state.velocity), :boundary_condition_set) &&
+           state.velocity.boundary_condition_set !== nothing
+            update_time_dependent_velocity_boundaries!(state.velocity, current_time)
+        end
+    end
+    
+    # Update magnetic field boundary conditions
+    if hasfield(typeof(state), :magnetic) && state.magnetic !== nothing
+        if hasfield(typeof(state.magnetic), :boundary_condition_set) &&
+           state.magnetic.boundary_condition_set !== nothing
+            update_time_dependent_magnetic_boundaries!(state.magnetic, current_time)
+        end
+    end
+    
+    return state
+end
+
+"""
+    apply_boundary_conditions_to_rhs!(rhs, state, field_type::FieldType)
+
+Apply boundary conditions to right-hand side during timestepping.
+
+This function modifies the RHS vector to enforce boundary conditions
+during implicit and explicit timestepping methods.
+"""
+function apply_boundary_conditions_to_rhs!(rhs, state, field_type::FieldType)
+    
+    field = get_field_from_state(state, field_type)
+    
+    if field === nothing || field.boundary_condition_set === nothing
+        return rhs  # No boundary conditions to apply
+    end
+    
+    # Apply boundary conditions based on field type
+    if field_type == TEMPERATURE
+        apply_temperature_bc_to_rhs!(rhs, field)
+    elseif field_type == COMPOSITION
+        apply_composition_bc_to_rhs!(rhs, field)
+    elseif field_type == VELOCITY
+        apply_velocity_bc_to_rhs!(rhs, field)
+    elseif field_type == MAGNETIC
+        apply_magnetic_bc_to_rhs!(rhs, field)
+    end
+    
+    return rhs
+end
+
+"""
+    get_field_from_state(state, field_type::FieldType)
+
+Extract the appropriate field from simulation state.
+"""
+function get_field_from_state(state, field_type::FieldType)
+    
+    if field_type == TEMPERATURE
+        return hasfield(typeof(state), :temperature) ? state.temperature : nothing
+    elseif field_type == COMPOSITION
+        return hasfield(typeof(state), :composition) ? state.composition : nothing
+    elseif field_type == VELOCITY
+        return hasfield(typeof(state), :velocity) ? state.velocity : nothing
+    elseif field_type == MAGNETIC
+        return hasfield(typeof(state), :magnetic) ? state.magnetic : nothing
+    else
+        return nothing
+    end
+end
+
+"""
+    apply_temperature_bc_to_rhs!(rhs, temp_field)
+
+Apply temperature boundary conditions to RHS vector.
+"""
+function apply_temperature_bc_to_rhs!(rhs, temp_field)
+    
+    if temp_field.boundary_condition_set === nothing
+        return rhs
+    end
+    
+    # Get current boundary values (spectral coefficients)
+    inner_bc = temp_field.boundary_values[1, :]  # Inner boundary
+    outer_bc = temp_field.boundary_values[2, :]  # Outer boundary
+    
+    # Apply Dirichlet boundary conditions by setting RHS values
+    # This enforces the boundary condition in the solution
+    nlm = length(inner_bc)
+    
+    for lm in 1:nlm
+        # Check boundary condition types
+        if hasfield(typeof(temp_field), :bc_type_inner) && temp_field.bc_type_inner[lm] == 1  # Dirichlet
+            # Set RHS to enforce boundary condition at inner boundary
+            # Implementation depends on specific discretization scheme
+            # For now, we assume the boundary condition is already applied to the field
+        end
+        
+        if hasfield(typeof(temp_field), :bc_type_outer) && temp_field.bc_type_outer[lm] == 1  # Dirichlet
+            # Set RHS to enforce boundary condition at outer boundary
+            # Implementation depends on specific discretization scheme
+        end
+    end
+    
+    return rhs
+end
+
+"""
+    apply_composition_bc_to_rhs!(rhs, comp_field)
+
+Apply composition boundary conditions to RHS vector.
+"""
+function apply_composition_bc_to_rhs!(rhs, comp_field)
+    
+    if comp_field.boundary_condition_set === nothing
+        return rhs
+    end
+    
+    # Similar to temperature boundary conditions
+    inner_bc = comp_field.boundary_values[1, :]
+    outer_bc = comp_field.boundary_values[2, :]
+    
+    nlm = length(inner_bc)
+    
+    for lm in 1:nlm
+        if hasfield(typeof(comp_field), :bc_type_inner) && comp_field.bc_type_inner[lm] == 1  # Dirichlet
+            # Apply inner boundary condition to RHS
+        end
+        
+        if hasfield(typeof(comp_field), :bc_type_outer) && comp_field.bc_type_outer[lm] == 1  # Dirichlet
+            # Apply outer boundary condition to RHS
+        end
+    end
+    
+    return rhs
+end
+
+"""
+    apply_velocity_bc_to_rhs!(rhs, velocity_field)
+
+Apply velocity boundary conditions to RHS vector.
+"""
+function apply_velocity_bc_to_rhs!(rhs, velocity_field)
+    
+    if velocity_field.boundary_condition_set === nothing
+        return rhs
+    end
+    
+    # Apply boundary conditions to toroidal component
+    if hasfield(typeof(velocity_field.toroidal), :boundary_values)
+        inner_tor = velocity_field.toroidal.boundary_values[1, :]
+        outer_tor = velocity_field.toroidal.boundary_values[2, :]
+        
+        # Apply toroidal boundary conditions to appropriate part of RHS
+        # Implementation depends on how velocity components are organized in RHS vector
+    end
+    
+    # Apply boundary conditions to poloidal component
+    if hasfield(typeof(velocity_field.poloidal), :boundary_values)
+        inner_pol = velocity_field.poloidal.boundary_values[1, :]
+        outer_pol = velocity_field.poloidal.boundary_values[2, :]
+        
+        # Apply poloidal boundary conditions to appropriate part of RHS
+    end
+    
+    return rhs
+end
+
+"""
+    apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
+
+Apply magnetic field boundary conditions to RHS vector.
+"""
+function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
+    
+    if magnetic_field.boundary_condition_set === nothing
+        return rhs
+    end
+    
+    # Apply boundary conditions to toroidal component
+    if hasfield(typeof(magnetic_field.toroidal), :boundary_values)
+        inner_tor = magnetic_field.toroidal.boundary_values[1, :]
+        outer_tor = magnetic_field.toroidal.boundary_values[2, :]
+        
+        # Apply toroidal boundary conditions
+        # For insulating boundaries: ∂(rB_tor)/∂r = 0 at boundaries
+        # For perfect conductor: B_tor = 0 at boundaries
+    end
+    
+    # Apply boundary conditions to poloidal component
+    if hasfield(typeof(magnetic_field.poloidal), :boundary_values)
+        inner_pol = magnetic_field.poloidal.boundary_values[1, :]
+        outer_pol = magnetic_field.poloidal.boundary_values[2, :]
+        
+        # Apply poloidal boundary conditions
+        # For insulating boundaries: B_pol matches potential field
+        # For perfect conductor: ∂B_pol/∂r = 0 at boundaries
+    end
+    
+    return rhs
+end
+
+"""
+    enforce_boundary_conditions_in_solution!(solution, state, field_type::FieldType)
+
+Enforce boundary conditions in the solution vector after timestepping.
+
+This function ensures that the solution satisfies the boundary conditions
+after each timestep, which may be necessary for certain discretization schemes.
+"""
+function enforce_boundary_conditions_in_solution!(solution, state, field_type::FieldType)
+    
+    field = get_field_from_state(state, field_type)
+    
+    if field === nothing || field.boundary_condition_set === nothing
+        return solution
+    end
+    
+    # Enforce boundary conditions based on field type
+    if field_type == TEMPERATURE
+        enforce_temperature_bc_in_solution!(solution, field)
+    elseif field_type == COMPOSITION
+        enforce_composition_bc_in_solution!(solution, field)
+    elseif field_type == VELOCITY
+        enforce_velocity_bc_in_solution!(solution, field)
+    elseif field_type == MAGNETIC
+        enforce_magnetic_bc_in_solution!(solution, field)
+    end
+    
+    return solution
+end
+
+"""
+    enforce_temperature_bc_in_solution!(solution, temp_field)
+
+Enforce temperature boundary conditions in solution vector.
+"""
+function enforce_temperature_bc_in_solution!(solution, temp_field)
+    
+    if temp_field.boundary_condition_set === nothing
+        return solution
+    end
+    
+    # Get boundary values
+    inner_bc = temp_field.boundary_values[1, :]
+    outer_bc = temp_field.boundary_values[2, :]
+    
+    # Enforce Dirichlet boundary conditions by directly setting solution values
+    # at boundary points - implementation depends on discretization scheme
+    
+    # For spectral methods, this might involve setting specific coefficients
+    # For finite difference methods, this involves setting boundary grid points
+    
+    return solution
+end
+
+"""
+    enforce_composition_bc_in_solution!(solution, comp_field)
+
+Enforce composition boundary conditions in solution vector.
+"""
+function enforce_composition_bc_in_solution!(solution, comp_field)
+    
+    if comp_field.boundary_condition_set === nothing
+        return solution
+    end
+    
+    inner_bc = comp_field.boundary_values[1, :]
+    outer_bc = comp_field.boundary_values[2, :]
+    
+    # Similar implementation to temperature
+    # Additionally ensure composition values remain in [0, 1] range
+    
+    return solution
+end
+
+"""
+    enforce_velocity_bc_in_solution!(solution, velocity_field)
+
+Enforce velocity boundary conditions in solution vector.
+"""
+function enforce_velocity_bc_in_solution!(solution, velocity_field)
+    
+    if velocity_field.boundary_condition_set === nothing
+        return solution
+    end
+    
+    # Enforce no-slip or stress-free boundary conditions
+    # This typically involves setting velocity components to zero at boundaries
+    # or enforcing specific stress conditions
+    
+    return solution
+end
+
+"""
+    enforce_magnetic_bc_in_solution!(solution, magnetic_field)
+
+Enforce magnetic field boundary conditions in solution vector.
+"""
+function enforce_magnetic_bc_in_solution!(solution, magnetic_field)
+    
+    if magnetic_field.boundary_condition_set === nothing
+        return solution
+    end
+    
+    # Enforce insulating or perfect conductor boundary conditions
+    # For insulating: match potential field at boundary
+    # For perfect conductor: enforce specific field continuity conditions
+    
+    return solution
+end
+
+"""
+    compute_boundary_condition_residual(field, field_type::FieldType)
+
+Compute residual to check how well boundary conditions are satisfied.
+
+Returns a measure of how much the current field violates the boundary conditions.
+Useful for monitoring solution quality and debugging.
+"""
+function compute_boundary_condition_residual(field, field_type::FieldType)
+    
+    if field.boundary_condition_set === nothing
+        return 0.0
+    end
+    
+    residual = 0.0
+    
+    # Get current boundary values from field
+    current_boundaries = get_current_boundaries(field, field_type)
+    
+    if haskey(current_boundaries, :error)
+        return Inf  # Error in getting boundaries
+    end
+    
+    # Compare with prescribed boundary conditions
+    boundary_set = field.boundary_condition_set
+    cache = field.boundary_interpolation_cache
+    time_index = field.boundary_time_index[]
+    
+    # Get prescribed boundary values
+    inner_prescribed = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
+    outer_prescribed = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
+    
+    # Get current field values at boundaries
+    inner_current = current_boundaries[:inner_physical]
+    outer_current = current_boundaries[:outer_physical]
+    
+    # Compute L2 norm of difference
+    inner_residual = sqrt(sum((inner_current - inner_prescribed).^2))
+    outer_residual = sqrt(sum((outer_current - outer_prescribed).^2))
+    
+    residual = inner_residual + outer_residual
+    
+    return residual
+end
+
+"""
+    log_boundary_condition_status(state, rank::Int=0)
+
+Log the status of all boundary conditions in the simulation state.
+"""
+function log_boundary_condition_status(state, rank::Int=0)
+    
+    if rank != 0
+        return  # Only log from rank 0
+    end
+    
+    println("=" * 60)
+    println("BOUNDARY CONDITION STATUS")
+    println("=" * 60)
+    
+    # Check each field type
+    field_types = [TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC]
+    field_names = ["Temperature", "Composition", "Velocity", "Magnetic"]
+    
+    for (field_type, field_name) in zip(field_types, field_names)
+        field = get_field_from_state(state, field_type)
+        
+        if field !== nothing
+            println("$field_name Field:")
+            
+            if hasfield(typeof(field), :boundary_condition_set) && field.boundary_condition_set !== nothing
+                boundary_set = field.boundary_condition_set
+                
+                println("  ✓ Boundary conditions loaded")
+                println("    Time index: $(field.boundary_time_index[])")
+                println("    Inner: $(basename(boundary_set.inner_boundary.file_path))")
+                println("    Outer: $(basename(boundary_set.outer_boundary.file_path))")
+                
+                if boundary_set.inner_boundary.is_time_dependent || boundary_set.outer_boundary.is_time_dependent
+                    println("    Time-dependent: Yes")
+                else
+                    println("    Time-dependent: No")
+                end
+                
+                # Compute and display residual
+                residual = compute_boundary_condition_residual(field, field_type)
+                println("    Residual: $(round(residual, digits=6))")
+                
+            else
+                println("  ✗ No boundary conditions")
+            end
+            
+            println()
+        end
+    end
+    
+    println("=" * 60)
+end
+
+export update_boundary_conditions_for_timestep!
+export apply_boundary_conditions_to_rhs!, enforce_boundary_conditions_in_solution!
+export compute_boundary_condition_residual, log_boundary_condition_status

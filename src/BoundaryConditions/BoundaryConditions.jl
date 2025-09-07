@@ -95,7 +95,7 @@ include("interpolation.jl")    # Grid interpolation utilities
 include("programmatic.jl")     # Programmatic boundary generation
 
 # Field-specific boundary condition modules
-include("temperature.jl")      # Temperature boundary conditions
+include("thermal.jl")          # Temperature boundary conditions
 include("composition.jl")      # Composition boundary conditions
 include("velocity.jl")         # Velocity boundary conditions
 include("magnetic.jl")         # Magnetic field boundary conditions
