@@ -454,7 +454,7 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpectralField{T},
     phys_phi_data = parent(phys_phi)
     
     # Process each radial level
-    for r_local in 1:size(phys_phi_data, 3)
+    for r_local in axes(phys_phi_data, 3)
         # Extract spectral coefficients
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
         
