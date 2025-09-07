@@ -482,7 +482,7 @@ function perform_synthesis_direct!(spec::SHTnsSpectralField{T},
     phys_data = parent(phys.data)
     
     # Process each radial level
-    for r_local in 1:size(phys_data, 3)
+    for r_local in axes(phys_data, 3)
         # Extract coefficients
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
         
@@ -539,7 +539,7 @@ function perform_analysis_phi_local!(phys::SHTnsPhysicalField{T},
     spec_imag_data = parent(spec.data_imag)
     
     # Process each radial level
-    for r_local in 1:size(phys_data, 3)
+    for r_local in axes(phys_data, 3)
         # Extract physical slice
         phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config)
         
@@ -588,7 +588,7 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
     spec_imag_data = parent(spec.data_imag)
     
     # Process each radial level
-    for r_local in 1:size(phys_phi_data, 3)
+    for r_local in axes(phys_phi_data, 3)
         # Extract physical slice
         phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config)
         
@@ -616,7 +616,7 @@ function perform_analysis_direct!(phys::SHTnsPhysicalField{T},
     spec_imag_data = parent(spec.data_imag)
     
     # Process each radial level
-    for r_local in 1:size(phys_data, 3)
+    for r_local in axes(phys_data, 3)
         # Extract physical slice (generic extraction)
         phys_slice = extract_physical_slice_generic(phys_data, r_local, config)
         
@@ -655,7 +655,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
     v_phi = parent(vec_phys.φ_component.data)
     
     # Process each radial level
-    for r_local in 1:size(tor_real, 3)
+    for r_local in axes(tor_real, 3)
         # Extract toroidal and poloidal coefficients
         tor_coeffs = extract_coefficients_for_shtnskit(tor_real, tor_imag, r_local, config)
         pol_coeffs = extract_coefficients_for_shtnskit(pol_real, pol_imag, r_local, config)
@@ -694,7 +694,7 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     pol_imag = parent(pol_spec.data_imag)
     
     # Process each radial level  
-    for r_local in 1:size(v_theta, 3)
+    for r_local in axes(v_theta, 3)
         # Extract vector components
         vt_field = extract_vector_component_generic(v_theta, r_local, config)
         vp_field = extract_vector_component_generic(v_phi, r_local, config)
