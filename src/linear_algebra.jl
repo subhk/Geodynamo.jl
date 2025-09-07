@@ -1,9 +1,3 @@
-# module LinearOps
-# using LinearAlgebra
-# using SparseArrays
-# using PencilArrays
-# using ..Parameters
-# using ..VariableTypes
     
 # Banded matrix structure for radial derivatives
 struct BandedMatrix{T}
