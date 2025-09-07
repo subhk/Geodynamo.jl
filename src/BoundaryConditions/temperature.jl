@@ -1,0 +1,439 @@
+# ============================================================================
+# Temperature Boundary Conditions
+# ============================================================================
+
+using SHTnsKit
+using PencilArrays
+using PencilFFTs
+using Statistics
+
+"""
+    load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
+
+Load temperature boundary conditions from various sources.
+
+# Arguments
+- `temp_field`: SHTnsTemperatureField structure
+- `boundary_specs`: Dictionary specifying boundary sources
+
+# Examples
+```julia
+# NetCDF files for both boundaries
+boundary_specs = Dict(
+    :inner => "cmb_temperature.nc",
+    :outer => "surface_temperature.nc"
+)
+
+# Mixed NetCDF and programmatic
+boundary_specs = Dict(
+    :inner => "cmb_temperature.nc", 
+    :outer => (:uniform, 300.0)
+)
+```
+"""
+function load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
+    
+    if get_rank() == 0
+        @info "Loading temperature boundary conditions..."
+    end
+    
+    # Determine boundary types
+    inner_spec = get(boundary_specs, :inner, nothing)
+    outer_spec = get(boundary_specs, :outer, nothing)
+    
+    if inner_spec === nothing || outer_spec === nothing
+        throw(ArgumentError("Both :inner and :outer boundary specifications required"))
+    end
+    
+    # Load or generate boundary data
+    if isa(inner_spec, String) && isa(outer_spec, String)
+        # Both from NetCDF files
+        boundary_set = load_temperature_boundaries_from_files(inner_spec, outer_spec, temp_field.config)
+    elseif isa(inner_spec, String) && isa(outer_spec, Tuple)
+        # Inner from file, outer programmatic
+        boundary_set = create_hybrid_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
+    elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
+        # Inner programmatic, outer from file
+        boundary_set = create_hybrid_temperature_boundaries(outer_spec, inner_spec, temp_field.config, swap_boundaries=true)
+    elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
+        # Both programmatic
+        boundary_set = create_programmatic_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
+    else
+        throw(ArgumentError("Invalid boundary specification format"))
+    end
+    
+    # Store boundary conditions in field
+    temp_field.boundary_condition_set = boundary_set
+    temp_field.boundary_time_index[] = 1
+    
+    # Create interpolation cache
+    temp_field.boundary_interpolation_cache = create_temperature_interpolation_cache(boundary_set, temp_field.config)
+    
+    # Apply initial boundary conditions
+    apply_temperature_boundary_conditions!(temp_field)
+    
+    if get_rank() == 0
+        print_boundary_info(boundary_set)
+        @info "Temperature boundary conditions loaded successfully"
+    end
+    
+    return temp_field
+end
+
+"""
+    load_temperature_boundaries_from_files(inner_file::String, outer_file::String, config)
+
+Load temperature boundary conditions from NetCDF files.
+"""
+function load_temperature_boundaries_from_files(inner_file::String, outer_file::String, config)
+    
+    # Validate files exist
+    for file in [inner_file, outer_file]
+        if !isfile(file)
+            throw(ArgumentError("Temperature boundary file not found: $file"))
+        end
+    end
+    
+    # Read boundary data
+    inner_data = read_netcdf_boundary_data(inner_file, precision=config.T)
+    outer_data = read_netcdf_boundary_data(outer_file, precision=config.T)
+    
+    # Validate compatibility
+    validate_boundary_compatibility(inner_data, outer_data, "temperature")
+    
+    # Create boundary condition set
+    boundary_set = BoundaryConditionSet(
+        inner_data, outer_data, "temperature", TEMPERATURE, time()
+    )
+    
+    return boundary_set
+end
+
+"""
+    create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
+
+Create hybrid temperature boundaries (one from file, one programmatic).
+"""
+function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
+    
+    # Load file-based boundary
+    file_data = read_netcdf_boundary_data(file_spec, precision=config.T)
+    
+    # Create programmatic boundary
+    pattern, amplitude = prog_spec[1], prog_spec[2]
+    parameters = length(prog_spec) >= 3 ? prog_spec[3] : Dict()
+    
+    prog_data = create_programmatic_boundary(
+        pattern, config, amplitude; 
+        parameters=parameters, field_type="temperature"
+    )
+    
+    # Ensure same grid resolution
+    if file_data.nlat != config.nlat || file_data.nlon != config.nlon
+        # Interpolate file data to config grid
+        theta_target = collect(range(0, π, length=config.nlat))
+        phi_target = collect(range(0, 2π, length=config.nlon+1)[1:end-1])
+        
+        interpolated_values = interpolate_boundary_to_grid(file_data, theta_target, phi_target, 1)
+        
+        file_data = create_boundary_data(
+            interpolated_values, "temperature";
+            theta=theta_target, phi=phi_target, time=nothing,
+            units=file_data.units, description=file_data.description,
+            file_path=file_data.file_path
+        )
+    end
+    
+    # Assign boundaries based on swap_boundaries flag
+    if swap_boundaries
+        inner_data, outer_data = prog_data, file_data
+    else
+        inner_data, outer_data = file_data, prog_data
+    end
+    
+    # Validate compatibility
+    validate_boundary_compatibility(inner_data, outer_data, "temperature")
+    
+    # Create boundary condition set
+    boundary_set = BoundaryConditionSet(
+        inner_data, outer_data, "temperature", TEMPERATURE, time()
+    )
+    
+    return boundary_set
+end
+
+"""
+    create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, config)
+
+Create fully programmatic temperature boundaries.
+"""
+function create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, config)
+    
+    # Create inner boundary
+    inner_pattern, inner_amplitude = inner_spec[1], inner_spec[2]
+    inner_parameters = length(inner_spec) >= 3 ? inner_spec[3] : Dict()
+    
+    inner_data = create_programmatic_boundary(
+        inner_pattern, config, inner_amplitude;
+        parameters=inner_parameters, field_type="temperature"
+    )
+    
+    # Create outer boundary
+    outer_pattern, outer_amplitude = outer_spec[1], outer_spec[2]
+    outer_parameters = length(outer_spec) >= 3 ? outer_spec[3] : Dict()
+    
+    outer_data = create_programmatic_boundary(
+        outer_pattern, config, outer_amplitude;
+        parameters=outer_parameters, field_type="temperature"
+    )
+    
+    # Validate compatibility
+    validate_boundary_compatibility(inner_data, outer_data, "temperature")
+    
+    # Create boundary condition set
+    boundary_set = BoundaryConditionSet(
+        inner_data, outer_data, "temperature", TEMPERATURE, time()
+    )
+    
+    return boundary_set
+end
+
+"""
+    create_temperature_interpolation_cache(boundary_set::BoundaryConditionSet, config)
+
+Create interpolation cache for temperature boundaries.
+"""
+function create_temperature_interpolation_cache(boundary_set::BoundaryConditionSet, config)
+    
+    cache = Dict{String, Any}()
+    
+    # Create target grid (simulation grid)
+    theta_target = collect(range(0, π, length=config.nlat))
+    phi_target = collect(range(0, 2π, length=config.nlon+1)[1:end-1])
+    
+    # Create interpolation caches
+    cache["inner"] = create_interpolation_cache(boundary_set.inner_boundary, theta_target, phi_target)
+    cache["outer"] = create_interpolation_cache(boundary_set.outer_boundary, theta_target, phi_target)
+    
+    return cache
+end
+
+"""
+    apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
+
+Apply temperature boundary conditions to the field.
+"""
+function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
+    
+    if temp_field.boundary_condition_set === nothing
+        @warn "No boundary conditions loaded for temperature field"
+        return temp_field
+    end
+    
+    boundary_set = temp_field.boundary_condition_set
+    cache = temp_field.boundary_interpolation_cache
+    
+    # Interpolate boundary data to simulation grid
+    inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
+    outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
+    
+    # Transform to spectral space
+    inner_spectral = physical_to_spectral_boundary(inner_physical, temp_field.config)
+    outer_spectral = physical_to_spectral_boundary(outer_physical, temp_field.config)
+    
+    # Apply to boundary arrays
+    temp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
+    temp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
+    
+    # Update time index
+    temp_field.boundary_time_index[] = time_index
+    
+    return temp_field
+end
+
+"""
+    update_time_dependent_temperature_boundaries!(temp_field, current_time::Float64)
+
+Update time-dependent temperature boundary conditions.
+"""
+function update_time_dependent_temperature_boundaries!(temp_field, current_time::Float64)
+    
+    if temp_field.boundary_condition_set === nothing
+        return temp_field
+    end
+    
+    boundary_set = temp_field.boundary_condition_set
+    
+    # Check if boundaries are time-dependent
+    if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
+        return temp_field  # Nothing to update
+    end
+    
+    # Find time index for current time
+    time_index = find_boundary_time_index(boundary_set, current_time)
+    
+    # Only update if time index has changed
+    if time_index != temp_field.boundary_time_index[]
+        apply_temperature_boundary_conditions!(temp_field, time_index)
+        
+        if get_rank() == 0
+            @info "Updated temperature boundaries to time index $time_index (t=$current_time)"
+        end
+    end
+    
+    return temp_field
+end
+
+"""
+    find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+
+Find the appropriate time index for the current simulation time.
+"""
+function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+    
+    # Use time coordinates from inner boundary (both should be compatible)
+    time_coords = boundary_set.inner_boundary.time
+    
+    if time_coords === nothing
+        return 1  # Time-independent
+    end
+    
+    # Find closest time index
+    if current_time <= time_coords[1]
+        return 1
+    elseif current_time >= time_coords[end]
+        return length(time_coords)
+    else
+        # Linear search for closest time
+        for i in 1:(length(time_coords)-1)
+            if time_coords[i] <= current_time <= time_coords[i+1]
+                # Choose closer time point
+                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
+                    return i
+                else
+                    return i + 1
+                end
+            end
+        end
+    end
+    
+    return 1  # Fallback
+end
+
+"""
+    physical_to_spectral_boundary(physical_data::Matrix{T}, config) where T
+
+Transform physical boundary data to spectral coefficients.
+"""
+function physical_to_spectral_boundary(physical_data::Matrix{T}, config) where T
+    
+    # Create temporary transform object
+    transform = SHTnsKit.SHTnsTransform(config.lmax, physical_data)
+    
+    # Perform forward transform
+    spectral_coeffs = SHTnsKit.analysis!(transform, physical_data)
+    
+    return spectral_coeffs
+end
+
+"""
+    get_current_temperature_boundaries(temp_field)
+
+Get current temperature boundary conditions.
+"""
+function get_current_temperature_boundaries(temp_field)
+    
+    if temp_field.boundary_condition_set === nothing
+        return Dict(:error => "No boundary conditions loaded")
+    end
+    
+    boundary_set = temp_field.boundary_condition_set
+    time_index = temp_field.boundary_time_index[]
+    cache = temp_field.boundary_interpolation_cache
+    
+    # Get current boundary data
+    inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
+    outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
+    
+    # Get spectral coefficients
+    inner_spectral = temp_field.boundary_values[1, :]
+    outer_spectral = temp_field.boundary_values[2, :]
+    
+    return Dict(
+        :inner_physical => inner_physical,
+        :outer_physical => outer_physical,
+        :inner_spectral => inner_spectral,
+        :outer_spectral => outer_spectral,
+        :time_index => time_index,
+        :metadata => Dict(
+            "field_name" => boundary_set.field_name,
+            "source" => "file_based",
+            "inner_file" => boundary_set.inner_boundary.file_path,
+            "outer_file" => boundary_set.outer_boundary.file_path,
+            "creation_time" => boundary_set.creation_time
+        )
+    )
+end
+
+"""
+    set_programmatic_temperature_boundaries!(temp_field, inner_spec::Tuple, outer_spec::Tuple)
+
+Set programmatic temperature boundary conditions.
+"""
+function set_programmatic_temperature_boundaries!(temp_field, inner_spec::Tuple, outer_spec::Tuple)
+    
+    boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
+    return load_temperature_boundary_conditions!(temp_field, boundary_specs)
+end
+
+"""
+    validate_temperature_boundary_files(boundary_specs::Dict, config)
+
+Validate temperature boundary condition files.
+"""
+function validate_temperature_boundary_files(boundary_specs::Dict, config)
+    
+    inner_spec = get(boundary_specs, :inner, nothing)
+    outer_spec = get(boundary_specs, :outer, nothing)
+    
+    errors = String[]
+    
+    # Validate file specifications
+    if isa(inner_spec, String)
+        try
+            validate_netcdf_boundary_file(inner_spec, ["temperature"])
+        catch e
+            push!(errors, "Inner boundary file error: $e")
+        end
+    end
+    
+    if isa(outer_spec, String)
+        try
+            validate_netcdf_boundary_file(outer_spec, ["temperature"])
+        catch e
+            push!(errors, "Outer boundary file error: $e")
+        end
+    end
+    
+    # If both are files, check compatibility
+    if isa(inner_spec, String) && isa(outer_spec, String)
+        try
+            inner_data = read_netcdf_boundary_data(inner_spec, precision=config.T)
+            outer_data = read_netcdf_boundary_data(outer_spec, precision=config.T)
+            validate_boundary_compatibility(inner_data, outer_data, "temperature")
+        catch e
+            push!(errors, "Boundary compatibility error: $e")
+        end
+    end
+    
+    if !isempty(errors)
+        error_msg = "Temperature boundary validation failed:\n" * join(errors, "\n")
+        throw(ArgumentError(error_msg))
+    end
+    
+    return true
+end
+
+export load_temperature_boundary_conditions!, set_programmatic_temperature_boundaries!
+export update_time_dependent_temperature_boundaries!, get_current_temperature_boundaries
+export validate_temperature_boundary_files
