@@ -851,8 +851,11 @@ function extract_physical_slice_phi_local(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
     slice = zeros(eltype(phys_data), nlat, nlon)
     
-    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
-        for j in 1:min(size(phys_data, 2), nlon)
+    common_i_range = 1:min(size(phys_data, 1), nlat)
+    common_j_range = 1:min(size(phys_data, 2), nlon)
+    
+    Threads.@threads for i in common_i_range
+        for j in common_j_range
             if r_local <= size(phys_data, 3)
                 slice[i, j] = phys_data[i, j, r_local]
             end
@@ -872,8 +875,11 @@ function extract_physical_slice_generic(phys_data, r_local, config)
     slice = zeros(eltype(phys_data), nlat, nlon)
     
     # Generic extraction - may need MPI communication for distributed dimensions
-    Threads.@threads for i in 1:min(size(phys_data, 1), nlat)
-        for j in 1:min(size(phys_data, 2), nlon)
+    common_i_range = 1:min(size(phys_data, 1), nlat)
+    common_j_range = 1:min(size(phys_data, 2), nlon)
+    
+    Threads.@threads for i in common_i_range
+        for j in common_j_range
             if r_local <= size(phys_data, 3)
                 slice[i, j] = phys_data[i, j, r_local]
             end
