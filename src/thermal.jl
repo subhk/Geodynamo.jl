@@ -1689,3 +1689,463 @@ end
 # export SHTnsTemperatureField, create_shtns_temperature_field
 # export compute_temperature_nonlinear!, compute_temperature_batch!
 # export zero_work_arrays!
+
+# ============================================================================
+# File-Based Temperature Boundary Condition Implementation
+# ============================================================================
+
+"""
+    load_temperature_boundary_conditions!(temp_field::SHTnsTemperatureField{T},
+                                         boundary_files::Dict{Symbol, String}) where T
+
+Load temperature boundary conditions from NetCDF files and apply them to the temperature field.
+
+# Arguments
+- `temp_field`: Temperature field to apply boundary conditions to
+- `boundary_files`: Dictionary with boundary file paths
+  - `:inner` => path to inner boundary (CMB) NetCDF file
+  - `:outer` => path to outer boundary (surface) NetCDF file
+
+# Examples
+```julia
+# Load from separate files
+boundary_files = Dict(
+    :inner => "cmb_temperature.nc",
+    :outer => "surface_temperature.nc"
+)
+load_temperature_boundary_conditions!(temp_field, boundary_files)
+
+# Or use hybrid approach (NetCDF + programmatic)
+boundary_specs = Dict(
+    :inner => "cmb_temperature.nc",
+    :outer => (:uniform, 300.0)  # Uniform 300K at surface
+)
+load_temperature_boundary_conditions!(temp_field, boundary_specs)
+```
+"""
+function load_temperature_boundary_conditions!(temp_field::SHTnsTemperatureField{T},
+                                             boundary_specs::Dict{Symbol, Any}) where T
+    
+    config = temp_field.config
+    
+    if haskey(boundary_specs, :inner) && haskey(boundary_specs, :outer)
+        # Load full boundary condition set
+        boundary_set = create_hybrid_temperature_boundaries(
+            boundary_specs[:inner], boundary_specs[:outer], config, precision=T
+        )
+        
+        # Store in temperature field
+        temp_field.boundary_condition_set = boundary_set
+        
+        # Initialize time index
+        temp_field.boundary_time_index[] = 1
+        
+        # Apply initial boundary conditions
+        apply_file_temperature_boundaries!(temp_field, 1)
+        
+        @info "Temperature boundary conditions loaded successfully from files"
+        print_boundary_info(boundary_set)
+        
+    elseif haskey(boundary_specs, :combined)
+        # Single file with both boundaries
+        combined_file = boundary_specs[:combined]
+        
+        if isa(combined_file, String)
+            boundary_data = load_single_temperature_boundary(combined_file, :combined, precision=T)
+            
+            # Split into inner and outer if the file contains both
+            # This assumes the NetCDF file has separate variables for inner/outer boundaries
+            temp_field.boundary_condition_set = split_combined_boundary_data(boundary_data, config)
+            temp_field.boundary_time_index[] = 1
+            apply_file_temperature_boundaries!(temp_field, 1)
+            
+            @info "Combined temperature boundary conditions loaded from: $combined_file"
+        else
+            throw(ArgumentError("Combined boundary specification must be a file path"))
+        end
+        
+    else
+        throw(ArgumentError("boundary_specs must contain either :inner and :outer keys, or :combined key"))
+    end
+    
+    return temp_field
+end
+
+"""
+    apply_file_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                      time_index::Int=1) where T
+
+Apply file-based temperature boundary conditions to the temperature field for a specific time.
+
+# Arguments  
+- `temp_field`: Temperature field to apply boundary conditions to
+- `time_index`: Time index for time-dependent boundary conditions (default: 1)
+"""
+function apply_file_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                           time_index::Int=1) where T
+    
+    if temp_field.boundary_condition_set === nothing
+        @warn "No boundary condition set loaded. Use load_temperature_boundary_conditions! first."
+        return temp_field
+    end
+    
+    boundary_set = temp_field.boundary_condition_set
+    config = temp_field.config
+    
+    # Validate time index
+    max_time_inner = boundary_set.inner_boundary.ntime
+    max_time_outer = boundary_set.outer_boundary.ntime
+    
+    if time_index > max_time_inner || time_index > max_time_outer
+        @warn "Time index $time_index exceeds available boundary data. Using last available time step."
+        time_index = min(max_time_inner, max_time_outer)
+    end
+    
+    # Update current time index
+    temp_field.boundary_time_index[] = time_index
+    
+    # Get or compute interpolated boundary data for this time
+    cache_key = "time_$(time_index)"
+    
+    if !haskey(temp_field.boundary_interpolation_cache, cache_key)
+        # Compute and cache interpolated boundary data
+        interpolated_data = compute_interpolated_boundary_data(boundary_set, config, time_index)
+        temp_field.boundary_interpolation_cache[cache_key] = interpolated_data
+    end
+    
+    interpolated_data = temp_field.boundary_interpolation_cache[cache_key]
+    
+    # Convert physical space boundary data to spectral coefficients
+    convert_physical_boundaries_to_spectral!(temp_field, interpolated_data)
+    
+    # Set boundary condition types to Dirichlet (fixed temperature)
+    fill!(temp_field.bc_type_inner, 1)  # 1 = Dirichlet 
+    fill!(temp_field.bc_type_outer, 1)
+    
+    if get_rank() == 0
+        @info "Applied file-based temperature boundaries for time step $time_index"
+    end
+    
+    return temp_field
+end
+
+"""
+    compute_interpolated_boundary_data(boundary_set::BoundaryConditionSet{T}, 
+                                      config::SHTnsKitConfig, time_index::Int) where T
+
+Compute interpolated boundary data on the simulation grid.
+"""
+function compute_interpolated_boundary_data(boundary_set::BoundaryConditionSet{T}, 
+                                          config::SHTnsKitConfig, time_index::Int) where T
+    
+    # Get target grid coordinates
+    theta_target = Vector{T}(config.theta_grid)
+    phi_target = Vector{T}(config.phi_grid)
+    
+    # Interpolate inner boundary
+    inner_interpolated = interpolate_boundary_to_grid(
+        boundary_set.inner_boundary, theta_target, phi_target, time_index
+    )
+    
+    # Interpolate outer boundary  
+    outer_interpolated = interpolate_boundary_to_grid(
+        boundary_set.outer_boundary, theta_target, phi_target, time_index
+    )
+    
+    return Dict(
+        :inner => inner_interpolated,
+        :outer => outer_interpolated,
+        :theta => theta_target,
+        :phi => phi_target
+    )
+end
+
+"""
+    convert_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureField{T}, 
+                                            interpolated_data::Dict) where T
+
+Convert interpolated physical space boundary data to spectral coefficients.
+"""
+function convert_physical_boundaries_to_spectral!(temp_field::SHTnsTemperatureField{T}, 
+                                                 interpolated_data::Dict) where T
+    
+    config = temp_field.config
+    inner_physical = interpolated_data[:inner]
+    outer_physical = interpolated_data[:outer]
+    
+    # Create temporary physical fields for boundary data
+    inner_phys_field = create_shtns_physical_field(T, config, temp_field.oc_domain, config.pencils.r)
+    outer_phys_field = create_shtns_physical_field(T, config, temp_field.oc_domain, config.pencils.r)
+    
+    # Set boundary data in physical fields (only first radial level needed)
+    inner_data = parent(inner_phys_field.data)
+    outer_data = parent(outer_phys_field.data)
+    
+    # Copy boundary data to physical fields
+    if size(inner_data, 3) >= 1
+        inner_data[:, :, 1] = inner_physical
+    end
+    if size(outer_data, 3) >= 1  
+        outer_data[:, :, 1] = outer_physical
+    end
+    
+    # Transform to spectral space
+    inner_spec = create_shtns_spectral_field(T, config, temp_field.oc_domain, config.pencils.spec)
+    outer_spec = create_shtns_spectral_field(T, config, temp_field.oc_domain, config.pencils.spec)
+    
+    # Perform physical to spectral transforms
+    shtnskit_physical_to_spectral!(inner_phys_field, inner_spec)
+    shtnskit_physical_to_spectral!(outer_phys_field, outer_spec)
+    
+    # Extract spectral coefficients for boundary values
+    inner_spec_data = parent(inner_spec.data_real)
+    outer_spec_data = parent(outer_spec.data_real)
+    
+    # Store in boundary_values matrix [2, nlm]
+    # Row 1: inner boundary, Row 2: outer boundary
+    for lm_idx in 1:config.nlm
+        if size(inner_spec_data, 3) >= 1
+            temp_field.boundary_values[1, lm_idx] = inner_spec_data[lm_idx, 1, 1]
+            temp_field.boundary_values[2, lm_idx] = outer_spec_data[lm_idx, 1, 1]
+        end
+    end
+    
+    return temp_field
+end
+
+"""
+    update_time_dependent_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                                 current_time::Float64) where T
+
+Update time-dependent temperature boundary conditions based on current simulation time.
+
+# Arguments
+- `temp_field`: Temperature field with loaded boundary conditions
+- `current_time`: Current simulation time
+
+This function automatically determines the appropriate time index from the boundary data
+and applies the corresponding boundary conditions.
+"""
+function update_time_dependent_temperature_boundaries!(temp_field::SHTnsTemperatureField{T}, 
+                                                      current_time::Float64) where T
+    
+    if temp_field.boundary_condition_set === nothing
+        return temp_field  # No boundary conditions loaded
+    end
+    
+    boundary_set = temp_field.boundary_condition_set
+    
+    # Check if boundaries are time-dependent
+    if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
+        return temp_field  # Time-independent boundaries don't need updating
+    end
+    
+    # Determine time index based on current time
+    time_index = determine_boundary_time_index(boundary_set, current_time)
+    
+    # Apply boundaries if time index changed
+    if time_index != temp_field.boundary_time_index[]
+        apply_file_temperature_boundaries!(temp_field, time_index)
+        
+        if get_rank() == 0
+            @info "Updated time-dependent temperature boundaries: time=$current_time, index=$time_index"
+        end
+    end
+    
+    return temp_field
+end
+
+"""
+    determine_boundary_time_index(boundary_set::BoundaryConditionSet{T}, 
+                                 current_time::Float64) where T
+
+Determine the appropriate time index for boundary conditions based on current simulation time.
+"""
+function determine_boundary_time_index(boundary_set::BoundaryConditionSet{T}, 
+                                      current_time::Float64) where T
+    
+    # Use inner boundary time coordinate (assuming both boundaries have same time grid)
+    if boundary_set.inner_boundary.time === nothing
+        return 1  # Time-independent
+    end
+    
+    time_coords = boundary_set.inner_boundary.time
+    
+    # Find closest time index
+    if current_time <= time_coords[1]
+        return 1
+    elseif current_time >= time_coords[end]
+        return length(time_coords)
+    else
+        # Linear interpolation to find closest index
+        for i in 1:(length(time_coords)-1)
+            if time_coords[i] <= current_time <= time_coords[i+1]
+                # Choose closer time point
+                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
+                    return i
+                else
+                    return i + 1
+                end
+            end
+        end
+    end
+    
+    return 1  # Fallback
+end
+
+"""
+    set_programmatic_temperature_boundaries!(temp_field::SHTnsTemperatureField{T},
+                                           inner_pattern::Tuple, outer_pattern::Tuple) where T
+
+Set programmatically generated temperature boundary conditions.
+
+# Arguments  
+- `temp_field`: Temperature field to apply boundary conditions to
+- `inner_pattern`: Inner boundary pattern (:pattern_type, amplitude, parameters)
+- `outer_pattern`: Outer boundary pattern (:pattern_type, amplitude, parameters)
+
+# Example
+```julia  
+set_programmatic_temperature_boundaries!(temp_field,
+    (:plume, 4200.0, Dict("width" => π/6)),  # Hot plume at CMB
+    (:uniform, 300.0, Dict())                # Uniform surface temperature
+)
+```
+"""
+function set_programmatic_temperature_boundaries!(temp_field::SHTnsTemperatureField{T},
+                                                inner_pattern::Tuple, 
+                                                outer_pattern::Tuple) where T
+    
+    config = temp_field.config
+    
+    # Create programmatic boundary set
+    boundary_set = create_hybrid_temperature_boundaries(
+        inner_pattern, outer_pattern, config, precision=T
+    )
+    
+    # Store and apply
+    temp_field.boundary_condition_set = boundary_set
+    temp_field.boundary_time_index[] = 1
+    apply_file_temperature_boundaries!(temp_field, 1)
+    
+    if get_rank() == 0
+        @info "Applied programmatic temperature boundary conditions"
+    end
+    
+    return temp_field
+end
+
+"""
+    get_current_temperature_boundaries(temp_field::SHTnsTemperatureField{T}) -> Dict
+
+Get the current temperature boundary values in physical space.
+
+# Returns
+Dictionary containing:
+- `:inner_physical`: Inner boundary temperature in physical space
+- `:outer_physical`: Outer boundary temperature in physical space  
+- `:inner_spectral`: Inner boundary coefficients
+- `:outer_spectral`: Outer boundary coefficients
+- `:time_index`: Current time index
+- `:metadata`: Boundary condition metadata
+"""
+function get_current_temperature_boundaries(temp_field::SHTnsTemperatureField{T}) where T
+    
+    if temp_field.boundary_condition_set === nothing
+        return Dict(
+            :inner_physical => nothing,
+            :outer_physical => nothing,
+            :inner_spectral => temp_field.boundary_values[1, :],
+            :outer_spectral => temp_field.boundary_values[2, :],
+            :time_index => temp_field.boundary_time_index[],
+            :metadata => Dict("source" => "not_loaded")
+        )
+    end
+    
+    time_idx = temp_field.boundary_time_index[]
+    cache_key = "time_$(time_idx)"
+    
+    if haskey(temp_field.boundary_interpolation_cache, cache_key)
+        interpolated_data = temp_field.boundary_interpolation_cache[cache_key]
+        
+        return Dict(
+            :inner_physical => interpolated_data[:inner],
+            :outer_physical => interpolated_data[:outer],
+            :inner_spectral => temp_field.boundary_values[1, :],
+            :outer_spectral => temp_field.boundary_values[2, :],
+            :time_index => time_idx,
+            :metadata => Dict(
+                "source" => "file_based",
+                "inner_file" => temp_field.boundary_condition_set.inner_boundary.file_path,
+                "outer_file" => temp_field.boundary_condition_set.outer_boundary.file_path,
+                "field_name" => temp_field.boundary_condition_set.field_name
+            )
+        )
+    else
+        return Dict(
+            :inner_physical => nothing,
+            :outer_physical => nothing, 
+            :inner_spectral => temp_field.boundary_values[1, :],
+            :outer_spectral => temp_field.boundary_values[2, :],
+            :time_index => time_idx,
+            :metadata => Dict("source" => "spectral_only")
+        )
+    end
+end
+
+"""
+    validate_temperature_boundary_files(inner_file::String, outer_file::String, 
+                                       config::SHTnsKitConfig) -> Bool
+
+Validate that temperature boundary NetCDF files are compatible with the simulation configuration.
+
+# Arguments
+- `inner_file`: Path to inner boundary NetCDF file
+- `outer_file`: Path to outer boundary NetCDF file  
+- `config`: SHTns configuration
+
+# Returns
+`true` if files are valid and compatible, throws exception otherwise
+"""
+function validate_temperature_boundary_files(inner_file::String, outer_file::String, 
+                                            config::SHTnsKitConfig)
+    
+    # Check file existence
+    if !isfile(inner_file)
+        throw(ArgumentError("Inner boundary file not found: $inner_file"))
+    end
+    
+    if !isfile(outer_file)
+        throw(ArgumentError("Outer boundary file not found: $outer_file"))
+    end
+    
+    try
+        # Load boundary data for validation
+        temp_boundaries = load_temperature_boundaries(inner_file, outer_file, precision=Float64)
+        
+        # Validate compatibility with SHTns configuration
+        validate_netcdf_temperature_compatibility(temp_boundaries, config)
+        
+        if get_rank() == 0
+            @info "Temperature boundary files validated successfully"
+            println("✅ Inner file: $inner_file")  
+            println("✅ Outer file: $outer_file")
+            println("✅ Grid compatibility: $(config.nlat)×$(config.nlon)")
+            println("✅ Time dependency: $(temp_boundaries.inner_boundary.is_time_dependent)")
+        end
+        
+        return true
+        
+    catch e
+        @error "Temperature boundary file validation failed: $e"
+        rethrow(e)
+    end
+end
+
+# ============================================================================
+# Export new boundary condition functions
+# ============================================================================
+
+export load_temperature_boundary_conditions!, apply_file_temperature_boundaries!
+export update_time_dependent_temperature_boundaries!, set_programmatic_temperature_boundaries!  
+export get_current_temperature_boundaries, validate_temperature_boundary_files

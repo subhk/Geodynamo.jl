@@ -1064,6 +1064,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end
     end
     
+    # Update time-dependent boundary conditions if enabled
+    current_time = state.timestep_state.step * dt
+    update_time_dependent_temperature_boundaries!(state.temperature, current_time)
+    
     # Create tasks for parallel implicit solve
     temp_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
