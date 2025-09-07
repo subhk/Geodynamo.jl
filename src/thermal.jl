@@ -19,7 +19,13 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-struct SHTnsTemperatureField{T}
+include("scalar_field_common.jl")
+
+# Specializations for temperature field
+get_main_physical_field(field::SHTnsTemperatureField{T}) where T = field.temperature
+get_domain(field::SHTnsTemperatureField{T}) where T = field.config.domain
+
+struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     # Physical space temperature
     temperature::SHTnsPhysicalField{T}
     gradient::SHTnsVectorField{T}
@@ -139,82 +145,6 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-# =======================================================
-# Pre-computation of spectral derivative operators
-# =======================================================
-function build_theta_derivative_matrix(::Type{T}, config::SHTnsKitConfig) where T
-    """
-    Build sparse matrix for θ-derivatives in spectral space.
-    This matrix couples different l modes with the same m.
-    """
-    nlm = config.nlm
-    
-    # Build sparse matrix for derivative operator
-    I = Int[]
-    J = Int[]
-    V = T[]
-    
-    for lm_idx in 1:nlm
-        l = config.l_values[lm_idx]
-        m = config.m_values[lm_idx]
-        abs_m = abs(m)
-        
-        # Forward coupling (l,m) → (l+1,m)
-        if l < config.lmax
-            lp1m_idx = get_mode_index(config, l+1, m)
-            if lp1m_idx > 0
-                coeff = sqrt((l + abs_m + 1) * (l - abs_m + 1) / 
-                           ((2*l + 1) * (2*l + 3))) * l
-                push!(I, lm_idx)
-                push!(J, lp1m_idx)
-                push!(V, T(coeff))
-            end
-        end
-        
-        # Backward coupling (l,m) → (l-1,m)
-        if l > abs_m
-            lm1m_idx = get_mode_index(config, l-1, m)
-            if lm1m_idx > 0
-                coeff = -sqrt((l + abs_m) * (l - abs_m) / 
-                            ((2*l - 1) * (2*l + 1))) * (l + 1)
-                push!(I, lm_idx)
-                push!(J, lm1m_idx)
-                push!(V, T(coeff))
-            end
-        end
-    end
-    
-    return sparse(I, J, V, nlm, nlm)
-end
-
-function compute_theta_recurrence_coefficients(::Type{T}, config::SHTnsKitConfig) where T
-    """
-    Pre-compute recurrence coefficients for θ-derivatives.
-    Store as [nlm, 2] matrix: [:, 1] for l-1 coupling, [:, 2] for l+1 coupling
-    """
-    coeffs = zeros(T, config.nlm, 2)
-    
-    for lm_idx in 1:config.nlm
-        l = config.l_values[lm_idx]
-        m = config.m_values[lm_idx]
-        abs_m = abs(m)
-        
-        # Backward coupling coefficient (l-1,m)
-        if l > abs_m
-            coeffs[lm_idx, 1] = -sqrt((l + abs_m) * (l - abs_m) / 
-                                     ((2*l - 1) * (2*l + 1))) * (l + 1)
-        end
-        
-        # Forward coupling coefficient (l+1,m)
-        if l < config.lmax
-            coeffs[lm_idx, 2] = sqrt((l + abs_m + 1) * (l - abs_m + 1) / 
-                                    ((2*l + 1) * (2*l + 3))) * l
-        end
-    end
-    
-    return coeffs
-end
-
 # ============================================================================
 # Main nonlinear computation with full spectral optimization
 # ============================================================================
@@ -224,21 +154,21 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
-    zero_temperature_work_arrays!(temp_field)
+    zero_scalar_work_arrays!(temp_field)
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(temp_field, oc_domain)
+    compute_all_gradients_spectral!(temp_field)
     temp_field.spectral_time[] += MPI.Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
     t_transform = MPI.Wtime()
-    batch_transform_to_physical!(temp_field)
+    transform_field_and_gradients_to_physical!(temp_field)
     temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 3: Compute advection term -u·∇T in physical space (local operation)
     if vel_fields !== nothing
-        compute_temperature_advection_local!(temp_field, vel_fields)
+        compute_scalar_advection_local!(temp_field, vel_fields)
     end
     
     # Step 4: Add internal heat sources (local operation)
@@ -264,29 +194,7 @@ end
 # ============================================================================
 # Fully spectral gradient computation (NO COMMUNICATION!)
 # ============================================================================
-function compute_all_gradients_spectral!(temp_field::SHTnsTemperatureField{T}, 
-                                        oc_domain::RadialDomain) where T
-    """
-    Compute all three gradient components entirely in spectral space.
-    This is a completely local operation - no MPI communication!
-    """
-    
-    # Get local ranges from config
-    lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
-    
-    # 1. Azimuthal gradient: ∂T/∂φ = im * T
-    compute_phi_gradient_spectral!(temp_field)
-    
-    # 2. Colatitude gradient: ∂T/∂θ using recurrence relations
-    compute_theta_gradient_spectral!(temp_field)
-    
-    # 3. Radial gradient: ∂T/∂r using banded matrix
-    compute_radial_gradient_spectral!(temp_field, oc_domain)
-    
-    # Apply geometric factors (1/r, 1/(r sin θ)) in spectral space
-    apply_geometric_factors_spectral!(temp_field, oc_domain)
-end
+# NOTE: Gradient computation functions moved to scalar_field_common.jl
 
 function compute_phi_gradient_spectral!(temp_field::SHTnsTemperatureField{T}) where T
     """

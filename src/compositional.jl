@@ -1,3 +1,12 @@
+# ===============================================================
+# Composition field components with enhanced SHTns transforms
+# ===============================================================
+# For no-flux boundary conditions (typical for composition):
+# bc_type_inner = fill(2, nlm)  # No-flux at inner boundary  
+# bc_type_outer = fill(2, nlm)  # No-flux at outer boundary
+# apply_composition_boundary_conditions_spectral!(comp_field, domain)
+# ====================================================================================
+
 # ============================================================================
 # Compositional field components with full spectral optimization
 # ============================================================================
@@ -7,7 +16,13 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-struct SHTnsCompositionField{T}
+include("scalar_field_common.jl")
+
+# Specializations for composition field
+get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composition
+get_domain(field::SHTnsCompositionField{T}) where T = field.config.domain
+
+struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
     composition::SHTnsPhysicalField{T}
     gradient::SHTnsVectorField{T}
@@ -51,6 +66,11 @@ struct SHTnsCompositionField{T}
     computation_time::Ref{Float64}
     transform_time::Ref{Float64}
 end
+
+# ============================================================================
+# Main nonlinear computation with full spectral optimization  
+# ============================================================================
+# NOTE: Pre-computation functions moved to scalar_field_common.jl
 
 function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig, 
                                         oc_domain::RadialDomain) where T
@@ -124,7 +144,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
-    zero_composition_work_arrays!(comp_field)
+    zero_scalar_work_arrays!(comp_field)
     
     # Step 1: Transform composition to physical space for advection
     t_transform = MPI.Wtime()
@@ -136,11 +156,11 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     
     # Step 3: Compute advection term -u·∇C in physical space (local operation)
     if vel_fields !== nothing
-        compute_composition_advection_local!(comp_field, vel_fields)
+        compute_scalar_advection_local!(comp_field, vel_fields)
     end
     
     # Step 4: Add internal compositional sources (local operation)
-    add_compositional_sources_local!(comp_field, oc_domain)
+    add_internal_sources_local!(comp_field, oc_domain)
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
@@ -169,14 +189,24 @@ function zero_composition_work_arrays!(comp_field::SHTnsCompositionField{T}) whe
 end
 
 function compute_composition_gradient_local!(comp_field::SHTnsCompositionField{T}) where T
-    # Compute ∇C in physical space for use in diffusion and analysis
-    # This is typically done in spectral space for efficiency, but can be
-    # computed locally if needed for specific applications
+    """
+    Complete composition gradient computation (θ, φ, r) in spectral space
+    This is completely local - no MPI communication required
+    """
+    # 1. Compute spectral gradients (local operation)
+    compute_all_gradients_spectral!(comp_field)
     
-    # For now, we'll compute the gradient in spectral space when needed
-    # This function serves as a placeholder for local gradient computation
-    return
+    # 2. Transform all components to physical space (batched operation)
+    transform_field_and_gradients_to_physical!(comp_field)
 end
+
+# ============================================================================
+# NOTE: Gradient computation functions moved to scalar_field_common.jl
+# ============================================================================
+# NOTE: Batched transform operations moved to scalar_field_common.jl
+# ============================================================================
+# Local physical space operations (no communication)
+# ============================================================================
 
 function compute_composition_advection_local!(comp_field::SHTnsCompositionField{T}, 
                                               vel_fields) where T
@@ -248,7 +278,10 @@ function add_compositional_sources_local!(comp_field::SHTnsCompositionField{T},
     end
 end
 
+# ============================================================================
 # Boundary conditions in spectral space
+# ============================================================================
+
 function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompositionField{T}, 
                                                          domain::RadialDomain) where T
     # Apply boundary conditions in spectral space
@@ -407,7 +440,47 @@ function apply_composition_no_flux!(comp_field::SHTnsCompositionField{T}, domain
     end
 end
 
+# ============================================================================
+# Validation and Testing
+# ============================================================================
+
+function validate_composition_field(comp_field::SHTnsCompositionField{T}, domain::RadialDomain) where T
+    """
+    Validate composition field consistency and boundary conditions
+    """
+    errors = String[]
+    
+    # Check spectral field dimensions
+    spec_real = parent(comp_field.spectral.data_real)
+    if size(spec_real, 1) != comp_field.config.nlm
+        push!(errors, "Spectral field nlm dimension mismatch")
+    end
+    
+    # Check boundary condition arrays
+    if length(comp_field.bc_type_inner) != comp_field.config.nlm
+        push!(errors, "Inner BC array size mismatch")
+    end
+    
+    if length(comp_field.bc_type_outer) != comp_field.config.nlm
+        push!(errors, "Outer BC array size mismatch")
+    end
+    
+    # Check internal sources
+    if length(comp_field.internal_sources) != domain.N
+        push!(errors, "Internal sources array size mismatch")
+    end
+    
+    if !isempty(errors)
+        error("Composition field validation failed:\n" * join(errors, "\n"))
+    end
+    
+    return true
+end
+
+# ============================================================================
 # Diagnostic functions
+# ============================================================================
+
 function compute_composition_rms(comp_field::SHTnsCompositionField{T}, oc_domain::RadialDomain) where T
     # Compute RMS composition
     spec_real = parent(comp_field.spectral.data_real)
@@ -459,14 +532,45 @@ function compute_composition_energy(comp_field::SHTnsCompositionField{T}, oc_dom
     return global_energy / (comp_field.config.nlat * comp_field.config.nlon * oc_domain.N)
 end
 
-function get_composition_statistics(comp_field::SHTnsCompositionField{T}, oc_domain::RadialDomain) where T
-    rms_comp = compute_composition_rms(comp_field, oc_domain)
-    comp_energy = compute_composition_energy(comp_field, oc_domain)
+# ============================================================================
+# Performance monitoring and statistics
+# ============================================================================
+
+function get_composition_statistics(comp_field::SHTnsCompositionField{T}, 
+                                   domain::RadialDomain) where T
+    """
+    Compute various composition field statistics
+    """
+    # Min/max composition
+    comp_data = parent(comp_field.composition.data)
+    local_min = minimum(comp_data)
+    local_max = maximum(comp_data)
     
-    return (rms = rms_comp, energy = comp_energy)
+    global_min = MPI.Allreduce(local_min, MPI.MIN, get_comm())
+    global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
+    
+    # RMS composition
+    local_sum = sum(comp_data.^2)
+    local_count = length(comp_data)
+    
+    global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
+    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
+    
+    rms_comp = sqrt(global_sum / global_count)
+    
+    # Total energy
+    energy = compute_composition_energy(comp_field, domain)
+    
+    return (min = global_min,
+            max = global_max,
+            rms = rms_comp,
+            energy = energy)
 end
 
-# Initial condition functions  
+# ============================================================================
+# Utility functions
+# ============================================================================
+
 function set_composition_ic!(comp_field::SHTnsCompositionField{T}, 
                              ic_type::Symbol, oc_domain::RadialDomain) where T
     # Set initial conditions for composition field
@@ -530,3 +634,17 @@ function set_composition_boundary_conditions!(comp_field::SHTnsCompositionField{
 end
 
 # Note: NetCDF boundary condition functions moved to src/BoundaryConditions/composition.jl
+
+# ============================================================================
+# Export functions
+# ============================================================================
+# export SHTnsCompositionField, create_shtns_composition_field
+# export compute_composition_nonlinear!
+# export compute_composition_rms, compute_composition_energy
+# export get_composition_statistics
+# export zero_composition_work_arrays!
+# export set_composition_ic!, set_composition_boundary_conditions!
+
+# Note: File-based boundary condition functions moved to src/BoundaryConditions/composition.jl
+
+# Note: Boundary condition exports moved to src/BoundaryConditions/composition.jl
