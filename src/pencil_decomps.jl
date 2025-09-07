@@ -504,34 +504,3 @@ function estimate_communication_distance(src::Pencil, dest::Pencil)
     return Float64(distance)
 end
 
-
-# export get_comm, get_rank, get_nprocs
-# export create_pencil_topology, create_transpose_plans
-# export transpose_with_timer!, print_transpose_statistics
-# export analyze_load_balance, estimate_memory_usage
-# export create_pencil_array, synchronize_halos!
-# export print_pencil_info, optimize_communication_order
-# export ENABLE_TIMING
-
-
-# # Enable timing for performance analysis
-# ENABLE_TIMING[] = true
-
-# # Create enhanced pencil topology
-# pencils = create_pencil_topology(shtns_config, optimize=true)
-
-# # Analyze load balance
-# analyze_load_balance(pencils.r)
-
-# # Estimate memory usage
-# bytes, mem_str = estimate_memory_usage(pencils, 10, Float64)
-# println("Estimated memory per process: $mem_str")
-
-# # Create transpose plans
-# plans = create_transpose_plans(pencils)
-
-# # Perform timed transpose
-# transpose_with_timer!(dest, src, plans[:θ_to_φ], "theta_to_phi")
-
-# # Print statistics at end of simulation
-# print_transpose_statistics()
