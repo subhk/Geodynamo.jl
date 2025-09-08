@@ -134,7 +134,8 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     return SHTnsKitConfig(
         sht_config, nlat, nlon, lmax, mmax, nlm,
         pencils, fft_plans, transpose_plans, memory_estimate,
-        l_vals, m_vals, theta_grid, phi_grid, gauss_weights
+        l_vals, m_vals, theta_grid, phi_grid, gauss_weights,
+        Dict{Symbol, Any}()  # Initialize empty buffer cache
     )
 end
 
@@ -764,19 +765,17 @@ function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
     return coeffs_buffer
 end
 
-# Convenience wrapper for backward compatibility - allocates once per config
+# Convenience wrapper for backward compatibility - uses buffer cache
 function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
-    # Create thread-local buffer cache
-    if !hasfield(typeof(config), :_coeffs_buffer_cache)
-        # Store buffer in config if possible, otherwise allocate each time
+    # Get or create cached buffer
+    buffer_key = :coeffs_buffer
+    if !haskey(config._buffer_cache, buffer_key)
         lmax, mmax = config.lmax, config.mmax
-        coeffs_buffer = zeros(ComplexF64, lmax+1, mmax+1)
-        return extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
+        config._buffer_cache[buffer_key] = zeros(ComplexF64, lmax+1, mmax+1)
     end
     
-    # Use cached buffer if available
-    return extract_coefficients_for_shtnskit!(config._coeffs_buffer_cache, 
-                                             spec_real, spec_imag, r_local, config)
+    coeffs_buffer = config._buffer_cache[buffer_key]
+    return extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 end
 
 """
@@ -889,7 +888,13 @@ end
 # Backward compatibility wrapper
 function extract_physical_slice_phi_local(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    slice_buffer = zeros(eltype(phys_data), nlat, nlon)
+    # Get or create cached buffer for phi slice
+    buffer_key = :phi_slice_buffer
+    if !haskey(config._buffer_cache, buffer_key)
+        config._buffer_cache[buffer_key] = zeros(eltype(phys_data), nlat, nlon)
+    end
+    
+    slice_buffer = config._buffer_cache[buffer_key]
     return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
 end
 
@@ -922,7 +927,13 @@ end
 # Backward compatibility wrapper
 function extract_physical_slice_generic(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    slice_buffer = zeros(eltype(phys_data), nlat, nlon)
+    # Get or create cached buffer for generic slice  
+    buffer_key = :generic_slice_buffer
+    if !haskey(config._buffer_cache, buffer_key)
+        config._buffer_cache[buffer_key] = zeros(eltype(phys_data), nlat, nlon)
+    end
+    
+    slice_buffer = config._buffer_cache[buffer_key]
     return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
 end
 
