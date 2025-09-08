@@ -1061,6 +1061,130 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
 end
 
 # ============================================================================
+# Direct Method Implementation (Simple but less accurate)
+# ============================================================================
+
+"""
+    apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                         field::AbstractScalarField, domain, r_range)
+
+Direct modification of boundary values to approximately satisfy flux BC.
+This is the simplest but least accurate method.
+"""
+function apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                              field::AbstractScalarField, domain, r_range)
+    T = eltype(spec_real)
+    
+    # Get prescribed flux
+    if 1 in r_range
+        flux_inner = get_flux_value(lm_idx, 1, field)
+        modify_for_flux_inner!(spec_real, spec_imag, local_lm, flux_inner, 
+                              field.dr_matrix, domain, r_range)
+    end
+    
+    if domain.N in r_range
+        flux_outer = get_flux_value(lm_idx, 2, field)
+        modify_for_flux_outer!(spec_real, spec_imag, local_lm, flux_outer,
+                              field.dr_matrix, domain, r_range)
+    end
+end
+
+"""
+    modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
+                          dr_matrix, domain, r_range)
+
+Modify coefficients near inner boundary to approximate flux condition.
+Uses low-order extrapolation.
+"""
+function modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
+                               dr_matrix, domain, r_range)
+    T = eltype(spec_real)
+    
+    if 1 in r_range && 2 in r_range
+        # Use linear extrapolation based on prescribed flux
+        local_1 = 1 - first(r_range) + 1
+        local_2 = 2 - first(r_range) + 1
+        
+        dr = domain.r[2, 4] - domain.r[1, 4]
+        
+        # T(r1) ≈ T(r2) - prescribed_flux * dr
+        spec_real[local_lm, 1, local_1] = spec_real[local_lm, 1, local_2] - prescribed_flux * dr
+        spec_imag[local_lm, 1, local_1] = spec_imag[local_lm, 1, local_2]
+    end
+end
+
+"""
+    modify_for_flux_outer!(spec_real, spec_imag, local_lm, prescribed_flux,
+                          dr_matrix, domain, r_range)
+
+Modify coefficients near outer boundary to approximate flux condition.
+Uses low-order extrapolation.
+"""
+function modify_for_flux_outer!(spec_real, spec_imag, local_lm, prescribed_flux,
+                               dr_matrix, domain, r_range)
+    T = eltype(spec_real)
+    nr = domain.N
+    
+    if (nr-1) in r_range && nr in r_range
+        # Use linear extrapolation based on prescribed flux
+        local_nr_1 = (nr-1) - first(r_range) + 1
+        local_nr = nr - first(r_range) + 1
+        
+        dr = domain.r[nr, 4] - domain.r[nr-1, 4]
+        
+        # T(r_outer) ≈ T(r_inner) + prescribed_flux * dr
+        spec_real[local_lm, 1, local_nr] = spec_real[local_lm, 1, local_nr_1] + prescribed_flux * dr
+        spec_imag[local_lm, 1, local_nr] = spec_imag[local_lm, 1, local_nr_1]
+    end
+end
+
+# ============================================================================
+# High-level boundary condition application
+# ============================================================================
+
+"""
+    apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::RadialDomain;
+                                   method::Symbol=:tau) where T
+
+Apply flux boundary conditions to a scalar field in spectral space.
+Methods available: :tau (most robust), :influence_matrix, :direct (simplest).
+"""
+function apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::RadialDomain;
+                                       method::Symbol=:tau) where T
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+    
+    lm_range = range_local(field.config.pencils.spec, 1)
+    r_range  = range_local(field.config.pencils.spec, 3)
+    
+    for lm_idx in lm_range
+        if lm_idx <= field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+            
+            # Check if this mode needs flux BC
+            apply_inner = (field.bc_type_inner[lm_idx] == 2) && (1 in r_range)
+            apply_outer = (field.bc_type_outer[lm_idx] == 2) && (domain.N in r_range)
+            
+            if apply_inner || apply_outer
+                # Apply flux BC using specified method
+                if method == :tau
+                    apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                      apply_inner, apply_outer, field, domain, r_range)
+                elseif method == :influence_matrix
+                    apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, field, domain, r_range)
+                elseif method == :direct
+                    apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                         field, domain, r_range)
+                else
+                    error("Unknown flux BC method: $method. Use :tau, :influence_matrix, or :direct")
+                end
+            end
+        end
+    end
+end
+
+# ============================================================================
 # MPI utilities (SHARED)
 # ============================================================================
 
