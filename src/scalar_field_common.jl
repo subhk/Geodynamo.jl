@@ -789,6 +789,278 @@ function apply_tau_correction!(profile::Vector{T}, tau_coeffs, domain::RadialDom
 end
 
 # ============================================================================
+# Boundary Condition Utility Functions
+# ============================================================================
+
+"""
+    compute_boundary_fluxes(profile::Vector{T}, dr_matrix::BandedMatrix{T}, domain::RadialDomain) where T
+
+Compute flux (dT/dr) at both boundaries using the derivative matrix.
+"""
+function compute_boundary_fluxes(profile::Vector{T}, dr_matrix::BandedMatrix{T},
+                                domain::RadialDomain) where T
+    nr = domain.N
+    dprofile = dr_matrix * profile
+    
+    return dprofile[1], dprofile[nr]
+end
+
+"""
+    get_flux_value(lm_idx::Int, boundary::Int, field::AbstractScalarField)
+
+Get prescribed flux value for given mode and boundary from scalar field.
+This is a generic version that works with any scalar field.
+"""
+function get_flux_value(lm_idx::Int, boundary::Int, field::AbstractScalarField)
+    # Check if field has boundary_values matrix
+    if hasfield(typeof(field), :boundary_values)
+        # Return flux value from boundary_values matrix
+        # boundary_values[boundary, lm_idx] where boundary: 1=inner, 2=outer
+        return field.boundary_values[boundary, lm_idx]
+    else
+        # Fallback: get from l,m values if available
+        if hasfield(typeof(field), :config) && 
+           hasfield(typeof(field.config), :l_values) && 
+           hasfield(typeof(field.config), :m_values)
+            
+            l = field.config.l_values[lm_idx]
+            m = field.config.m_values[lm_idx]
+            
+            # Default example: uniform heating/cooling for l=0,m=0
+            if l == 0 && m == 0
+                if boundary == 1
+                    return 1.0   # Heating from below
+                else
+                    return -1.0  # Cooling from above
+                end
+            else
+                return 0.0  # No flux for other modes
+            end
+        else
+            return 0.0  # No flux available
+        end
+    end
+end
+
+"""
+    apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx, 
+                       apply_inner, apply_outer, field::AbstractScalarField, 
+                       domain, r_range)
+
+Apply flux boundary conditions using the tau method.
+This is the generalized version that works with any scalar field.
+"""
+function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                           apply_inner, apply_outer,
+                           field::AbstractScalarField, domain, r_range)
+    T = eltype(spec_real)
+    nr = domain.N
+    
+    # Extract radial profile for this mode
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+    
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+        end
+    end
+    
+    # MPI gather to get complete profile (needed for BC application)
+    if MPI.Comm_size(get_comm()) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, get_comm())
+        MPI.Allreduce!(profile_imag, MPI.SUM, get_comm())
+    end
+    
+    # Get prescribed flux values
+    flux_inner = apply_inner ? get_flux_value(lm_idx, 1, field) : T(0)
+    flux_outer = apply_outer ? get_flux_value(lm_idx, 2, field) : T(0)
+    
+    # Compute current fluxes at boundaries
+    current_flux_inner, current_flux_outer = compute_boundary_fluxes(
+        profile_real, field.dr_matrix, domain)
+    
+    # Compute tau corrections
+    if apply_inner && apply_outer
+        # Both boundaries have flux BCs
+        tau_coeffs = compute_tau_coefficients_both(
+            flux_inner - current_flux_inner,
+            flux_outer - current_flux_outer,
+            domain)
+    elseif apply_inner
+        # Only inner boundary
+        tau_coeffs = compute_tau_coefficients_inner(
+            flux_inner - current_flux_inner, domain)
+    else
+        # Only outer boundary
+        tau_coeffs = compute_tau_coefficients_outer(
+            flux_outer - current_flux_outer, domain)
+    end
+    
+    # Apply tau correction to profile
+    apply_tau_correction!(profile_real, tau_coeffs, domain)
+    if any(x -> abs(x) > 1e-12, profile_imag)
+        apply_tau_correction!(profile_imag, tau_coeffs, domain)
+    end
+    
+    # Store corrected profile back
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        end
+    end
+end
+
+# ============================================================================
+# Influence Matrix Method Implementation
+# ============================================================================
+
+"""
+    compute_influence_functions_flux(oc_domain::RadialDomain)
+
+Compute influence functions for flux BCs.
+These are solutions to the homogeneous equation with specific BCs.
+"""
+function compute_influence_functions_flux(oc_domain::RadialDomain)
+    nr = oc_domain.N
+    ri = oc_domain.r[1, 4]
+    ro = oc_domain.r[nr, 4]
+    
+    G_inner = zeros(nr)
+    G_outer = zeros(nr)
+    
+    for i in 1:nr
+        r = oc_domain.r[i, 4]
+        ξ = (r - ri) / (ro - ri)
+        
+        # Inner influence: strong at inner, weak at outer
+        G_inner[i] = exp(-3.0 * ξ) * (1.0 - ξ)
+        
+        # Outer influence: weak at inner, strong at outer
+        G_outer[i] = exp(-3.0 * (1.0 - ξ)) * ξ
+    end
+    
+    # Normalize to have unit flux contribution
+    normalize_influence_function!(G_inner, oc_domain, 1)
+    normalize_influence_function!(G_outer, oc_domain, 2)
+    
+    return G_inner, G_outer
+end
+
+"""
+    normalize_influence_function!(G::Vector{T}, domain::RadialDomain, which_boundary::Int) where T
+
+Normalize influence function to have unit flux at the specified boundary.
+"""
+function normalize_influence_function!(G::Vector{T}, domain::RadialDomain, which_boundary::Int) where T
+    dr = create_derivative_matrix(1, domain)
+    dG = dr * G
+    if which_boundary == 1
+        scale = dG[1]
+    else
+        scale = dG[end]
+    end
+    if abs(scale) > eps(T)
+        @. G = G / scale
+    end
+    return G
+end
+
+"""
+    build_influence_matrix(G_inner, G_outer, dr_matrix, domain)
+
+Construct a 2×2 matrix mapping influence amplitudes to boundary flux errors.
+Rows correspond to (inner, outer) boundaries; columns to (inner, outer) influence functions.
+"""
+function build_influence_matrix(G_inner::Vector{T}, G_outer::Vector{T},
+                               dr_matrix::BandedMatrix{T}, domain::RadialDomain) where T
+    dGi = dr_matrix * G_inner
+    dGo = dr_matrix * G_outer
+    return [dGi[1]  dGo[1];
+            dGi[end] dGo[end]]
+end
+
+"""
+    _get_influence_cache(domain::RadialDomain, dr_matrix::BandedMatrix)
+
+Get or create cached influence functions and matrix for given domain.
+"""
+function _get_influence_cache(domain::RadialDomain, dr_matrix::BandedMatrix)
+    cache = get(_INFLUENCE_CACHE, domain, nothing)
+    if cache === nothing || cache.nr != domain.N
+        Gi, Go = compute_influence_functions_flux(domain)
+        M = build_influence_matrix(Gi, Go, dr_matrix, domain)
+        cache = _InfluenceCache(domain.N, Gi, Go, M)
+        _INFLUENCE_CACHE[domain] = cache
+    end
+    return cache
+end
+
+"""
+    apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
+                                   apply_inner, apply_outer, field::AbstractScalarField,
+                                   domain, r_range)
+
+Apply flux boundary conditions using the influence matrix method.
+"""
+function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
+                                       apply_inner, apply_outer,
+                                       field::AbstractScalarField, domain, r_range)
+    T = eltype(spec_real)
+    infl = _get_influence_cache(domain, field.dr_matrix)
+    
+    # Get prescribed and current flux values
+    flux_prescribed = [get_flux_value(lm_idx, 1, field),
+                      get_flux_value(lm_idx, 2, field)]
+    
+    # Extract and gather radial profile
+    nr = domain.N
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+    
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+        end
+    end
+    
+    if MPI.Comm_size(get_comm()) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, get_comm())
+        MPI.Allreduce!(profile_imag, MPI.SUM, get_comm())
+    end
+    
+    # Compute current flux at boundaries
+    current_flux_inner, current_flux_outer = compute_boundary_fluxes(
+        profile_real, field.dr_matrix, domain)
+    flux_current = [current_flux_inner, current_flux_outer]
+    
+    # Solve for influence amplitudes
+    flux_error = flux_prescribed - flux_current
+    amplitudes = infl.influence_matrix \ flux_error
+    
+    # Apply influence correction
+    @. profile_real += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
+    if any(x -> abs(x) > 1e-12, profile_imag)
+        @. profile_imag += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
+    end
+    
+    # Store corrected profile back
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        end
+    end
+end
+
+# ============================================================================
 # MPI utilities (SHARED)
 # ============================================================================
 
