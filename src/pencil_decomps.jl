@@ -496,7 +496,7 @@ function exchange_dimension_halos!(data::Array, pencil::Pencil, dim::Int,
     send_left_data = data[send_left_slice...]
     send_right_data = data[send_right_slice...]
     
-    # Create receive buffers
+    # Reuse send buffers as receive buffers to reduce allocation
     recv_left_data = similar(send_left_data)
     recv_right_data = similar(send_right_data)
     

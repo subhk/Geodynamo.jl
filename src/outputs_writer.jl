@@ -823,7 +823,11 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String,Float64},
     
     for (idx, l) in enumerate(l_values)
         if idx <= size(real_part, 1)
-            l_energy = sum(real_part[idx, :, :].^2 .+ imag_part[idx, :, :].^2)
+            # In-place computation for l-mode energy
+            l_energy = zero(eltype(real_part))
+            for j in axes(real_part, 2), k in axes(real_part, 3)
+                l_energy += real_part[idx, j, k]^2 + imag_part[idx, j, k]^2
+            end
             l_energies[l + 1] += l_energy
         end
     end

@@ -51,6 +51,9 @@ struct SHTnsKitConfig
     theta_grid::Vector{Float64}
     phi_grid::Vector{Float64}
     gauss_weights::Vector{Float64}
+    
+    # Memory-efficient buffer cache for reuse
+    _buffer_cache::Dict{Symbol, Any}
 end
 
 """
