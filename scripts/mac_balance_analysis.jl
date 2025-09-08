@@ -1116,7 +1116,7 @@ function main()
     output_file = save_mac_results(result, args["output_dir"], args["save_format"], args["data_file"])
     
     println("\n" * "="^60)
-    println("✅ MAC Balance Analysis completed successfully!")
+    println("MAC Balance Analysis completed successfully!")
     println("Results saved to: $(dirname(output_file))")
     println("="^60)
     

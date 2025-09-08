@@ -784,7 +784,7 @@ function main()
                                               args["data_file"])
     
     println("\n" * "="^60)
-    println("✅ Analysis completed successfully!")
+    println("Analysis completed successfully!")
     println("Results saved to: $(dirname(output_file))")
     println("="^60)
     
