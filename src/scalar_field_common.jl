@@ -521,6 +521,274 @@ function zero_scalar_work_arrays!(field::AbstractScalarField{T}) where T
 end
 
 # ============================================================================
+# Boundary Condition Utilities (SHARED)
+# ============================================================================
+
+# Tau method cache structure for efficient boundary condition enforcement
+mutable struct _TauCache
+    nr::Int
+    tau1::Vector{Float64}
+    tau2::Vector{Float64}
+    dtau1_inner::Float64
+    dtau1_outer::Float64
+    dtau2_inner::Float64
+    dtau2_outer::Float64
+end
+
+# Global tau cache dictionary
+const _TAU_CACHE = IdDict{RadialDomain, _TauCache}()
+
+# Influence matrix cache structure
+mutable struct _InfluenceCache
+    nr::Int
+    G_inner::Vector{Float64}
+    G_outer::Vector{Float64}
+    influence_matrix::Matrix{Float64}
+end
+
+# Global influence cache dictionary
+const _INFLUENCE_CACHE = IdDict{RadialDomain, _InfluenceCache}()
+
+# ============================================================================
+# Chebyshev Polynomial Utilities
+# ============================================================================
+
+"""
+    compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
+
+Compute Chebyshev polynomial T_n on the radial grid.
+"""
+function compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
+    nr = domain.N
+    poly = zeros(nr)
+    
+    ri = domain.r[1, 4]
+    ro = domain.r[nr, 4]
+    
+    for i in 1:nr
+        r = domain.r[i, 4]
+        # Map to [-1, 1]
+        x = 2.0 * (r - ri) / (ro - ri) - 1.0
+        # T_n(x) = cos(n * acos(x))
+        poly[i] = cos(n * acos(clamp(x, -1.0, 1.0)))
+    end
+    
+    return poly
+end
+
+"""
+    evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where T
+
+Evaluate derivative of Chebyshev polynomial at a point.
+"""
+function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where T
+    ri = domain.r[1, 4]
+    ro = domain.r[domain.N, 4]
+    
+    # Map to [-1, 1]
+    x = 2.0 * (r - ri) / (ro - ri) - 1.0
+    
+    # dT_n/dx = n * U_{n-1}(x) where U is Chebyshev polynomial of second kind
+    # U_{n-1}(x) = sin(n * acos(x)) / sin(acos(x))
+    
+    if abs(abs(x) - 1.0) < 1e-12
+        # Special case at boundaries
+        dTn_dx = n^2 * sign(x)^(n+1)
+    else
+        theta = acos(clamp(x, -1.0, 1.0))
+        dTn_dx = n * sin(n * theta) / sin(theta)
+    end
+    
+    # Chain rule: dT_n/dr = dT_n/dx * dx/dr
+    dx_dr = 2.0 / (ro - ri)
+    
+    return dTn_dx * dx_dr
+end
+
+# ============================================================================
+# Tau Method Cache Management
+# ============================================================================
+
+"""
+    _get_tau_cache(domain::RadialDomain)
+
+Get or create cached tau polynomials and derivatives for given domain.
+"""
+function _get_tau_cache(domain::RadialDomain)
+    nr = domain.N
+    cache = get(_TAU_CACHE, domain, nothing)
+    if cache === nothing || cache.nr != nr || length(cache.tau1) != nr
+        # Recompute cache for current domain
+        tau1 = compute_chebyshev_polynomial(nr-1, domain)
+        tau2 = compute_chebyshev_polynomial(nr, domain)
+        dt1i = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
+        dt1o = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
+        dt2i = evaluate_chebyshev_derivative(nr,   domain.r[1, 4], domain)
+        dt2o = evaluate_chebyshev_derivative(nr,   domain.r[nr, 4], domain)
+        cache = _TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
+        _TAU_CACHE[domain] = cache
+    end
+    return cache
+end
+
+# ============================================================================
+# Tau Method Implementation
+# ============================================================================
+
+"""
+    compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T, domain::RadialDomain) where T
+
+Compute tau polynomial coefficients for both boundaries.
+Uses highest two Chebyshev modes as tau functions.
+"""
+function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
+                                      domain::RadialDomain) where T
+    nr = domain.N
+    # Use cached tau polynomials/derivatives for this nr
+    tau_cache = _get_tau_cache(domain)
+    tau1 = tau_cache.tau1
+    tau2 = tau_cache.tau2
+    dtau1_inner = tau_cache.dtau1_inner
+    dtau1_outer = tau_cache.dtau1_outer
+    dtau2_inner = tau_cache.dtau2_inner
+    dtau2_outer = tau_cache.dtau2_outer
+    
+    # Solve 2x2 system for tau coefficients
+    # [dtau1_inner  dtau2_inner] [c1]   [flux_error_inner]
+    # [dtau1_outer  dtau2_outer] [c2] = [flux_error_outer]
+    
+    det = dtau1_inner * dtau2_outer - dtau1_outer * dtau2_inner
+    
+    if abs(det) > 1e-12
+        c1 = (flux_error_inner * dtau2_outer - flux_error_outer * dtau2_inner) / det
+        c2 = (flux_error_outer * dtau1_inner - flux_error_inner * dtau1_outer) / det
+    else
+        c1 = c2 = zero(T)
+    end
+    
+    return (c1, c2, tau1, tau2)
+end
+
+"""
+    compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) where T
+
+Compute tau coefficient for inner boundary only.
+Uses a single tau function that doesn't affect outer boundary.
+"""
+function compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) where T
+    nr = domain.N
+    
+    # Use a polynomial that has zero derivative at outer boundary
+    # This is a linear combination of Chebyshev polynomials
+    tau = compute_inner_tau_function(domain)
+    
+    # Derivative at inner boundary
+    dtau_inner = evaluate_tau_derivative_inner(tau, domain)
+    
+    # Tau coefficient
+    c = flux_error / dtau_inner
+    
+    return (c, tau)
+end
+
+"""
+    compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) where T
+
+Compute tau coefficient for outer boundary only.
+Uses a single tau function that doesn't affect inner boundary.
+"""
+function compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) where T
+    nr = domain.N
+    
+    # Use a polynomial that has zero derivative at inner boundary
+    # Similar to inner case but with roles reversed
+    tau = compute_outer_tau_function(domain)
+    
+    # Derivative at outer boundary
+    dtau_outer = evaluate_tau_derivative_outer(tau, domain)
+    
+    # Tau coefficient
+    c = flux_error / dtau_outer
+    
+    return (c, tau)
+end
+
+"""
+    compute_inner_tau_function(domain::RadialDomain)
+
+Compute tau function for inner boundary only (zero derivative at outer).
+"""
+function compute_inner_tau_function(domain::RadialDomain)
+    nr = domain.N
+    # Use T_{nr-1} - α*T_{nr} where α chosen to make derivative zero at outer
+    tau1 = compute_chebyshev_polynomial(nr-1, domain)
+    tau2 = compute_chebyshev_polynomial(nr, domain)
+    
+    dt1_outer = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
+    dt2_outer = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
+    
+    α = abs(dt2_outer) > 1e-12 ? dt1_outer / dt2_outer : 0.0
+    
+    return tau1 - α * tau2
+end
+
+"""
+    compute_outer_tau_function(domain::RadialDomain)
+
+Compute tau function for outer boundary only (zero derivative at inner).
+"""
+function compute_outer_tau_function(domain::RadialDomain)
+    nr = domain.N
+    # Use T_{nr-1} - β*T_{nr} where β chosen to make derivative zero at inner
+    tau1 = compute_chebyshev_polynomial(nr-1, domain)
+    tau2 = compute_chebyshev_polynomial(nr, domain)
+    
+    dt1_inner = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
+    dt2_inner = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
+    
+    β = abs(dt2_inner) > 1e-12 ? dt1_inner / dt2_inner : 0.0
+    
+    return tau1 - β * tau2
+end
+
+"""
+    evaluate_tau_derivative_inner(tau::Vector, domain::RadialDomain)
+
+Evaluate tau function derivative at inner boundary.
+"""
+function evaluate_tau_derivative_inner(tau::Vector, domain::RadialDomain)
+    dr_matrix = create_derivative_matrix(1, domain)
+    dtau = dr_matrix * tau
+    return dtau[1]
+end
+
+"""
+    evaluate_tau_derivative_outer(tau::Vector, domain::RadialDomain)
+
+Evaluate tau function derivative at outer boundary.
+"""
+function evaluate_tau_derivative_outer(tau::Vector, domain::RadialDomain)
+    dr_matrix = create_derivative_matrix(1, domain)
+    dtau = dr_matrix * tau
+    return dtau[end]
+end
+
+"""
+    apply_tau_correction!(profile::Vector{T}, tau_coeffs, domain::RadialDomain) where T
+
+Add tau correction to the radial profile.
+"""
+function apply_tau_correction!(profile::Vector{T}, tau_coeffs, domain::RadialDomain) where T
+    if length(tau_coeffs) == 4  # Both boundaries
+        c1, c2, tau1, tau2 = tau_coeffs
+        @. profile += c1 * tau1 + c2 * tau2
+    elseif length(tau_coeffs) == 2  # Single boundary
+        c, tau = tau_coeffs
+        @. profile += c * tau
+    end
+end
+
+# ============================================================================
 # MPI utilities (SHARED)
 # ============================================================================
 
