@@ -766,11 +766,26 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
                 real_part = field_data["real"]
                 imag_part = field_data["imag"]
                 
-                magnitude = sqrt.(real_part.^2 .+ imag_part.^2)
+                # In-place computation to avoid temporary arrays
+                energy = zero(eltype(real_part))
+                for i in eachindex(real_part, imag_part)
+                    magnitude_sq = real_part[i]^2 + imag_part[i]^2
+                    energy += magnitude_sq
+                end
+                diagnostics["$(component)_energy"] = 0.5 * energy
                 
-                diagnostics["$(component)_energy"] = 0.5 * sum(magnitude.^2)
-                diagnostics["$(component)_rms"] = sqrt(mean(magnitude.^2))
-                diagnostics["$(component)_max"] = maximum(magnitude)
+                # Compute RMS and max without temporary arrays
+                sum_magnitude_sq = zero(eltype(real_part))
+                max_magnitude = zero(eltype(real_part))
+                for i in eachindex(real_part, imag_part)
+                    magnitude_sq = real_part[i]^2 + imag_part[i]^2
+                    magnitude = sqrt(magnitude_sq)
+                    sum_magnitude_sq += magnitude_sq
+                    max_magnitude = max(max_magnitude, magnitude)
+                end
+                
+                diagnostics["$(component)_rms"] = sqrt(sum_magnitude_sq / length(real_part))
+                diagnostics["$(component)_max"] = max_magnitude
                 
                 # Add spectral energy distribution if l_values are available
                 if field_info.config !== nothing && !isempty(field_info.l_values)

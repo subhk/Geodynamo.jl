@@ -734,15 +734,16 @@ function get_pencil_orientation(pencil::Pencil{3})
 end
 
 """
-    extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
+    extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 
-Extract spectral coefficients in format expected by SHTnsKit.
+Extract spectral coefficients in format expected by SHTnsKit using pre-allocated buffer.
 """
-function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
+function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64}, 
+                                           spec_real, spec_imag, r_local, config)
     lmax, mmax = config.lmax, config.mmax
     
-    # Create coefficient matrix in SHTnsKit format: (l+1, m+1)
-    coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+    # Clear the buffer for reuse
+    fill!(coeffs_buffer, zero(ComplexF64))
     
     # Fill from local spectral data
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
@@ -750,14 +751,29 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
         if l <= lmax && m <= mmax && r_local <= size(spec_real, 3)
             real_part = spec_real[lm_idx, 1, r_local]
             imag_part = spec_imag[lm_idx, 1, r_local]
-            coeffs[l+1, m+1] = complex(real_part, imag_part)
+            coeffs_buffer[l+1, m+1] = complex(real_part, imag_part)
         end
     end
     
     # Communicate across MPI processes to complete the spectrum
-    MPI.Allreduce!(coeffs, MPI.SUM, get_comm())
+    MPI.Allreduce!(coeffs_buffer, MPI.SUM, get_comm())
     
-    return coeffs
+    return coeffs_buffer
+end
+
+# Convenience wrapper for backward compatibility - allocates once per config
+function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
+    # Create thread-local buffer cache
+    if !hasfield(typeof(config), :_coeffs_buffer_cache)
+        # Store buffer in config if possible, otherwise allocate each time
+        lmax, mmax = config.lmax, config.mmax
+        coeffs_buffer = zeros(ComplexF64, lmax+1, mmax+1)
+        return extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
+    end
+    
+    # Use cached buffer if available
+    return extract_coefficients_for_shtnskit!(config._coeffs_buffer_cache, 
+                                             spec_real, spec_imag, r_local, config)
 end
 
 """
@@ -843,73 +859,100 @@ function store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
 end
 
 """
-    extract_physical_slice_phi_local(phys_data, r_local, config)
+    extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
 
-Extract physical slice when in phi-local pencil.
+Extract physical slice when in phi-local pencil using pre-allocated buffer.
 """
+function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
+    nlat, nlon = config.nlat, config.nlon
+    
+    # Clear buffer for reuse
+    fill!(slice_buffer, zero(T))
+    
+    common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
+    common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
+    
+    Threads.@threads for i in common_i_range
+        for j in common_j_range
+            if r_local <= size(phys_data, 3)
+                slice_buffer[i, j] = phys_data[i, j, r_local]
+            end
+        end
+    end
+    
+    return slice_buffer
+end
+
+# Backward compatibility wrapper
 function extract_physical_slice_phi_local(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    slice = zeros(eltype(phys_data), nlat, nlon)
-    
-    common_i_range = 1:min(size(phys_data, 1), nlat)
-    common_j_range = 1:min(size(phys_data, 2), nlon)
-    
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            if r_local <= size(phys_data, 3)
-                slice[i, j] = phys_data[i, j, r_local]
-            end
-        end
-    end
-    
-    return slice
+    slice_buffer = zeros(eltype(phys_data), nlat, nlon)
+    return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
 end
 
 """
-    extract_physical_slice_generic(phys_data, r_local, config)
+    extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
 
-Generic extraction for any pencil orientation.
+Generic extraction for any pencil orientation using pre-allocated buffer.
 """
-function extract_physical_slice_generic(phys_data, r_local, config)
+function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
     nlat, nlon = config.nlat, config.nlon
-    slice = zeros(eltype(phys_data), nlat, nlon)
+    
+    # Clear buffer for reuse
+    fill!(slice_buffer, zero(T))
     
     # Generic extraction - may need MPI communication for distributed dimensions
-    common_i_range = 1:min(size(phys_data, 1), nlat)
-    common_j_range = 1:min(size(phys_data, 2), nlon)
+    common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
+    common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
     
     Threads.@threads for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
-                slice[i, j] = phys_data[i, j, r_local]
+                slice_buffer[i, j] = phys_data[i, j, r_local]
             end
         end
     end
     
-    return slice
+    return slice_buffer
+end
+
+# Backward compatibility wrapper
+function extract_physical_slice_generic(phys_data, r_local, config)
+    nlat, nlon = config.nlat, config.nlon
+    slice_buffer = zeros(eltype(phys_data), nlat, nlon)
+    return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
 end
 
 """
-    extract_vector_component_generic(v_data, r_local, config)
+    extract_vector_component_generic!(component_buffer, v_data, r_local, config)
 
-Generic extraction for vector components.
+Generic extraction for vector components using pre-allocated buffer.
 """
-function extract_vector_component_generic(v_data, r_local, config)
+function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, r_local, config) where T
     nlat, nlon = config.nlat, config.nlon
-    component = zeros(eltype(v_data), nlat, nlon)
     
-    common_i_range = 1:min(size(v_data, 1), nlat)
-    common_j_range = 1:min(size(v_data, 2), nlon)
+    # Clear buffer for reuse
+    fill!(component_buffer, zero(T))
+    
+    common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
+    common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
     
     for i in common_i_range
         for j in common_j_range
             if r_local <= size(v_data, 3)
-                component[i, j] = v_data[i, j, r_local]
+                component_buffer[i, j] = v_data[i, j, r_local]
             end
         end
     end
     
-    return component
+    return component_buffer
+end
+
+# Backward compatibility wrapper
+function extract_vector_component_generic(v_data, r_local, config)
+    nlat, nlon = config.nlat, config.nlon
+    component_buffer = zeros(eltype(v_data), nlat, nlon)
+    return extract_vector_component_generic!(component_buffer, v_data, r_local, config)
 end
 
 """
