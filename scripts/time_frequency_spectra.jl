@@ -4,11 +4,16 @@
 Compute time-frequency spectra of kinetic and magnetic energy from merged Geodynamo.jl outputs.
 
 This script performs:
-1. Time series analysis of energy components 
+1. Time series analysis of energy components with optional tangent cylinder filtering
 2. Short-Time Fourier Transform (STFT) for time-frequency analysis
 3. Wavelet transform analysis for multi-scale temporal features
 4. Power spectral density computation
 5. Spectral energy in different l,m modes over time
+
+Tangent Cylinder Options:
+- full: Analyze entire domain (default)
+- remove_tc: Exclude tangent cylinder region from analysis
+- tc_only: Analyze only the tangent cylinder region
 
 Usage examples:
 
@@ -24,6 +29,14 @@ Usage examples:
         --start=1.0 --end=10.0 --window=512 --overlap=0.5 \
         --method=both --l_max=20
 
+  # Analyze with tangent cylinder filtering
+  julia --project=. scripts/time_frequency_spectra.jl ./output \
+        --tc_mode=remove_tc --tc_radius=0.35 --method=both
+
+  # Compare tangent cylinder region only
+  julia --project=. scripts/time_frequency_spectra.jl ./output \
+        --tc_mode=tc_only --tc_radius=0.4 --output=tf_tc_only.jld2
+
 Options:
   --start=<t>        Start time for analysis (default: auto-detect)
   --end=<t>          End time for analysis (default: auto-detect) 
@@ -34,6 +47,8 @@ Options:
   --method=<str>     Analysis method: stft, wavelet, or both (default: both)
   --l_max=<N>        Maximum l degree to analyze (default: all available)
   --dt_target=<f>    Target time spacing for resampling (default: auto)
+  --tc_mode=<mode>   Tangent cylinder mode: full, remove_tc, tc_only (default: full)
+  --tc_radius=<r>    Tangent cylinder radius (default: 0.35)
 
 Output structure:
 - time_series: Raw energy time series data
@@ -91,7 +106,9 @@ function parse_args(args)
         :overlap => 0.75,
         :method => "both",
         :l_max => nothing,
-        :dt_target => nothing
+        :dt_target => nothing,
+        :tc_mode => "full",
+        :tc_radius => 0.35
     )
     
     # Parse optional arguments
@@ -118,6 +135,14 @@ function parse_args(args)
             params[:l_max] = parse(Int, arg[9:end])
         elseif startswith(arg, "--dt_target=")
             params[:dt_target] = parse(Float64, arg[13:end])
+        elseif startswith(arg, "--tc_mode=")
+            tc_mode = arg[11:end]
+            if tc_mode ∉ ["full", "remove_tc", "tc_only"]
+                error("TC mode must be 'full', 'remove_tc', or 'tc_only'")
+            end
+            params[:tc_mode] = tc_mode
+        elseif startswith(arg, "--tc_radius=")
+            params[:tc_radius] = parse(Float64, arg[13:end])
         else
             error("Unknown argument: $arg")
         end
@@ -159,12 +184,83 @@ function read_var_safe(nc, name)
     end
 end
 
-function compute_energy_from_spectral(vel_tor_real, vel_tor_imag, vel_pol_real, vel_pol_imag, 
-                                     mag_tor_real, mag_tor_imag, mag_pol_real, mag_pol_imag,
-                                     l_values, m_values, r_grid)
-    """Compute kinetic and magnetic energy from spectral coefficients"""
+function create_tangent_cylinder_mask_spectral(l_values, m_values, r_grid, tc_radius)
+    """Create tangent cylinder mask for spectral data based on radial location"""
+    # For spectral data, we approximate the tangent cylinder effect
+    # by considering the radial coordinate where the cylindrical radius s = r*sin(θ_eq)
+    # reaches the tangent cylinder radius at the equator (θ = π/2)
+    
     nlm = length(l_values)
     nr = length(r_grid)
+    
+    # Create mask: true = include, false = exclude
+    tc_mask = ones(Bool, nlm, nr)
+    
+    # For spectral coefficients, the tangent cylinder primarily affects
+    # low-l modes more strongly in the inner radial regions
+    for lm in 1:nlm
+        l = l_values[lm]
+        for ir in 1:nr
+            r = r_grid[ir]
+            
+            # Simple approximation: exclude inner regions for low-l modes
+            # when r < tc_radius / sin(π/2) = tc_radius
+            # For higher l modes, the effect is less pronounced
+            
+            if r < tc_radius && l <= 4
+                # Strong tangent cylinder effect for low-l modes
+                tc_mask[lm, ir] = false
+            elseif r < tc_radius * 1.2 && l <= 2
+                # Extended effect for l=1,2 modes
+                tc_mask[lm, ir] = false
+            end
+        end
+    end
+    
+    return tc_mask
+end
+
+function apply_tangent_cylinder_filter_spectral(spectral_data, tc_mask, tc_mode)
+    """Apply tangent cylinder filtering to spectral coefficient data"""
+    filtered_data = copy(spectral_data)
+    
+    if tc_mode == "full"
+        # No filtering - return full domain
+        return filtered_data
+        
+    elseif tc_mode == "remove_tc"
+        # Set tangent cylinder affected modes to zero
+        filtered_data[.!tc_mask] .= 0.0
+        
+    elseif tc_mode == "tc_only"
+        # Keep only tangent cylinder affected modes
+        filtered_data[tc_mask] .= 0.0
+        
+    else
+        error("Unknown tangent cylinder mode: $tc_mode")
+    end
+    
+    return filtered_data
+end
+
+function compute_energy_from_spectral(vel_tor_real, vel_tor_imag, vel_pol_real, vel_pol_imag, 
+                                     mag_tor_real, mag_tor_imag, mag_pol_real, mag_pol_imag,
+                                     l_values, m_values, r_grid, tc_mask=nothing, tc_mode="full")
+    """Compute kinetic and magnetic energy from spectral coefficients with optional TC filtering"""
+    nlm = length(l_values)
+    nr = length(r_grid)
+    
+    # Apply tangent cylinder filtering if requested
+    if tc_mask !== nothing && tc_mode != "full"
+        vel_tor_real = apply_tangent_cylinder_filter_spectral(vel_tor_real, tc_mask, tc_mode)
+        vel_tor_imag = apply_tangent_cylinder_filter_spectral(vel_tor_imag, tc_mask, tc_mode)
+        vel_pol_real = apply_tangent_cylinder_filter_spectral(vel_pol_real, tc_mask, tc_mode)
+        vel_pol_imag = apply_tangent_cylinder_filter_spectral(vel_pol_imag, tc_mask, tc_mode)
+        mag_tor_real = apply_tangent_cylinder_filter_spectral(mag_tor_real, tc_mask, tc_mode)
+        mag_tor_imag = apply_tangent_cylinder_filter_spectral(mag_tor_imag, tc_mask, tc_mode)
+        mag_pol_real = apply_tangent_cylinder_filter_spectral(mag_pol_real, tc_mask, tc_mode)
+        mag_pol_imag = apply_tangent_cylinder_filter_spectral(mag_pol_imag, tc_mask, tc_mode)
+    end
     
     # Initialize energy arrays
     Ek_total = 0.0
@@ -247,6 +343,17 @@ function load_time_series(files, times, params)
         
         println("Data dimensions: nlm=$nlm, nt=$nt, nr=$(length(r_grid))")
         
+        # Create tangent cylinder mask for spectral filtering
+        tc_mask = nothing
+        if params[:tc_mode] != "full"
+            tc_mask = create_tangent_cylinder_mask_spectral(l_values, m_values, r_grid, params[:tc_radius])
+            affected_points = sum(.!tc_mask)
+            total_points = length(tc_mask)
+            println("Tangent cylinder filtering ($(params[:tc_mode])):")
+            println("  TC radius: $(params[:tc_radius])")
+            println("  Affected spectral points: $affected_points/$(total_points) ($(round(100*affected_points/total_points, digits=1))%)")
+        end
+        
         # Initialize arrays
         Ek_time = zeros(nt)
         Eb_time = zeros(nt)
@@ -291,11 +398,11 @@ function load_time_series(files, times, params)
                 mag_pol_imag = mag_pol_imag[mask, :]
             end
             
-            # Compute energies
+            # Compute energies with tangent cylinder filtering
             Ek, Eb, Ek_lm, Eb_lm = compute_energy_from_spectral(
                 vel_tor_real, vel_tor_imag, vel_pol_real, vel_pol_imag,
                 mag_tor_real, mag_tor_imag, mag_pol_real, mag_pol_imag,
-                l_values, m_values, r_grid
+                l_values, m_values, r_grid, tc_mask, params[:tc_mode]
             )
             
             Ek_time[i] = Ek
@@ -563,6 +670,7 @@ function main()
     println("=" ^ 55)
     println("Output directory: $(params[:output_dir])")
     println("Method: $(params[:method])")
+    println("Tangent cylinder mode: $(params[:tc_mode]) (radius: $(params[:tc_radius]))")
     
     # Find input files
     files, times = find_merged_files(params[:output_dir], params[:prefix])
@@ -592,7 +700,11 @@ function main()
             :l_max_requested => params[:l_max],
             :l_max_actual => maximum(data.l_values),
             :window_size => params[:window_size],
-            :overlap => params[:overlap]
+            :overlap => params[:overlap],
+            :tangent_cylinder => Dict(
+                :mode => params[:tc_mode],
+                :radius => params[:tc_radius]
+            )
         ),
         :time_series => Dict(
             :times => data.times,
