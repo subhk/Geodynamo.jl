@@ -207,52 +207,6 @@ end
 # Local physical space operations (no communication)
 # ============================================================================
 
-function compute_composition_advection_local!(comp_field::SHTnsCompositionField{T}, 
-                                              vel_fields) where T
-    # Compute u·∇C advection term in physical space
-    
-    # Get local data arrays
-    comp_data = parent(comp_field.composition.data)
-    adv_data = parent(comp_field.advection_physical.data)
-    
-    # Get velocity data (assuming it's already in physical space)
-    u_r_data = parent(vel_fields.velocity.r_component.data)
-    u_θ_data = parent(vel_fields.velocity.θ_component.data)
-    u_φ_data = parent(vel_fields.velocity.φ_component.data)
-    
-    # Zero the advection array
-    fill!(adv_data, zero(T))
-    
-    # Compute advection: -u·∇C
-    # This is a simplified implementation - full implementation would include
-    # proper gradient computation in spherical coordinates
-    
-    nlat, nlon, nr = size(comp_data)
-    
-    for r_idx in 1:nr
-        for φ_idx in 1:nlon
-            for θ_idx in 1:nlat
-                if (θ_idx <= size(u_r_data, 1) && φ_idx <= size(u_r_data, 2) && 
-                    r_idx <= size(u_r_data, 3))
-                    
-                    # Get velocity components
-                    u_r = u_r_data[θ_idx, φ_idx, r_idx]
-                    u_θ = u_θ_data[θ_idx, φ_idx, r_idx]
-                    u_φ = u_φ_data[θ_idx, φ_idx, r_idx]
-                    
-                    # Simple finite difference approximation for gradients
-                    # In practice, this should use spectral derivatives
-                    dC_dr = zero(T)  # Would compute radial gradient
-                    dC_dθ = zero(T)  # Would compute θ gradient  
-                    dC_dφ = zero(T)  # Would compute φ gradient
-                    
-                    # Advection: -u·∇C
-                    adv_data[θ_idx, φ_idx, r_idx] = -(u_r * dC_dr + u_θ * dC_dθ + u_φ * dC_dφ)
-                end
-            end
-        end
-    end
-end
 
 function add_compositional_sources_local!(comp_field::SHTnsCompositionField{T}, 
                                           oc_domain::RadialDomain) where T
