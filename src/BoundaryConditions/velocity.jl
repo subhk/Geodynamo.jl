@@ -243,11 +243,24 @@ function create_programmatic_velocity_boundary(pattern::Symbol, config, amplitud
         description = "No-slip boundary condition (zero velocity)"
         
     elseif pattern == :stress_free
-        # Only radial component is zero for stress-free conditions
-        # Tangential components determined by stress-free conditions
-        # For simplicity, set all components to zero here
-        # (proper stress-free implementation requires solver integration)
-        description = "Stress-free boundary condition"
+        # Stress-free boundary conditions:
+        # v_r = 0 (no penetration)
+        # ∂v_θ/∂r - v_θ/r = 0 (zero tangential stress)
+        # ∂v_φ/∂r - v_φ/r = 0 (zero tangential stress)
+        #
+        # For a stress-free boundary, only radial velocity is constrained to zero
+        # Tangential components are free to slip
+        for (i, θ) in enumerate(theta)
+            for (j, φ) in enumerate(phi)
+                values[i, j, 1] = 0.0  # v_r = 0 (no penetration)
+                # v_θ and v_φ are unconstrained (set to zero initially)
+                # The actual values will be determined by the stress-free condition
+                # during the solution process
+                values[i, j, 2] = 0.0  # v_θ (will be determined by solver)
+                values[i, j, 3] = 0.0  # v_φ (will be determined by solver)
+            end
+        end
+        description = "Stress-free boundary condition (no penetration, zero tangential stress)"
         
     elseif pattern == :uniform_rotation
         # Uniform rotation with angular velocity = amplitude
@@ -369,16 +382,26 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Transform to spectral space for each velocity component
-    # Toroidal component
-    inner_toroidal = physical_to_spectral_boundary(inner_physical[:, :, 1], velocity_field.config)  # v_r component
-    outer_toroidal = physical_to_spectral_boundary(outer_physical[:, :, 1], velocity_field.config)
-    
-    # Poloidal component (combine v_θ and v_φ components)
-    inner_poloidal = physical_to_spectral_boundary(
-        sqrt.(inner_physical[:, :, 2].^2 + inner_physical[:, :, 3].^2), velocity_field.config
+    # IMPORTANT: For spherical coordinates, the velocity field decomposition is:
+    # - Toroidal component: related to ∇ × (T r̂), where T is the toroidal scalar
+    # - Poloidal component: related to ∇ × ∇ × (P r̂), where P is the poloidal scalar
+
+    # For no-slip boundaries: all velocity components (v_r, v_θ, v_φ) = 0
+    # For stress-free boundaries: v_r = 0, ∂v_θ/∂r = 0, ∂v_φ/∂r = 0
+
+    # Compute toroidal scalar from velocity components
+    # In spherical coordinates: v_r is related to poloidal scalar, not toroidal
+    # Toroidal field contributes only to tangential components
+
+    # For proper spectral boundary conditions, we need to compute the scalars T and P
+    # from the physical velocity components
+
+    # Convert velocity components to toroidal and poloidal scalars
+    inner_toroidal, inner_poloidal = velocity_to_toroidal_poloidal(
+        inner_physical[:, :, 1], inner_physical[:, :, 2], inner_physical[:, :, 3], velocity_field.config
     )
-    outer_poloidal = physical_to_spectral_boundary(
-        sqrt.(outer_physical[:, :, 2].^2 + outer_physical[:, :, 3].^2), velocity_field.config
+    outer_toroidal, outer_poloidal = velocity_to_toroidal_poloidal(
+        outer_physical[:, :, 1], outer_physical[:, :, 2], outer_physical[:, :, 3], velocity_field.config
     )
     
     # Apply to boundary arrays
@@ -539,6 +562,82 @@ function validate_velocity_boundary_files(boundary_specs::Dict, config)
     return true
 end
 
+"""
+    velocity_to_toroidal_poloidal(v_r, v_theta, v_phi, config)
+
+Convert physical velocity components (v_r, v_θ, v_φ) to toroidal and poloidal scalars.
+
+This is a simplified implementation. A complete implementation would use
+spherical vector harmonics to properly decompose the velocity field.
+
+# Arguments
+- `v_r`: Radial velocity component [nlat, nlon]
+- `v_theta`: Colatitude velocity component [nlat, nlon]
+- `v_phi`: Azimuthal velocity component [nlat, nlon]
+- `config`: SHTnsKit configuration
+
+# Returns
+- `(toroidal_coeffs, poloidal_coeffs)`: Spectral coefficients for T and P scalars
+"""
+function velocity_to_toroidal_poloidal(v_r, v_theta, v_phi, config)
+
+    # For proper implementation, we would need to solve:
+    # v_r = (1/r²) ∂/∂r(r² ∂P/∂r) + (1/(r²sinθ)) [∂/∂θ(sinθ ∂P/∂θ) + (1/sinθ) ∂²P/∂φ²]
+    # v_θ = (1/r) ∂²P/∂r∂θ + (1/(r sinθ)) ∂T/∂φ
+    # v_φ = (1/r) ∂²P/∂r∂φ - (1/r) ∂T/∂θ
+
+    # Simplified approach:
+    # 1. Poloidal component primarily determined by v_r
+    # 2. Toroidal component determined by curl of horizontal velocity
+
+    # Poloidal scalar (related to radial component)
+    poloidal_coeffs = physical_to_spectral_boundary(v_r, config)
+
+    # Toroidal scalar (simplified: use magnitude of horizontal components)
+    # In a proper implementation, this would compute ∇ × v_horizontal
+    horizontal_magnitude = sqrt.(v_theta.^2 + v_phi.^2)
+    toroidal_coeffs = physical_to_spectral_boundary(horizontal_magnitude, config)
+
+    return toroidal_coeffs, poloidal_coeffs
+end
+
+"""
+    enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
+
+Enforce specific velocity boundary constraints based on boundary condition type.
+
+# Arguments
+- `velocity_field`: Velocity field structure
+- `bc_type`: Type of boundary condition (:no_slip, :stress_free, :custom)
+"""
+function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
+
+    if bc_type == :no_slip
+        # No-slip: all velocity components = 0 at boundaries
+        # This means both toroidal and poloidal scalars = 0 at boundaries
+        if hasfield(typeof(velocity_field.toroidal), :boundary_values)
+            fill!(velocity_field.toroidal.boundary_values, 0.0)
+        end
+        if hasfield(typeof(velocity_field.poloidal), :boundary_values)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)
+        end
+
+    elseif bc_type == :stress_free
+        # Stress-free: v_r = 0, but tangential stress = 0
+        # This means P = 0 at boundary (no radial flow)
+        # but ∂T/∂r = 0 at boundary (zero tangential stress)
+        if hasfield(typeof(velocity_field.poloidal), :boundary_values)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # P = 0
+        end
+        # Note: For stress-free, toroidal BC is ∂T/∂r = 0, not T = 0
+        # This requires different handling in the solver (Neumann BC)
+
+    end
+
+    return velocity_field
+end
+
 export load_velocity_boundary_conditions!, set_programmatic_velocity_boundaries!
 export update_time_dependent_velocity_boundaries!, get_current_velocity_boundaries
 export validate_velocity_boundary_files, create_programmatic_velocity_boundary
+export velocity_to_toroidal_poloidal, enforce_velocity_boundary_constraints!

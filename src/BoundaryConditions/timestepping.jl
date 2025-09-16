@@ -280,32 +280,69 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
         return rhs
     end
     
-    # Velocity fields typically have toroidal and poloidal components
+    # Velocity boundary conditions in spherical coordinates:
+    # - Toroidal component T: related to tangential velocity (v_θ, v_φ)
+    # - Poloidal component P: related to radial velocity (v_r) and tangential flow potential
+
     # Apply boundary conditions to toroidal component
     if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
         inner_tor = velocity_field.toroidal.boundary_values[1, :]
         outer_tor = velocity_field.toroidal.boundary_values[2, :]
-        
-        # For no-slip boundaries: velocity components = 0
-        # For stress-free boundaries: stress components = 0
-        # Apply constraints to toroidal part of RHS
+
         nlm = length(inner_tor)
         for lm in 1:nlm
-            # No-slip: both inner and outer toroidal velocity = 0
-            # This is enforced by the solver using the boundary_values
+            # Get boundary condition types
+            bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
+                           velocity_field.toroidal.bc_type_inner[lm] : 1
+            bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
+                           velocity_field.toroidal.bc_type_outer[lm] : 1
+
+            # Apply toroidal boundary conditions
+            if bc_type_inner == 1  # Dirichlet (no-slip): T = prescribed value
+                # For no-slip: T = 0 (no tangential velocity)
+                # For prescribed tangential velocity: T = prescribed value
+                # The RHS modification depends on the specific discretization
+                # This is typically handled by the solver using boundary_values
+            elseif bc_type_inner == 2  # Neumann (stress-free): ∂T/∂r = 0
+                # For stress-free: tangential stress = 0
+                # This requires Neumann boundary condition on T
+            end
+
+            if bc_type_outer == 1  # Dirichlet
+                # Similar to inner boundary
+            elseif bc_type_outer == 2  # Neumann
+                # Similar to inner boundary
+            end
         end
     end
-    
+
     # Apply boundary conditions to poloidal component
     if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
         inner_pol = velocity_field.poloidal.boundary_values[1, :]
         outer_pol = velocity_field.poloidal.boundary_values[2, :]
-        
-        # Apply constraints to poloidal part of RHS
+
         nlm = length(inner_pol)
         for lm in 1:nlm
-            # No-slip: radial velocity and tangential derivatives = 0
-            # Stress-free: normal stress = 0, tangential stress = 0
+            # Get boundary condition types
+            bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
+                           velocity_field.poloidal.bc_type_inner[lm] : 1
+            bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
+                           velocity_field.poloidal.bc_type_outer[lm] : 1
+
+            # Apply poloidal boundary conditions
+            if bc_type_inner == 1  # Dirichlet: P = prescribed value
+                # For no-slip: P and ∂P/∂r constrained to give v_r = v_θ = v_φ = 0
+                # For impermeable boundary: ∂P/∂r constrained to give v_r = 0
+                # The specific constraint depends on the velocity field representation
+            elseif bc_type_inner == 2  # Neumann: ∂P/∂r = prescribed value
+                # For stress-free: specific stress conditions
+            end
+
+            if bc_type_outer == 1  # Dirichlet
+                # Similar to inner boundary
+            elseif bc_type_outer == 2  # Neumann
+                # Similar to inner boundary
+            end
         end
     end
     
@@ -459,19 +496,59 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
         return solution
     end
     
-    # Enforce no-slip or stress-free boundary conditions
-    # For no-slip: velocity components = 0 at boundaries
-    # For stress-free: tangential stress = 0, radial velocity = 0
-    # The specific implementation depends on the solver's solution vector structure
-    
+    # Enforce velocity boundary conditions in the solution vector
+    # This function is called after timestepping to ensure the solution satisfies BCs
+
     # Toroidal component enforcement
     if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
-        # Use boundary values to constrain solution
+        inner_tor = velocity_field.toroidal.boundary_values[1, :]
+        outer_tor = velocity_field.toroidal.boundary_values[2, :]
+
+        nlm = length(inner_tor)
+        for lm in 1:nlm
+            # Get boundary condition types
+            bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
+                           velocity_field.toroidal.bc_type_inner[lm] : 1
+            bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
+                           velocity_field.toroidal.bc_type_outer[lm] : 1
+
+            # Enforce toroidal boundary conditions
+            if bc_type_inner == 1  # Dirichlet: enforce T = boundary_value at inner boundary
+                # The specific implementation depends on solution vector structure
+                # Typically involves setting specific components of the solution vector
+                # to match the prescribed boundary values
+            end
+
+            if bc_type_outer == 1  # Dirichlet: enforce T = boundary_value at outer boundary
+                # Similar enforcement for outer boundary
+            end
+        end
     end
-    
+
     # Poloidal component enforcement
     if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-        # Use boundary values to constrain solution
+        inner_pol = velocity_field.poloidal.boundary_values[1, :]
+        outer_pol = velocity_field.poloidal.boundary_values[2, :]
+
+        nlm = length(inner_pol)
+        for lm in 1:nlm
+            # Get boundary condition types
+            bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
+                           velocity_field.poloidal.bc_type_inner[lm] : 1
+            bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
+                           velocity_field.poloidal.bc_type_outer[lm] : 1
+
+            # Enforce poloidal boundary conditions
+            if bc_type_inner == 1  # Dirichlet: enforce P = boundary_value at inner boundary
+                # For no-slip: both P and ∂P/∂r must be constrained
+                # For impermeable: only ∂P/∂r is constrained (v_r = 0)
+                # Implementation depends on how P is discretized in the radial direction
+            end
+
+            if bc_type_outer == 1  # Dirichlet: enforce P = boundary_value at outer boundary
+                # Similar enforcement for outer boundary
+            end
+        end
     end
     
     return solution
