@@ -105,45 +105,116 @@ Simple Arnoldi-based approximation of the exponential action.
 """
 function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     n = length(v)
+
+    # Input validation
+    if n == 0 || !all(isfinite.(v))
+        return zeros(T, n)
+    end
+
     V = Matrix{T}(undef, n, m)
     H = zeros(T, m, m)
     beta = norm(v)
     if beta == 0
         return zeros(T, n)
     end
+
+    # Check for very small timestep
+    if abs(dt) < eps(T) * 10
+        return copy(v)  # exp(0*A) * v = v
+    end
+
     V[:, 1] = v / beta
     w = similar(v)
     kmax = m
+
     for j in 1:m
         Aop!(w, view(V, :, j))
+
+        # Check for NaN/Inf in operator result
+        if !all(isfinite.(w))
+            @warn "Non-finite values from operator in Krylov iteration $j"
+            kmax = max(1, j-1)
+            break
+        end
+
         for i in 1:j
             H[i, j] = dot(view(V, :, i), w)
             @. w = w - H[i, j] * V[:, i]
         end
+
         if j < m
             H[j+1, j] = norm(w)
-            if H[j+1, j] == 0
+            if H[j+1, j] < eps(T) * 100  # More robust zero check
                 kmax = j
                 break
             end
             V[:, j+1] = w / H[j+1, j]
-            # Adaptive residual-based stopping criterion
-            # Estimate residual: r ≈ |h_{j+1,j}| * |e_j^T exp(dt H_j) (beta*e1)|
-            # Stop if r <= tol * ||exp(dt H_j) (beta*e1)||
-            Hred_j = dt .* @view H[1:j, 1:j]
-            e1 = zeros(T, j); e1[1] = one(T)
-            y_small_j = exp(Hred_j) * (beta .* e1)
-            res_est = abs(H[j+1, j]) * abs(y_small_j[end])
-            if res_est <= tol * norm(y_small_j)
+
+            # Adaptive residual-based stopping criterion with stability check
+            try
+                Hred_j = dt .* @view H[1:j, 1:j]
+
+                # Check condition number of H submatrix
+                if j > 1 && cond(Hred_j) > 1e12
+                    @warn "Ill-conditioned Hessenberg matrix, stopping Krylov at iteration $j"
+                    kmax = j
+                    break
+                end
+
+                e1 = zeros(T, j); e1[1] = one(T)
+                y_small_j = exp(Hred_j) * (beta .* e1)
+
+                if !all(isfinite.(y_small_j))
+                    @warn "Non-finite exponential result, stopping Krylov at iteration $j"
+                    kmax = j
+                    break
+                end
+
+                res_est = abs(H[j+1, j]) * abs(j > 0 ? y_small_j[end] : beta)
+                if res_est <= tol * norm(y_small_j)
+                    kmax = j
+                    break
+                end
+            catch e
+                @warn "Error in Krylov convergence check: $e, stopping at iteration $j"
                 kmax = j
                 break
             end
         end
     end
-    Hred = dt .* H[1:kmax, 1:kmax]
-    e1 = zeros(T, kmax); e1[1] = one(T)
-    y_small = exp(Hred) * (beta .* e1)
-    return V[:, 1:kmax] * y_small
+
+    # Final computation with error handling
+    try
+        Hred = dt .* H[1:kmax, 1:kmax]
+        e1 = zeros(T, kmax); e1[1] = one(T)
+        y_small = exp(Hred) * (beta .* e1)
+
+        if !all(isfinite.(y_small))
+            @warn "Non-finite result in final Krylov computation, using first-order approximation"
+            # Fallback to first-order: exp(dt*A)*v ≈ v + dt*A*v
+            result = copy(v)
+            Aop!(w, v)
+            result .+= dt .* w
+            return result
+        end
+
+        result = V[:, 1:kmax] * y_small
+
+        if !all(isfinite.(result))
+            @warn "Non-finite final result in Krylov, using first-order approximation"
+            result = copy(v)
+            Aop!(w, v)
+            result .+= dt .* w
+        end
+
+        return result
+    catch e
+        @warn "Error in final Krylov computation: $e, using first-order approximation"
+        result = copy(v)
+        Aop!(w, v)
+        result .+= dt .* w
+        return result
+    end
 end
 
 """
@@ -152,12 +223,46 @@ end
 Compute φ1(dt A) v = A^{-1}[(exp(dt A) − I) v]/dt using Krylov exp(action) and banded solve.
 """
 function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; m::Int=20, tol::Float64=1e-8) where T
+    # Check for zero input
+    if norm(v) < eps(T) * 100
+        return zeros(T, length(v))
+    end
+
+    # Compute exp(dt*A) * v
     ev = exp_action_krylov(Aop!, v, dt; m, tol)
     c = ev .- v
+
+    # Check if dt is very small - use series expansion
+    if dt < 1e-8
+        # φ1(dt*A) * v ≈ v + (dt/2)*A*v for small dt
+        Av = similar(v)
+        Aop!(Av, v)
+        return v .+ (dt/2) .* Av
+    end
+
+    # Solve A * x = c
     x = copy(c)
-    solve_banded!(x, A_lu, c)
-    @. x = x / dt
-    return x
+    try
+        solve_banded!(x, A_lu, c)
+        @. x = x / dt
+
+        # Validate result
+        if !all(isfinite.(x))
+            @warn "Non-finite result in phi1_action_krylov, using fallback"
+            # Fallback to series expansion
+            Av = similar(v)
+            Aop!(Av, v)
+            return v .+ (dt/2) .* Av
+        end
+
+        return x
+    catch e
+        @warn "Banded solve failed in phi1_action_krylov: $e, using fallback"
+        # Fallback to series expansion
+        Av = similar(v)
+        Aop!(Av, v)
+        return v .+ (dt/2) .* Av
+    end
 end
 
 """
@@ -751,45 +856,102 @@ end
 """
     compute_phi1_function(A, expA)
 
-Compute φ1(A) = A^(-1) * (exp(A) - I) efficiently with comprehensive error handling.
+Compute φ1(A) = (exp(A) - I) / A efficiently with comprehensive error handling.
+Uses series expansion for small ||A|| to avoid numerical issues.
 """
 function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     nr = size(A, 1)
     I_mat = Matrix{T}(I, nr, nr)
-    
-    # φ1(A) = A^(-1) * (exp(A) - I)
-    diff = expA - I_mat
-    
+
     # Check for NaN or Inf in inputs
     if !all(isfinite.(A)) || !all(isfinite.(expA))
         @warn "Non-finite values detected in φ1 computation, using identity approximation"
         return I_mat
     end
-    
-    # Use lu factorization for stable inversion
+
+    # Check if A is close to zero matrix - use series expansion
+    A_norm = opnorm(A)
+    if A_norm < 1e-2
+        # Use Taylor series: φ1(A) = I + A/2 + A²/6 + A³/24 + ...
+        result = I_mat + A/2
+        A_power = A * A
+        factorial = 6
+        for k in 2:10  # Use enough terms for good accuracy
+            term = A_power / factorial
+            result += term
+            if opnorm(term) < eps(T) * 100
+                break
+            end
+            A_power = A_power * A
+            factorial *= (k + 2)
+        end
+        return result
+    end
+
+    # For larger A, use φ1(A) = (exp(A) - I) / A
+    diff = expA - I_mat
+
+    # Use lu factorization for stable division by A
     try
         lu_A = lu(A)
-        
+
         # Check condition number
         if rcond(lu_A) < sqrt(eps(T))
-            @warn "Ill-conditioned matrix in φ1 computation (rcond = $(rcond(lu_A))), using pseudoinverse"
-            result = pinv(A) * diff
+            @warn "Ill-conditioned matrix in φ1 computation (rcond = $(rcond(lu_A))), using series expansion"
+            # Fall back to series expansion
+            result = I_mat + A/2
+            A_power = A * A
+            factorial = 6
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 2)
+            end
+            return result
         else
             result = lu_A \ diff
         end
-        
+
         # Validate result
         if !all(isfinite.(result))
-            @warn "Non-finite result in φ1 computation, falling back to pseudoinverse"
-            result = pinv(A) * diff
+            @warn "Non-finite result in φ1 computation, falling back to series expansion"
+            result = I_mat + A/2
+            A_power = A * A
+            factorial = 6
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 2)
+            end
         end
-        
+
         return result
-        
+
     catch e
-        @warn "LU factorization failed in φ1 computation: $e, using pseudoinverse"
+        @warn "LU factorization failed in φ1 computation: $e, using series expansion"
         try
-            return pinv(A) * diff
+            # Fall back to series expansion
+            result = I_mat + A/2
+            A_power = A * A
+            factorial = 6
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 2)
+            end
+            return result
         catch e2
             @error "Complete failure in φ1 computation: $e2, returning identity"
             return I_mat
@@ -800,49 +962,106 @@ end
 """
     compute_phi2_function(A, expA)
 
-Compute φ2(A) = A^(-2) * (exp(A) - I - A) efficiently with comprehensive error handling.
+Compute φ2(A) = (exp(A) - I - A) / A² efficiently with comprehensive error handling.
+Uses series expansion for small ||A|| to avoid numerical issues.
 """
 function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
     nr = size(A, 1)
     I_mat = Matrix{T}(I, nr, nr)
-    
-    # φ2(A) = A^(-2) * (exp(A) - I - A)
-    diff = expA - I_mat - A
-    
+
     # Check for NaN or Inf in inputs
     if !all(isfinite.(A)) || !all(isfinite.(expA))
         @warn "Non-finite values detected in φ2 computation, using zero approximation"
         return zeros(T, nr, nr)
     end
-    
+
+    # Check if A is close to zero matrix - use series expansion
+    A_norm = opnorm(A)
+    if A_norm < 1e-2
+        # Use Taylor series: φ2(A) = I/2 + A/6 + A²/24 + A³/120 + ...
+        result = I_mat / 2 + A / 6
+        A_power = A * A
+        factorial = 24
+        for k in 2:10  # Use enough terms for good accuracy
+            term = A_power / factorial
+            result += term
+            if opnorm(term) < eps(T) * 100
+                break
+            end
+            A_power = A_power * A
+            factorial *= (k + 3)
+        end
+        return result
+    end
+
+    # For larger A, use φ2(A) = (exp(A) - I - A) / A²
+    diff = expA - I_mat - A
+
+    # Need to solve A² * result = diff
+    # This is equivalent to solving A * (A * result) = diff
     try
         lu_A = lu(A)
-        
+
         # Check condition number
         rcond_val = rcond(lu_A)
-        if rcond_val < eps(T)
-            @warn "Extremely ill-conditioned matrix in φ2 computation (rcond = $rcond_val), using pseudoinverse"
-            A_inv = pinv(A)
-            result = A_inv * A_inv * diff
+        if rcond_val < sqrt(eps(T))
+            @warn "Ill-conditioned matrix in φ2 computation (rcond = $rcond_val), using series expansion"
+            # Fall back to series expansion
+            result = I_mat / 2 + A / 6
+            A_power = A * A
+            factorial = 24
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 3)
+            end
+            return result
         else
+            # Solve A * temp = diff, then A * result = temp
             temp = lu_A \ diff
-            result = lu_A \ temp  # A^(-1) * A^(-1) * diff
+            result = lu_A \ temp
         end
-        
+
         # Validate result
         if !all(isfinite.(result))
-            @warn "Non-finite result in φ2 computation, falling back to pseudoinverse"
-            A_inv = pinv(A)
-            result = A_inv * A_inv * diff
+            @warn "Non-finite result in φ2 computation, falling back to series expansion"
+            result = I_mat / 2 + A / 6
+            A_power = A * A
+            factorial = 24
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 3)
+            end
         end
-        
+
         return result
-        
+
     catch e
-        @warn "LU factorization failed in φ2 computation: $e, using pseudoinverse"
+        @warn "LU factorization failed in φ2 computation: $e, using series expansion"
         try
-            A_inv = pinv(A)
-            return A_inv * A_inv * diff
+            # Fall back to series expansion
+            result = I_mat / 2 + A / 6
+            A_power = A * A
+            factorial = 24
+            for k in 2:15
+                term = A_power / factorial
+                result += term
+                if opnorm(term) < eps(T) * 100
+                    break
+                end
+                A_power = A_power * A
+                factorial *= (k + 3)
+            end
+            return result
         catch e2
             @error "Complete failure in φ2 computation: $e2, returning zero matrix"
             return zeros(T, nr, nr)
@@ -995,18 +1214,18 @@ function erk2_krylov_step(u_r::Vector{T}, u_i::Vector{T},
     ui_new = exp_action_krylov(Aop!, u_i, dt; m, tol)
     
     # Compute φ1(dt*A) * nl using Krylov method
-    phi1_nl_r = phi1_action_krylov(Aop!, A, nl_r, dt; m, tol)
-    phi1_nl_i = phi1_action_krylov(Aop!, A, nl_i, dt; m, tol)
+    phi1_nl_r = phi1_action_krylov(Aop!, nothing, nl_r, dt; m, tol)
+    phi1_nl_i = phi1_action_krylov(Aop!, nothing, nl_i, dt; m, tol)
     
     # Add first nonlinear contribution
     @. ur_new += dt * phi1_nl_r
     @. ui_new += dt * phi1_nl_i
     
-    # Compute φ2(dt*A) * (nl - np) using Krylov method  
+    # Compute φ2(dt*A) * (nl - np) using Krylov method
     diff_r = nl_r .- np_r
     diff_i = nl_i .- np_i
-    phi2_diff_r = phi2_action_krylov(Aop!, A, diff_r, dt; m, tol)
-    phi2_diff_i = phi2_action_krylov(Aop!, A, diff_i, dt; m, tol)
+    phi2_diff_r = phi2_action_krylov(Aop!, nothing, diff_r, dt; m, tol)
+    phi2_diff_i = phi2_action_krylov(Aop!, nothing, diff_i, dt; m, tol)
     
     # Add second nonlinear contribution
     @. ur_new += dt * phi2_diff_r
@@ -1019,16 +1238,45 @@ end
     phi1_action_krylov(Aop!, A, v, dt; m=20, tol=1e-8)
 
 Compute φ1(dt*A) * v using Krylov methods where φ1(z) = (exp(z) - I) / z.
+Uses matrix-free approach to avoid explicit matrix inversion.
 """
-function phi1_action_krylov(Aop!, A::Matrix{T}, v::Vector{T}, dt::Float64; 
+function phi1_action_krylov(Aop!, A::Matrix{T}, v::Vector{T}, dt::Float64;
                            m::Int=20, tol::Float64=1e-8) where T
-    
-    # φ1(dt*A) * v = A^{-1} * (exp(dt*A) - I) * v
-    exp_v = exp_action_krylov(Aop!, v, dt; m, tol)
-    diff_v = exp_v .- v
-    
-    # Solve A * result = diff_v for result
-    result = A \ diff_v
+
+    # For small ||dt*A||, use series expansion: φ1(dt*A)*v ≈ v + (dt/2)*A*v + (dt²/6)*A²*v + ...
+    A_norm_est = estimate_operator_norm(Aop!, v, 5)  # Quick norm estimate
+    if dt * A_norm_est < 0.1
+        # Use truncated series expansion
+        result = copy(v)
+        Av = similar(v)
+        Aop!(Av, v)
+        result .+= (dt/2) .* Av
+
+        # Higher order terms
+        A2v = similar(v)
+        Aop!(A2v, Av)
+        result .+= (dt^2/6) .* A2v
+
+        Aop!(Av, A2v)  # Reuse Av for A³v
+        result .+= (dt^3/24) .* Av
+
+        return result
+    end
+
+    # For larger arguments, use the identity: φ1(z) = ∫₀¹ exp(sz) ds
+    # Approximate integral using quadrature
+    n_quad = 8  # Number of quadrature points
+    result = zeros(T, length(v))
+
+    for i in 1:n_quad
+        s = i / n_quad  # Quadrature point in [0,1]
+        weight = 1.0 / n_quad  # Simple uniform weights
+
+        # Compute exp(s*dt*A) * v
+        exp_sv = exp_action_krylov(Aop!, v, s * dt; m, tol)
+        result .+= weight .* exp_sv
+    end
+
     return result
 end
 
@@ -1036,19 +1284,77 @@ end
     phi2_action_krylov(Aop!, A, v, dt; m=20, tol=1e-8)
 
 Compute φ2(dt*A) * v using Krylov methods where φ2(z) = (exp(z) - I - z) / z².
+Uses matrix-free approach to avoid explicit matrix inversions.
 """
 function phi2_action_krylov(Aop!, A::Matrix{T}, v::Vector{T}, dt::Float64;
                            m::Int=20, tol::Float64=1e-8) where T
-    
-    # φ2(dt*A) * v = A^{-2} * (exp(dt*A) - I - dt*A) * v
-    exp_v = exp_action_krylov(Aop!, v, dt; m, tol)
-    A_v = A * v
-    diff_v = exp_v .- v .- (dt .* A_v)
-    
-    # Solve A * (A * result) = diff_v for result
-    temp = A \ diff_v
-    result = A \ temp
+
+    # For small ||dt*A||, use series expansion: φ2(dt*A)*v ≈ (v/2) + (dt/6)*A*v + (dt²/24)*A²*v + ...
+    A_norm_est = estimate_operator_norm(Aop!, v, 5)  # Quick norm estimate
+    if dt * A_norm_est < 0.1
+        # Use truncated series expansion
+        result = v ./ 2
+        Av = similar(v)
+        Aop!(Av, v)
+        result .+= (dt/6) .* Av
+
+        # Higher order terms
+        A2v = similar(v)
+        Aop!(A2v, Av)
+        result .+= (dt^2/24) .* A2v
+
+        Aop!(Av, A2v)  # Reuse Av for A³v
+        result .+= (dt^3/120) .* Av
+
+        return result
+    end
+
+    # For larger arguments, use the identity: φ2(z) = ∫₀¹ ∫₀¹ exp(rsz) dr ds
+    # Approximate double integral using quadrature
+    n_quad = 6  # Number of quadrature points per dimension
+    result = zeros(T, length(v))
+
+    for i in 1:n_quad
+        for j in 1:n_quad
+            r = i / n_quad  # First quadrature variable
+            s = j / n_quad  # Second quadrature variable
+            weight = 1.0 / (n_quad^2)  # Weight for double integral
+
+            # Compute exp(r*s*dt*A) * v
+            exp_rsv = exp_action_krylov(Aop!, v, r * s * dt; m, tol)
+            result .+= weight .* exp_rsv
+        end
+    end
+
     return result
+end
+
+"""
+    estimate_operator_norm(Aop!, v, niter=5)
+
+Estimate the operator norm of A using power iteration with niter iterations.
+"""
+function estimate_operator_norm(Aop!, v::Vector{T}, niter::Int=5) where T
+    if length(v) == 0
+        return zero(T)
+    end
+
+    # Power iteration to estimate ||A||
+    w = v ./ norm(v)  # Normalize initial vector
+    λ_max = zero(T)
+
+    for i in 1:niter
+        Aw = similar(w)
+        Aop!(Aw, w)
+        λ_max = norm(Aw)
+        if λ_max > eps(T)
+            w .= Aw ./ λ_max
+        else
+            break
+        end
+    end
+
+    return λ_max
 end
 
 """
