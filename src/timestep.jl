@@ -1072,7 +1072,7 @@ end
 """
     erk2_step!(u, nl_current, nl_prev, cache, config, dt)
 
-Perform one ERK2 timestep: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt²*φ2(dt*A)*(nl^n - nl^{n-1})/dt
+Perform one ERK2 timestep: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt*φ2(dt*A)*(nl^n - nl^{n-1})
 
 This implements the exponential 2nd order Runge-Kutta method with MPI and PencilArrays support.
 """
@@ -1172,7 +1172,7 @@ function erk2_matrix_step(u_r::Vector{T}, u_i::Vector{T},
                          np_r::Vector{T}, np_i::Vector{T},
                          E::Matrix{T}, phi1::Matrix{T}, phi2::Matrix{T}, dt::Float64) where T
     
-    # ERK2 formula: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt²*φ2(dt*A)*(nl^n - nl^{n-1})/dt
+    # ERK2 formula: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt*φ2(dt*A)*(nl^n - nl^{n-1})
     
     # Linear part: exp(dt*A) * u^n
     ur_new = E * u_r
@@ -1182,10 +1182,10 @@ function erk2_matrix_step(u_r::Vector{T}, u_i::Vector{T},
     @. ur_new += dt * (phi1 * nl_r)
     @. ui_new += dt * (phi1 * nl_i)
     
-    # Second nonlinear part: dt² * φ2(dt*A) * (nl^n - nl^{n-1})/dt
+    # Second nonlinear part: dt * φ2(dt*A) * (nl^n - nl^{n-1})
     diff_r = nl_r .- np_r
     diff_i = nl_i .- np_i
-    @. ur_new += dt * (phi2 * diff_r)  # dt² * φ2 * diff / dt = dt * φ2 * diff
+    @. ur_new += dt * (phi2 * diff_r)
     @. ui_new += dt * (phi2 * diff_i)
     
     return ur_new, ui_new
