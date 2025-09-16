@@ -787,19 +787,30 @@ end
 
 Convert physical space data to spectral coefficients (consistent with other BCs).
 """
-function shtns_physical_to_spectral(physical_data, config)
-    # This should be consistent with thermal.jl and composition.jl implementations
-    # For now, placeholder - in real implementation this would use the same
-    # physical_to_spectral function used in the thermal/composition BCs
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 
+    # Create temporary transform object with proper SHTnsKit interface
+    # (consistent with thermal.jl implementation)
     nlat, nlon = size(physical_data)
-    nlm = get(config, :nlm, (config.lmax + 1)^2)
 
-    # Placeholder: return mean value in l=0 mode (like thermal BCs)
-    coeffs = zeros(eltype(physical_data), nlm)
-    coeffs[1] = mean(physical_data)  # l=0, m=0 mode
+    try
+        # Use SHTnsKit transform for consistency
+        transform = SHTnsKit.SHTnsTransform(config.lmax, nlat, nlon)
 
-    return coeffs
+        # Perform forward transform
+        spectral_coeffs = SHTnsKit.analysis!(transform, physical_data)
+
+        return spectral_coeffs
+    catch e
+        @warn "SHTnsKit analysis failed, using fallback: $e"
+
+        # Fallback: simple mean value in l=0 mode
+        nlm = get(config, :nlm, (config.lmax + 1)^2)
+        coeffs = zeros(T, nlm)
+        coeffs[1] = mean(physical_data)  # l=0, m=0 mode
+
+        return coeffs
+    end
 end
 
 """

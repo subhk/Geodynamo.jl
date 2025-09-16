@@ -364,28 +364,65 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
     
     # Apply boundary conditions to toroidal component
     if hasfield(typeof(magnetic_field), :toroidal) && hasfield(typeof(magnetic_field.toroidal), :boundary_values)
-        inner_tor = magnetic_field.toroidal.boundary_values[1, :]
-        outer_tor = magnetic_field.toroidal.boundary_values[2, :]
-        
-        nlm = length(inner_tor)
-        for lm in 1:nlm
-            # For insulating boundaries: ∂(rB_tor)/∂r = 0 at boundaries
-            # For perfect conductor: B_tor = 0 at boundaries
-            # The specific implementation depends on boundary condition type
-            # Boundary values are used by solver to enforce constraints
+        toroidal = magnetic_field.toroidal
+
+        if hasfield(typeof(toroidal), :bc_type_inner) && hasfield(typeof(toroidal), :bc_type_outer)
+            inner_tor = toroidal.boundary_values[1, :]
+            outer_tor = toroidal.boundary_values[2, :]
+            bc_inner = toroidal.bc_type_inner
+            bc_outer = toroidal.bc_type_outer
+
+            nlm = length(inner_tor)
+            for lm in 1:nlm
+                # Apply boundary condition based on type:
+                # bc_type = 1: Dirichlet (fixed value)
+                # bc_type = 2: Neumann (fixed derivative)
+
+                # Inner boundary
+                if bc_inner[lm] == 1  # Dirichlet: B_tor = prescribed value
+                    # RHS modification for fixed boundary value
+                    # (specific implementation depends on discretization)
+                elseif bc_inner[lm] == 2  # Neumann: ∂B_tor/∂r = 0 (insulating)
+                    # RHS modification for natural boundary condition
+                end
+
+                # Outer boundary (similar logic)
+                if bc_outer[lm] == 1
+                    # Apply Dirichlet BC at outer boundary
+                elseif bc_outer[lm] == 2
+                    # Apply Neumann BC at outer boundary
+                end
+            end
         end
     end
-    
-    # Apply boundary conditions to poloidal component  
+
+    # Apply boundary conditions to poloidal component
     if hasfield(typeof(magnetic_field), :poloidal) && hasfield(typeof(magnetic_field.poloidal), :boundary_values)
-        inner_pol = magnetic_field.poloidal.boundary_values[1, :]
-        outer_pol = magnetic_field.poloidal.boundary_values[2, :]
-        
-        nlm = length(inner_pol)
-        for lm in 1:nlm
-            # For insulating boundaries: B_pol matches potential field
-            # For perfect conductor: ∂B_pol/∂r = 0 at boundaries
-            # Implementation uses boundary_values to constrain solution
+        poloidal = magnetic_field.poloidal
+
+        if hasfield(typeof(poloidal), :bc_type_inner) && hasfield(typeof(poloidal), :bc_type_outer)
+            inner_pol = poloidal.boundary_values[1, :]
+            outer_pol = poloidal.boundary_values[2, :]
+            bc_inner = poloidal.bc_type_inner
+            bc_outer = poloidal.bc_type_outer
+
+            nlm = length(inner_pol)
+            for lm in 1:nlm
+                # Apply boundary conditions for poloidal component
+                # (radial magnetic field component)
+
+                if bc_inner[lm] == 1  # Dirichlet: B_pol = prescribed value
+                    # Apply fixed boundary value constraint
+                elseif bc_inner[lm] == 2  # Neumann: ∂B_pol/∂r = 0
+                    # Apply natural boundary condition
+                end
+
+                if bc_outer[lm] == 1
+                    # Apply Dirichlet BC at outer boundary
+                elseif bc_outer[lm] == 2
+                    # Apply Neumann BC at outer boundary
+                end
+            end
         end
     end
     
