@@ -577,23 +577,22 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
 
     # Enforce magnetic boundary condition constraints based on boundary pattern
     boundary_set = magnetic_field.boundary_condition_set
-    if hasfield(typeof(boundary_set.inner_boundary), :pattern) && hasfield(typeof(boundary_set.outer_boundary), :pattern)
-        # Apply constraints based on boundary patterns
-        inner_pattern = get(boundary_set.inner_boundary, :pattern, :potential_field)
-        outer_pattern = get(boundary_set.outer_boundary, :pattern, :potential_field)
 
-        # Apply most restrictive constraint (typically inner boundary)
-        primary_constraint = inner_pattern
+    # Determine boundary constraint type
+    primary_constraint = :potential_field  # Default
 
-        enforce_magnetic_boundary_constraints!(magnetic_field, primary_constraint)
-
+    # Check for pattern information in boundary data
+    if hasfield(typeof(boundary_set.inner_boundary), :pattern)
+        primary_constraint = boundary_set.inner_boundary.pattern
+    elseif hasfield(typeof(boundary_set.outer_boundary), :pattern)
+        primary_constraint = boundary_set.outer_boundary.pattern
     elseif hasfield(typeof(boundary_set), :constraint_type)
-        # Apply explicit constraint if specified
-        enforce_magnetic_boundary_constraints!(magnetic_field, boundary_set.constraint_type)
-    else
-        # Default: assume potential field matching
-        enforce_magnetic_boundary_constraints!(magnetic_field, :potential_field)
+        # Use explicit constraint if specified
+        primary_constraint = boundary_set.constraint_type
     end
+
+    # Apply the determined constraint
+    enforce_magnetic_boundary_constraints!(magnetic_field, primary_constraint)
 
     return magnetic_field
 end
@@ -757,22 +756,20 @@ For magnetic fields:
 function magnetic_to_qst_coefficients(B_r, B_theta, B_phi, config)
 
     try
-        # Use SHTnsKit for proper QST decomposition if available
-        if isdefined(Main, :SHTnsKit)
-            # Create SHTnsKit configuration
-            lmax = get(config, :lmax, 10)
-            nlat, nlon = size(B_r)
+        # Use SHTnsKit for proper QST decomposition (it's imported at module level)
+        # Create SHTnsKit configuration
+        lmax = get(config, :lmax, 10)
+        nlat, nlon = size(B_r)
 
-            shtconfig = SHTnsKit.create_gauss_config(lmax, nlat; nlon=nlon)
+        shtconfig = SHTnsKit.create_gauss_config(lmax, nlat; nlon=nlon)
 
-            # Transform to QST coefficients using SHTnsKit
-            Q_coeffs, S_coeffs, T_coeffs = SHTnsKit.spat_to_SHqst(shtconfig, B_r, B_theta, B_phi)
+        # Transform to QST coefficients using SHTnsKit
+        Q_coeffs, S_coeffs, T_coeffs = SHTnsKit.spat_to_SHqst(shtconfig, B_r, B_theta, B_phi)
 
-            # Clean up configuration
-            SHTnsKit.destroy_config(shtconfig)
+        # Clean up configuration
+        SHTnsKit.destroy_config(shtconfig)
 
-            return Q_coeffs, S_coeffs, T_coeffs
-        end
+        return Q_coeffs, S_coeffs, T_coeffs
     catch e
         @warn "SHTnsKit QST decomposition failed: $e"
     end
@@ -811,7 +808,7 @@ end
 Enforce magnetic boundary condition constraints based on physics.
 
 # Boundary condition types:
-- `:insulating` - Insulating boundary: B_r = 0, ∇×B_tangential = 0
+- `:insulating` - Insulating boundary: J_normal = 0, ∇×B_tangential = 0 (B_r ≠ 0)
 - `:perfect_conductor` - Perfect conductor: B_tangential = 0, B_r free
 - `:potential_field` - Potential field matching at boundary
 """
