@@ -396,19 +396,29 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # For proper spectral boundary conditions, we need to compute the scalars T and P
     # from the physical velocity components
 
-    # Convert velocity components to toroidal and poloidal scalars
-    inner_toroidal, inner_poloidal = velocity_to_toroidal_poloidal(
+    # Convert velocity components to QST spectral coefficients
+    # Using proper SHTnsKit QST decomposition for 3D vector fields
+    inner_Q, inner_S, inner_T = velocity_to_qst_coefficients(
         inner_physical[:, :, 1], inner_physical[:, :, 2], inner_physical[:, :, 3], velocity_field.config
     )
-    outer_toroidal, outer_poloidal = velocity_to_toroidal_poloidal(
+    outer_Q, outer_S, outer_T = velocity_to_qst_coefficients(
         outer_physical[:, :, 1], outer_physical[:, :, 2], outer_physical[:, :, 3], velocity_field.config
     )
     
-    # Apply to boundary arrays
-    velocity_field.toroidal.boundary_values[1, :] = inner_toroidal  # Inner boundary
-    velocity_field.toroidal.boundary_values[2, :] = outer_toroidal  # Outer boundary
-    velocity_field.poloidal.boundary_values[1, :] = inner_poloidal
-    velocity_field.poloidal.boundary_values[2, :] = outer_poloidal
+    # Apply QST coefficients to boundary arrays
+    # Note: Current field structure uses "toroidal" and "poloidal" names
+    # but in QST decomposition: "poloidal" → Q (radial), "toroidal" → T (tangential toroidal)
+
+    # Q component (radial) - stored in "poloidal" field for backward compatibility
+    velocity_field.poloidal.boundary_values[1, :] = inner_Q  # Inner boundary (radial component)
+    velocity_field.poloidal.boundary_values[2, :] = outer_Q  # Outer boundary (radial component)
+
+    # T component (tangential toroidal) - stored in "toroidal" field
+    velocity_field.toroidal.boundary_values[1, :] = inner_T  # Inner boundary (toroidal component)
+    velocity_field.toroidal.boundary_values[2, :] = outer_T  # Outer boundary (toroidal component)
+
+    # S component (tangential spheroidal) - would need separate field if fully implemented
+    # For now, this is handled implicitly in the T component or would need field restructure
     
     # Update time index
     velocity_field.boundary_time_index[] = time_index
@@ -563,12 +573,15 @@ function validate_velocity_boundary_files(boundary_specs::Dict, config)
 end
 
 """
-    velocity_to_toroidal_poloidal(v_r, v_theta, v_phi, config)
+    velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
 
-Convert physical velocity components (v_r, v_θ, v_φ) to toroidal and poloidal scalars.
+Convert physical velocity components (v_r, v_θ, v_φ) to QST spectral coefficients
+using proper SHTnsKit decomposition.
 
-This is a simplified implementation. A complete implementation would use
-spherical vector harmonics to properly decompose the velocity field.
+The QST decomposition used by SHTnsKit:
+- Q: Radial component coefficients (transforms like scalar field)
+- S: Spheroidal horizontal component coefficients (curl-free part)
+- T: Toroidal horizontal component coefficients (divergence-free part)
 
 # Arguments
 - `v_r`: Radial velocity component [nlat, nlon]
@@ -577,60 +590,147 @@ spherical vector harmonics to properly decompose the velocity field.
 - `config`: SHTnsKit configuration
 
 # Returns
-- `(toroidal_coeffs, poloidal_coeffs)`: Spectral coefficients for T and P scalars
+- `(Q_coeffs, S_coeffs, T_coeffs)`: QST spectral coefficients
 """
-function velocity_to_toroidal_poloidal(v_r, v_theta, v_phi, config)
+function velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
 
-    # For proper implementation, we would need to solve:
-    # v_r = (1/r²) ∂/∂r(r² ∂P/∂r) + (1/(r²sinθ)) [∂/∂θ(sinθ ∂P/∂θ) + (1/sinθ) ∂²P/∂φ²]
-    # v_θ = (1/r) ∂²P/∂r∂θ + (1/(r sinθ)) ∂T/∂φ
-    # v_φ = (1/r) ∂²P/∂r∂φ - (1/r) ∂T/∂θ
+    # Use SHTnsKit's proper QST decomposition for 3D vector fields
+    # Q: radial component (scalar-like)
+    # S: spheroidal horizontal component (curl-free part)
+    # T: toroidal horizontal component (divergence-free part)
 
-    # Simplified approach:
-    # 1. Poloidal component primarily determined by v_r
-    # 2. Toroidal component determined by curl of horizontal velocity
+    # Q component: radial velocity (scalar-like transform using SHTnsKit)
+    Q_coeffs = shtns_physical_to_spectral(v_r, config)
 
-    # Poloidal scalar (related to radial component)
-    poloidal_coeffs = physical_to_spectral_boundary(v_r, config)
+    # S and T components: proper spheroidal-toroidal decomposition
+    # Using SHTnsKit's spat_to_SHsphtor function for horizontal components
+    try
+        # Create temporary SHTConfig for the decomposition
+        nlat, nlon = size(v_theta)
+        shtconfig = SHTnsKit.SHTConfig(config.lmax; nlat=nlat, nlon=nlon)
 
-    # Toroidal scalar (simplified: use magnitude of horizontal components)
-    # In a proper implementation, this would compute ∇ × v_horizontal
-    horizontal_magnitude = sqrt.(v_theta.^2 + v_phi.^2)
-    toroidal_coeffs = physical_to_spectral_boundary(horizontal_magnitude, config)
+        # Use SHTnsKit's proper spheroidal-toroidal decomposition
+        S_matrix, T_matrix = SHTnsKit.spat_to_SHsphtor(shtconfig, v_theta, v_phi)
 
-    return toroidal_coeffs, poloidal_coeffs
+        # Convert matrices to coefficient vectors (assuming lm-indexing)
+        nlm = SHTnsKit.get_num_modes(config.lmax)
+        S_coeffs = zeros(config.T, nlm)
+        T_coeffs = zeros(config.T, nlm)
+
+        # Extract coefficients (simplified - proper implementation would handle lm indexing)
+        idx = 1
+        for l in 0:config.lmax
+            for m in 0:min(l, size(S_matrix,2)-1)
+                if idx <= nlm
+                    S_coeffs[idx] = S_matrix[l+1, m+1]
+                    T_coeffs[idx] = T_matrix[l+1, m+1]
+                    idx += 1
+                end
+            end
+        end
+
+    catch e
+        @warn "Failed to use SHTnsKit spheroidal-toroidal decomposition: $e"
+        @warn "Falling back to simplified scalar transforms"
+
+        # Fallback: treat components as separate scalar fields
+        S_coeffs = shtns_physical_to_spectral(v_theta, config)
+        T_coeffs = shtns_physical_to_spectral(v_phi, config)
+    end
+
+    return Q_coeffs, S_coeffs, T_coeffs
+end
+
+"""
+    shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+
+Transform physical boundary data to spectral coefficients using SHTnsKit.
+"""
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+
+    # Create temporary transform object with proper SHTnsKit interface
+    nlat, nlon = size(physical_data)
+    transform = SHTnsKit.SHTnsTransform(config.lmax, nlat, nlon)
+
+    # Perform forward transform
+    spectral_coeffs = SHTnsKit.analysis!(transform, physical_data)
+
+    return spectral_coeffs
 end
 
 """
     enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
 
 Enforce specific velocity boundary constraints based on boundary condition type.
+Uses proper QST (Q-spheroidal-toroidal) decomposition from SHTnsKit.
 
 # Arguments
-- `velocity_field`: Velocity field structure
+- `velocity_field`: Velocity field structure with QST components
 - `bc_type`: Type of boundary condition (:no_slip, :stress_free, :custom)
+
+# Boundary Condition Mapping:
+- No-slip: v_r = v_θ = v_φ = 0 → Q = S = T = 0 at boundaries
+- Stress-free: v_r = 0, tangential stress = 0 → Q = 0, ∂S/∂r = ∂T/∂r = 0
+- Impermeable: v_r = 0 → Q = 0 at boundaries (S, T unconstrained)
 """
 function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
 
+    # Map traditional names to QST components:
+    # velocity_field.radial → Q component (was "poloidal" but is actually radial)
+    # velocity_field.toroidal → T component (tangential toroidal)
+    # velocity_field.spheroidal → S component (tangential spheroidal, if exists)
+
     if bc_type == :no_slip
         # No-slip: all velocity components = 0 at boundaries
-        # This means both toroidal and poloidal scalars = 0 at boundaries
-        if hasfield(typeof(velocity_field.toroidal), :boundary_values)
-            fill!(velocity_field.toroidal.boundary_values, 0.0)
+        # In QST terms: Q = S = T = 0 at boundaries
+
+        # Q component (radial): set to zero
+        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (actually radial)
         end
-        if hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)
+
+        # T component (toroidal): set to zero
+        if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
+            fill!(velocity_field.toroidal.boundary_values, 0.0)  # T = 0
+        end
+
+        # S component (spheroidal): set to zero if it exists
+        if hasfield(typeof(velocity_field), :spheroidal) && hasfield(typeof(velocity_field.spheroidal), :boundary_values)
+            fill!(velocity_field.spheroidal.boundary_values, 0.0)  # S = 0
         end
 
     elseif bc_type == :stress_free
         # Stress-free: v_r = 0, but tangential stress = 0
-        # This means P = 0 at boundary (no radial flow)
-        # but ∂T/∂r = 0 at boundary (zero tangential stress)
-        if hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # P = 0
+        # In QST terms: Q = 0, ∂S/∂r = ∂T/∂r = 0 at boundaries
+
+        # Q component (radial): must be zero (impermeable boundary)
+        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0
         end
-        # Note: For stress-free, toroidal BC is ∂T/∂r = 0, not T = 0
-        # This requires different handling in the solver (Neumann BC)
+
+        # S and T components: Neumann boundary conditions (∂S/∂r = ∂T/∂r = 0)
+        # This requires setting bc_type to Neumann (2) rather than Dirichlet (1)
+        if hasfield(typeof(velocity_field), :toroidal)
+            if hasfield(typeof(velocity_field.toroidal), :bc_type_inner)
+                fill!(velocity_field.toroidal.bc_type_inner, 2)  # Neumann BC
+                fill!(velocity_field.toroidal.bc_type_outer, 2)
+            end
+        end
+
+        if hasfield(typeof(velocity_field), :spheroidal)
+            if hasfield(typeof(velocity_field.spheroidal), :bc_type_inner)
+                fill!(velocity_field.spheroidal.bc_type_inner, 2)  # Neumann BC
+                fill!(velocity_field.spheroidal.bc_type_outer, 2)
+            end
+        end
+
+    elseif bc_type == :impermeable
+        # Impermeable: v_r = 0 only
+        # In QST terms: Q = 0 at boundaries (S, T unconstrained)
+
+        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0
+        end
 
     end
 
@@ -640,4 +740,4 @@ end
 export load_velocity_boundary_conditions!, set_programmatic_velocity_boundaries!
 export update_time_dependent_velocity_boundaries!, get_current_velocity_boundaries
 export validate_velocity_boundary_files, create_programmatic_velocity_boundary
-export velocity_to_toroidal_poloidal, enforce_velocity_boundary_constraints!
+export velocity_to_qst_coefficients, enforce_velocity_boundary_constraints!

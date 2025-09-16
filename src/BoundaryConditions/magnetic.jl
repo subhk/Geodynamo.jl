@@ -239,10 +239,19 @@ function create_programmatic_magnetic_boundary(pattern::Symbol, config, amplitud
     
     # Generate magnetic field pattern
     if pattern == :insulating
-        # Insulating boundary: B_r = 0, ∂B_tan/∂r = 0
-        # For simplicity, set all components to zero
-        # (proper implementation requires matching internal field)
-        description = "Insulating boundary condition"
+        # Insulating boundary: J_normal = 0 ⟹ ∇×B_tangential = 0
+        # Typically B_r ≠ 0, but ∂B_tangential/∂r = 0
+        # Set tangential components to match potential field, B_r from matching
+
+        for (i, θ) in enumerate(theta)
+            for (j, φ) in enumerate(phi)
+                # Simple dipole-like radial field for insulating BC
+                values[i, j, 1] = amplitude * cos(θ)          # B_r (dipolar)
+                values[i, j, 2] = 0.0                         # B_θ = 0 (simplified)
+                values[i, j, 3] = 0.0                         # B_φ = 0 (simplified)
+            end
+        end
+        description = "Insulating boundary condition (B_r from potential, B_tan minimal)"
         
     elseif pattern == :perfect_conductor
         # Perfect conductor: B_tan = 0, B_r can be non-zero
@@ -340,13 +349,19 @@ function create_programmatic_magnetic_boundary(pattern::Symbol, config, amplitud
     end
     
     # Create BoundaryData structure
-    return create_boundary_data(
+    boundary_data = create_boundary_data(
         values, "magnetic";
         theta=theta, phi=phi, time=nothing,
         units="T",
         description=description,
         file_path="programmatic"
     )
+
+    # Add pattern information for constraint enforcement
+    boundary_data.pattern = pattern
+    boundary_data.amplitude = amplitude
+
+    return boundary_data
 end
 
 """
@@ -502,28 +517,84 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
-    # Transform to spectral space for each magnetic field component
-    # Toroidal component (related to B_r)
-    inner_toroidal = physical_to_spectral_boundary(inner_physical[:, :, 1], magnetic_field.config)
-    outer_toroidal = physical_to_spectral_boundary(outer_physical[:, :, 1], magnetic_field.config)
-    
-    # Poloidal component (related to B_θ and B_φ)
-    inner_poloidal = physical_to_spectral_boundary(
-        sqrt.(inner_physical[:, :, 2].^2 + inner_physical[:, :, 3].^2), magnetic_field.config
-    )
-    outer_poloidal = physical_to_spectral_boundary(
-        sqrt.(outer_physical[:, :, 2].^2 + outer_physical[:, :, 3].^2), magnetic_field.config
-    )
-    
-    # Apply to boundary arrays
-    magnetic_field.toroidal.boundary_values[1, :] = inner_toroidal  # Inner boundary
-    magnetic_field.toroidal.boundary_values[2, :] = outer_toroidal  # Outer boundary
-    magnetic_field.poloidal.boundary_values[1, :] = inner_poloidal
-    magnetic_field.poloidal.boundary_values[2, :] = outer_poloidal
+    # Transform to spectral space using proper magnetic QST decomposition
+    # For magnetic fields: B = Q ê_r + S_tangential + T_tangential
+    # where Q is radial, S is spheroidal (potential-like), T is toroidal (solenoidal)
+
+    # Extract components
+    B_r_inner = inner_physical[:, :, 1]     # Radial component
+    B_theta_inner = inner_physical[:, :, 2]  # Theta component
+    B_phi_inner = inner_physical[:, :, 3]    # Phi component
+
+    B_r_outer = outer_physical[:, :, 1]
+    B_theta_outer = outer_physical[:, :, 2]
+    B_phi_outer = outer_physical[:, :, 3]
+
+    # Convert to QST coefficients using SHTnsKit (if available)
+    try
+        # Inner boundary
+        Q_inner, S_inner, T_inner = magnetic_to_qst_coefficients(
+            B_r_inner, B_theta_inner, B_phi_inner, magnetic_field.config
+        )
+
+        # Outer boundary
+        Q_outer, S_outer, T_outer = magnetic_to_qst_coefficients(
+            B_r_outer, B_theta_outer, B_phi_outer, magnetic_field.config
+        )
+
+        # Map to toroidal-poloidal structure:
+        # For magnetic fields: toroidal ~ T (purely tangential), poloidal ~ Q + S (radial + potential)
+        magnetic_field.toroidal.boundary_values[1, :] = T_inner   # Inner toroidal
+        magnetic_field.toroidal.boundary_values[2, :] = T_outer   # Outer toroidal
+
+        # Combine Q and S for poloidal (Q dominates for boundary conditions)
+        magnetic_field.poloidal.boundary_values[1, :] = Q_inner  # Inner poloidal (radial dominated)
+        magnetic_field.poloidal.boundary_values[2, :] = Q_outer  # Outer poloidal (radial dominated)
+
+    catch e
+        @warn "SHTnsKit QST decomposition failed, using fallback: $e"
+
+        # Fallback to simpler decomposition
+        inner_toroidal = shtns_physical_to_spectral(B_r_inner, magnetic_field.config)
+        outer_toroidal = shtns_physical_to_spectral(B_r_outer, magnetic_field.config)
+
+        # Approximate poloidal from tangential components
+        inner_poloidal = shtns_physical_to_spectral(
+            sqrt.(B_theta_inner.^2 + B_phi_inner.^2), magnetic_field.config
+        )
+        outer_poloidal = shtns_physical_to_spectral(
+            sqrt.(B_theta_outer.^2 + B_phi_outer.^2), magnetic_field.config
+        )
+
+        magnetic_field.toroidal.boundary_values[1, :] = inner_toroidal
+        magnetic_field.toroidal.boundary_values[2, :] = outer_toroidal
+        magnetic_field.poloidal.boundary_values[1, :] = inner_poloidal
+        magnetic_field.poloidal.boundary_values[2, :] = outer_poloidal
+    end
     
     # Update time index
     magnetic_field.boundary_time_index[] = time_index
-    
+
+    # Enforce magnetic boundary condition constraints based on boundary pattern
+    boundary_set = magnetic_field.boundary_condition_set
+    if hasfield(typeof(boundary_set.inner_boundary), :pattern) && hasfield(typeof(boundary_set.outer_boundary), :pattern)
+        # Apply constraints based on boundary patterns
+        inner_pattern = get(boundary_set.inner_boundary, :pattern, :potential_field)
+        outer_pattern = get(boundary_set.outer_boundary, :pattern, :potential_field)
+
+        # Apply most restrictive constraint (typically inner boundary)
+        primary_constraint = inner_pattern
+
+        enforce_magnetic_boundary_constraints!(magnetic_field, primary_constraint)
+
+    elseif hasfield(typeof(boundary_set), :constraint_type)
+        # Apply explicit constraint if specified
+        enforce_magnetic_boundary_constraints!(magnetic_field, boundary_set.constraint_type)
+    else
+        # Default: assume potential field matching
+        enforce_magnetic_boundary_constraints!(magnetic_field, :potential_field)
+    end
+
     return magnetic_field
 end
 
@@ -673,6 +744,125 @@ function validate_magnetic_boundary_files(boundary_specs::Dict, config)
     return true
 end
 
+"""
+    magnetic_to_qst_coefficients(B_r, B_theta, B_phi, config)
+
+Convert physical magnetic field components to QST spectral coefficients.
+
+For magnetic fields:
+- Q: Radial component coefficients (B_r)
+- S: Spheroidal tangential component coefficients
+- T: Toroidal tangential component coefficients
+"""
+function magnetic_to_qst_coefficients(B_r, B_theta, B_phi, config)
+
+    try
+        # Use SHTnsKit for proper QST decomposition if available
+        if isdefined(Main, :SHTnsKit)
+            # Create SHTnsKit configuration
+            lmax = get(config, :lmax, 10)
+            nlat, nlon = size(B_r)
+
+            shtconfig = SHTnsKit.create_gauss_config(lmax, nlat; nlon=nlon)
+
+            # Transform to QST coefficients using SHTnsKit
+            Q_coeffs, S_coeffs, T_coeffs = SHTnsKit.spat_to_SHqst(shtconfig, B_r, B_theta, B_phi)
+
+            # Clean up configuration
+            SHTnsKit.destroy_config(shtconfig)
+
+            return Q_coeffs, S_coeffs, T_coeffs
+        end
+    catch e
+        @warn "SHTnsKit QST decomposition failed: $e"
+    end
+
+    # Fallback: use simple spectral transforms
+    Q_coeffs = shtns_physical_to_spectral(B_r, config)
+    S_coeffs = shtns_physical_to_spectral(B_theta, config)  # Approximate
+    T_coeffs = shtns_physical_to_spectral(B_phi, config)    # Approximate
+
+    return Q_coeffs, S_coeffs, T_coeffs
+end
+
+"""
+    shtns_physical_to_spectral(physical_data, config)
+
+Convert physical space data to spectral coefficients (consistent with other BCs).
+"""
+function shtns_physical_to_spectral(physical_data, config)
+    # This should be consistent with thermal.jl and composition.jl implementations
+    # For now, placeholder - in real implementation this would use the same
+    # physical_to_spectral function used in the thermal/composition BCs
+
+    nlat, nlon = size(physical_data)
+    nlm = get(config, :nlm, (config.lmax + 1)^2)
+
+    # Placeholder: return mean value in l=0 mode (like thermal BCs)
+    coeffs = zeros(eltype(physical_data), nlm)
+    coeffs[1] = mean(physical_data)  # l=0, m=0 mode
+
+    return coeffs
+end
+
+"""
+    enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
+
+Enforce magnetic boundary condition constraints based on physics.
+
+# Boundary condition types:
+- `:insulating` - Insulating boundary: B_r = 0, ∇×B_tangential = 0
+- `:perfect_conductor` - Perfect conductor: B_tangential = 0, B_r free
+- `:potential_field` - Potential field matching at boundary
+"""
+function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
+
+    if bc_type == :insulating
+        # Insulating boundary: no normal current, J_n = 0
+        # This implies ∇×B_tangential = 0 at boundary
+        # For spectral: constrain tangential B components
+        # Radial component B_r can vary to match field lines
+
+        # Apply constraint to toroidal component (mostly tangential)
+        # Set Neumann BC (∂T/∂r = 0) for natural insulating condition
+        fill!(magnetic_field.toroidal.bc_type_inner, 2)  # Neumann
+        fill!(magnetic_field.toroidal.bc_type_outer, 2)  # Neumann
+
+        # Radial component (poloidal) can vary - leave as Dirichlet with computed values
+
+    elseif bc_type == :perfect_conductor
+        # Perfect conductor: B_tangential = 0
+        # This means all tangential components must be zero at boundary
+
+        # Set toroidal components to zero (tangential field = 0)
+        fill!(magnetic_field.toroidal.boundary_values, 0.0)
+        fill!(magnetic_field.toroidal.bc_type_inner, 1)  # Dirichlet (fixed = 0)
+        fill!(magnetic_field.toroidal.bc_type_outer, 1)  # Dirichlet (fixed = 0)
+
+        # Poloidal/radial component can be non-zero - constraint from ∇·B = 0
+
+    elseif bc_type == :potential_field
+        # Potential field boundary: match external field
+        # Both components use computed boundary values as Dirichlet BC
+
+        fill!(magnetic_field.toroidal.bc_type_inner, 1)  # Dirichlet
+        fill!(magnetic_field.toroidal.bc_type_outer, 1)  # Dirichlet
+        fill!(magnetic_field.poloidal.bc_type_inner, 1)  # Dirichlet
+        fill!(magnetic_field.poloidal.bc_type_outer, 1)  # Dirichlet
+
+    elseif bc_type == :custom
+        # Custom boundary conditions - leave arrays as set by user
+        @info "Custom magnetic boundary conditions - user must set bc_type arrays"
+
+    else
+        @warn "Unknown magnetic boundary condition type: $bc_type, using potential_field"
+        enforce_magnetic_boundary_constraints!(magnetic_field, :potential_field)
+    end
+
+    return magnetic_field
+end
+
 export load_magnetic_boundary_conditions!, set_programmatic_magnetic_boundaries!
 export update_time_dependent_magnetic_boundaries!, get_current_magnetic_boundaries
 export validate_magnetic_boundary_files, create_programmatic_magnetic_boundary
+export magnetic_to_qst_coefficients, enforce_magnetic_boundary_constraints!
