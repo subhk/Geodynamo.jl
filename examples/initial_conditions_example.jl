@@ -17,11 +17,8 @@ Run this example to see all three approaches in action.
 using LinearAlgebra
 using Random
 
-# Add the source directory to the path
-push!(LOAD_PATH, "../src")
-
-# Import the initial conditions module
-using InitialConditions
+# Include the initial conditions module directly
+include("../src/InitialConditions.jl")
 
 println("="^70)
 println("GEODYNAMO INITIAL CONDITIONS EXAMPLE")

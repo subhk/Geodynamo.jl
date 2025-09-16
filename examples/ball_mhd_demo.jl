@@ -69,16 +69,19 @@ if get(ENV, "GEODYNAMO_TEST_WS", "0") == "1"
     println("Running workspace equivalence check (GEODYNAMO_TEST_WS=1)...")
     # Save current workspace
     saved_ws = Geodynamo.VELOCITY_WS[]
+
     # Baseline without workspace
     Geodynamo.set_velocity_workspace!(nothing)
     Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
     base_tor = copy(parent(state.velocity.vort_toroidal.data_real))
     base_pol = copy(parent(state.velocity.vort_poloidal.data_real))
+
     # Zero and recompute with workspace
     fill!(parent(state.velocity.vort_toroidal.data_real), 0.0)
     fill!(parent(state.velocity.vort_toroidal.data_imag), 0.0)
     fill!(parent(state.velocity.vort_poloidal.data_real), 0.0)
     fill!(parent(state.velocity.vort_poloidal.data_imag), 0.0)
+
     # Ensure a workspace is present
     if saved_ws === nothing
         ws2 = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
@@ -86,6 +89,7 @@ if get(ENV, "GEODYNAMO_TEST_WS", "0") == "1"
     else
         Geodynamo.set_velocity_workspace!(saved_ws)
     end
+    
     Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
     tor = parent(state.velocity.vort_toroidal.data_real)
     pol = parent(state.velocity.vort_poloidal.data_real)
@@ -109,11 +113,52 @@ set_boundary_conditions!(state.temperature;
 # temp_bc = GeodynamoBall.create_ball_hybrid_temperature_boundaries((:uniform, 1.0), (:uniform, 0.0), state.shtns_config)
 # apply_netcdf_temperature_boundaries!(state.temperature, temp_bc)
 
-# 4) Initial conditions
-#    - Temperature: conductive profile + small perturbation
-set_temperature_ic!(state.temperature, state.oc_domain; perturbation_amplitude=1e-3)
+# 4) Initial conditions using random generation
+include("../src/InitialConditions.jl")
+using Random
 
-#    - Overwrite l=0,m=0 with conductive profile matching BC values
+println("Setting up random initial conditions...")
+
+# Set random seed for reproducible results
+Random.seed!(1234)
+
+# Create mock field wrappers for the InitialConditions functions
+struct FieldWrapper{T}
+    spectral::T
+    config::NamedTuple
+end
+
+struct VectorFieldWrapper{T}
+    toroidal::T
+    poloidal::T
+    config::NamedTuple
+end
+
+# Wrap state fields for InitialConditions interface
+temp_config = (
+    nr = size(parent(state.temperature.spectral.data_real), 3),
+    nlm = size(parent(state.temperature.spectral.data_real), 1),
+    lmax = params.i_L
+)
+
+temp_wrapper = FieldWrapper(state.temperature.spectral, temp_config)
+velocity_wrapper = VectorFieldWrapper(state.velocity.toroidal, state.velocity.poloidal, temp_config)
+magnetic_wrapper = VectorFieldWrapper(state.magnetic.toroidal, state.magnetic.poloidal, temp_config)
+
+# Generate random initial conditions
+println("  - Temperature: random perturbations (amplitude=0.01, modes 1-8)")
+generate_random_initial_conditions!(temp_wrapper, :temperature,
+                                  amplitude=0.01, modes_range=1:8, seed=1234)
+
+println("  - Velocity: small random perturbations (amplitude=1e-5, modes 1-6)")
+generate_random_initial_conditions!(velocity_wrapper, :velocity,
+                                  amplitude=1e-5, modes_range=1:6, seed=2345)
+
+println("  - Magnetic field: tiny seed field (amplitude=1e-4, modes 1-4)")
+generate_random_initial_conditions!(magnetic_wrapper, :magnetic,
+                                  amplitude=1e-4, modes_range=1:4, seed=3456)
+
+# Add conductive temperature profile to l=0,m=0 mode
 function _find_mode_index(config, l_target::Int, m_target::Int)
     for i in 1:config.nlm
         if config.l_values[i] == l_target && config.m_values[i] == m_target
@@ -144,31 +189,102 @@ function set_conductive_ic!(temp_field, domain; T_in=1.0, T_out=0.0)
     end
 end
 
+println("  - Adding conductive profile to temperature l=0,m=0 mode")
 set_conductive_ic!(state.temperature, state.oc_domain; T_in=1.0, T_out=0.0)
 
-#    - Velocity: starts at zero (recommended). Uncomment to add tiny perturbations:
-# using Random
-# Random.seed!(1234)
-# tor = parent(state.velocity.toroidal.data_real); 
-# pol = parent(state.velocity.poloidal.data_real)
-# lm_range = range_local(state.velocity.toroidal.pencil, 1)
-# r_range  = range_local(state.velocity.toroidal.pencil, 3)
-# @inbounds for lm_idx in lm_range
-#     l = state.velocity.toroidal.config.l_values[lm_idx]
-#     if l <= 3
-#         ll = lm_idx - first(lm_range) + 1
-#         for r_idx in r_range
-#             rr = r_idx - first(r_range) + 1
-#             if rr <= size(tor,3)
-#                 tor[ll,1,rr] = 1e-6 * (rand()-0.5)
-#                 pol[ll,1,rr] = 1e-6 * (rand()-0.5)
-#             end
-#         end
-#     end
-# end
+# Report initial condition statistics
+println("Initial condition statistics:")
+temp_energy = sum(abs2.(parent(state.temperature.spectral.data_real))) +
+              sum(abs2.(parent(state.temperature.spectral.data_imag)))
+vel_tor_energy = sum(abs2.(parent(state.velocity.toroidal.data_real))) +
+                 sum(abs2.(parent(state.velocity.toroidal.data_imag)))
+vel_pol_energy = sum(abs2.(parent(state.velocity.poloidal.data_real))) +
+                 sum(abs2.(parent(state.velocity.poloidal.data_imag)))
+mag_tor_energy = sum(abs2.(parent(state.magnetic.toroidal.data_real))) +
+                 sum(abs2.(parent(state.magnetic.toroidal.data_imag)))
+mag_pol_energy = sum(abs2.(parent(state.magnetic.poloidal.data_real))) +
+                 sum(abs2.(parent(state.magnetic.poloidal.data_imag)))
 
-# 5) Run
+println("  Temperature energy: $(round(temp_energy, digits=6))")
+println("  Velocity energy: $(round(vel_tor_energy + vel_pol_energy, digits=8))")
+println("  Magnetic energy: $(round(mag_tor_energy + mag_pol_energy, digits=8))")
+
+# 5) Enhanced output configuration using existing output writer
+using Printf
+
+# Configure enhanced output with more frequent saves
+println("\n" * "="^70)
+println("CONFIGURING ENHANCED OUTPUT & DIAGNOSTICS")
+println("="^70)
+
+# Modify save rate for more frequent output using existing writer
+original_save_rate = params.i_save_rate2
+params.i_save_rate2 = 5  # Save every 5 timesteps instead of default 50
+
+println("Enhanced output configuration:")
+println("  Original save rate: $original_save_rate timesteps")
+println("  New save rate: $(params.i_save_rate2) timesteps")
+println("  Output format: NetCDF with full diagnostics")
+println("  Location: Current directory")
+
+# Custom diagnostics function for console monitoring
+function compute_field_diagnostics(state)
+    # Compute velocity statistics
+    vel_tor_data_r = parent(state.velocity.toroidal.data_real)
+    vel_tor_data_i = parent(state.velocity.toroidal.data_imag)
+    vel_pol_data_r = parent(state.velocity.poloidal.data_real)
+    vel_pol_data_i = parent(state.velocity.poloidal.data_imag)
+
+    max_vel_tor = max(maximum(abs.(vel_tor_data_r)), maximum(abs.(vel_tor_data_i)))
+    max_vel_pol = max(maximum(abs.(vel_pol_data_r)), maximum(abs.(vel_pol_data_i)))
+    max_vel = max(max_vel_tor, max_vel_pol)
+
+    # Compute temperature statistics
+    temp_data_r = parent(state.temperature.spectral.data_real)
+    temp_data_i = parent(state.temperature.spectral.data_imag)
+    max_temp = max(maximum(abs.(temp_data_r)), maximum(abs.(temp_data_i)))
+
+    # Compute magnetic field statistics
+    max_mag = 0.0
+    if state.magnetic !== nothing
+        mag_tor_data_r = parent(state.magnetic.toroidal.data_real)
+        mag_tor_data_i = parent(state.magnetic.toroidal.data_imag)
+        mag_pol_data_r = parent(state.magnetic.poloidal.data_real)
+        mag_pol_data_i = parent(state.magnetic.poloidal.data_imag)
+
+        max_mag_tor = max(maximum(abs.(mag_tor_data_r)), maximum(abs.(mag_tor_data_i)))
+        max_mag_pol = max(maximum(abs.(mag_pol_data_r)), maximum(abs.(mag_pol_data_i)))
+        max_mag = max(max_mag_tor, max_mag_pol)
+    end
+
+    return max_vel, max_temp, max_mag
+end
+
+# Print initial diagnostics before simulation starts
+max_vel_init, max_temp_init, max_mag_init = compute_field_diagnostics(state)
+println("\nInitial field amplitudes:")
+println(@sprintf("  Max Velocity: %12.6e", max_vel_init))
+println(@sprintf("  Max Temperature: %12.6e", max_temp_init))
+println(@sprintf("  Max Magnetic: %12.6e", max_mag_init))
+
+println("\nStarting simulation with enhanced output...")
+println("  Files will be written as: geodynamo_rank_XXXX_time_Y.nc")
+println("  NetCDF files include: spectral coefficients + diagnostics + metadata")
+println("  Console output will show simulation progress")
+
+# Use the existing simulation which has built-in output writer
+# The modified i_save_rate2 will make it save more frequently
 run_simulation!(state)
+
+println("\n" * "="^70)
+println("SIMULATION COMPLETE WITH ENHANCED OUTPUT")
+println("="^70)
+println("The existing output writer has saved NetCDF files containing:")
+println("  • Spectral coefficients for velocity, magnetic, and temperature fields")
+println("  • Comprehensive field diagnostics (energies, extrema, etc.)")
+println("  • Grid coordinates and SHT configuration")
+println("  • Time series and metadata")
+println("\nFiles saved every $(params.i_save_rate2) timesteps to current directory.")
 
 # Single-rank quick test:
 #   GEODYNAMO_TS_SCHEME=eab2 GEODYNAMO_ETD_M=30 GEODYNAMO_KRYLOV_TOL=1e-8 \
