@@ -1,15 +1,15 @@
-# ===============================================================
+# ================================================================================
 # Composition field components with enhanced SHTns transforms
-# ===============================================================
+# ================================================================================
 # For no-flux boundary conditions (typical for composition):
 # bc_type_inner = fill(2, nlm)  # No-flux at inner boundary  
 # bc_type_outer = fill(2, nlm)  # No-flux at outer boundary
 # apply_composition_boundary_conditions_spectral!(comp_field, domain)
-# ====================================================================================
+# ================================================================================
 
-# ============================================================================
+# ================================================================================
 # Compositional field components with full spectral optimization
-# ============================================================================
+# ================================================================================
 
 using PencilArrays
 using SHTnsKit
@@ -66,9 +66,9 @@ struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     transform_time::Ref{Float64}
 end
 
-# ============================================================================
+# ================================================================================
 # Main nonlinear computation with full spectral optimization  
-# ============================================================================
+# ================================================================================
 # NOTE: Pre-computation functions moved to scalar_field_common.jl
 
 function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig, 
@@ -199,13 +199,13 @@ function compute_composition_gradient_local!(comp_field::SHTnsCompositionField{T
     transform_field_and_gradients_to_physical!(comp_field)
 end
 
-# ============================================================================
+# ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
-# ============================================================================
+# ================================================================================
 # NOTE: Batched transform operations moved to scalar_field_common.jl
-# ============================================================================
+# ================================================================================
 # Local physical space operations (no communication)
-# ============================================================================
+# ================================================================================
 
 
 function add_compositional_sources_local!(comp_field::SHTnsCompositionField{T}, 
@@ -231,9 +231,9 @@ function add_compositional_sources_local!(comp_field::SHTnsCompositionField{T},
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Boundary conditions in spectral space
-# ============================================================================
+# ================================================================================
 
 function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompositionField{T}, 
                                                          domain::RadialDomain) where T
@@ -286,9 +286,9 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Flux Boundary Conditions - NOW USING scalar_field_common.jl
-# ============================================================================
+# ================================================================================
 # The compositional field now uses the same robust boundary condition methods
 # as the thermal field (tau method, influence matrix, direct) via the common 
 # apply_scalar_flux_bc_spectral! function.
@@ -299,9 +299,9 @@ end
 # - Consistent implementation across all scalar fields
 # - Superior numerical accuracy compared to the old matrix-based approach
 
-# ============================================================================
+# ================================================================================
 # Validation and Testing
-# ============================================================================
+# ================================================================================
 
 function validate_composition_field(comp_field::SHTnsCompositionField{T}, domain::RadialDomain) where T
     """
@@ -336,9 +336,9 @@ function validate_composition_field(comp_field::SHTnsCompositionField{T}, domain
     return true
 end
 
-# ============================================================================
+# ================================================================================
 # Diagnostic functions
-# ============================================================================
+# ================================================================================
 
 function compute_composition_rms(comp_field::SHTnsCompositionField{T}, oc_domain::RadialDomain) where T
     # Compute RMS composition
@@ -391,9 +391,9 @@ function compute_composition_energy(comp_field::SHTnsCompositionField{T}, oc_dom
     return global_energy / (comp_field.config.nlat * comp_field.config.nlon * oc_domain.N)
 end
 
-# ============================================================================
+# ================================================================================
 # Performance monitoring and statistics
-# ============================================================================
+# ================================================================================
 
 function get_composition_statistics(comp_field::SHTnsCompositionField{T}, 
                                    domain::RadialDomain) where T
@@ -426,9 +426,9 @@ function get_composition_statistics(comp_field::SHTnsCompositionField{T},
             energy = energy)
 end
 
-# ============================================================================
+# ================================================================================
 # Utility functions
-# ============================================================================
+# ================================================================================
 
 function set_composition_ic!(comp_field::SHTnsCompositionField{T}, 
                              ic_type::Symbol, oc_domain::RadialDomain) where T
@@ -494,9 +494,9 @@ end
 
 # Note: NetCDF boundary condition functions moved to src/BoundaryConditions/composition.jl
 
-# ============================================================================
+# ================================================================================
 # Export functions
-# ============================================================================
+# ================================================================================
 # export SHTnsCompositionField, create_shtns_composition_field
 # export compute_composition_nonlinear!
 # export compute_composition_rms, compute_composition_energy

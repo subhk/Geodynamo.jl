@@ -1,6 +1,6 @@
-# ============================================================================
+# ================================================================================
 # SHTnsKit Spherical Harmonic Transforms with PencilArrays Integration
-# ============================================================================
+# ================================================================================
 # 
 # This module implements spherical harmonic transforms using SHTnsKit.jl
 # with MPI parallelization across theta and phi directions using PencilArrays
@@ -18,9 +18,9 @@ using Base.Threads
 # Simple heuristic for number of simultaneously allocated fields (for memory estimate)
 estimate_field_count() = 6
 
-# ============================================================================
+# ================================================================================
 # SHTnsKit Configuration Structure
-# ============================================================================
+# ================================================================================
 
 struct SHTnsKitConfig
     # SHTnsKit configuration
@@ -347,9 +347,9 @@ function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memo
     println("╚═══════════════════════════════════════════════════════╝")
 end
 
-# ============================================================================
+# ================================================================================
 # Core Transform Functions using SHTnsKit with PencilArrays
-# ============================================================================
+# ================================================================================
 
 """
     shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T}, 
@@ -632,9 +632,9 @@ function perform_analysis_direct!(phys::SHTnsPhysicalField{T},
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Vector Transforms with SHTnsKit and PencilArrays
-# ============================================================================
+# ================================================================================
 
 """
     shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
@@ -714,9 +714,9 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     MPI.Barrier(get_comm())
 end
 
-# ============================================================================
+# ================================================================================
 # Helper Functions for PencilArray Data Management
-# ============================================================================
+# ================================================================================
 
 """
     get_pencil_orientation(pencil::Pencil{3}) -> Symbol
@@ -988,9 +988,9 @@ function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Batch Processing for Enhanced Performance
-# ============================================================================
+# ================================================================================
 
 """
     batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
@@ -1026,9 +1026,9 @@ function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
     return batch_shtnskit_transforms!(specs, physs)
 end
 
-# ============================================================================
+# ================================================================================
 # Performance Monitoring
-# ============================================================================
+# ================================================================================
 
 """
     get_shtnskit_performance_stats()
@@ -1044,9 +1044,9 @@ function get_shtnskit_performance_stats()
     )
 end
 
-# ============================================================================
+# ================================================================================
 # Export functions
-# ============================================================================
+# ================================================================================
 
 export SHTnsKitConfig, create_shtnskit_config
 export shtnskit_spectral_to_physical!, shtnskit_physical_to_spectral!
@@ -1056,9 +1056,9 @@ export get_shtnskit_performance_stats
 export batch_spectral_to_physical!
 export optimize_erk2_transforms!, validate_pencil_decomposition, create_erk2_config
 
-# ============================================================================
+# ================================================================================
 # MPI and PencilFFTs Synchronization Utilities  
-# ============================================================================
+# ================================================================================
 
 """
     synchronize_pencil_data!(field)

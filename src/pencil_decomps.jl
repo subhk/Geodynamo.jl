@@ -1,6 +1,6 @@
-# ============================================================================
+# ================================================================================
 # Pencil Configuration with SHTns Integration
-# ============================================================================
+# ================================================================================
 
 using PencilArrays.Transpositions
 using PencilArrays: Transpose
@@ -195,9 +195,9 @@ function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
 end
 
 
-# ============================================================================
+# ================================================================================
 # Transpose Plans with Optimization
-# ============================================================================
+# ================================================================================
 """
     create_transpose_plans(pencils)
     
@@ -230,9 +230,9 @@ function create_transpose_plans(pencils)
 end
 
 
-# ============================================================================
+# ================================================================================
 # Optimized Transpose Operations
-# ============================================================================
+# ================================================================================
 
 """
     transpose_with_timer!(dest, src, plan, label="")
@@ -449,9 +449,9 @@ function synchronize_halos!(arr::PencilArray; halo_width::Int=1, boundaries::Sym
 end
 
 
-# ============================================================================
+# ================================================================================
 # Halo Exchange Implementation for Finite Difference Operations
-# ============================================================================
+# ================================================================================
 #
 # This section implements MPI-based halo (ghost cell) exchange for PencilArrays.
 # Halo exchange is essential for finite difference stencil operations that need
@@ -469,7 +469,7 @@ end
 #
 # Note: For spectral methods using global transforms, explicit halo exchange
 # may not be needed as spectral-physical transforms handle global coupling.
-# ============================================================================
+# ================================================================================
 
 """
     exchange_dimension_halos!(data::Array, pencil::Pencil, dim::Int, 

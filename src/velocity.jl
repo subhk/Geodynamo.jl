@@ -1,6 +1,6 @@
-# ============================================================================
+# ================================================================================
 # Physics Modules with SHTns
-# ============================================================================
+# ================================================================================
 
 
 # Velocity field components with SHTns
@@ -738,9 +738,9 @@ function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
 end
 
 
-# ============================================================================
+# ================================================================================
 # Utility functions
-# ============================================================================
+# ================================================================================
 function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
     # Efficiently zero all work arrays with batch operations
     # Use threaded operations for better performance on large arrays
@@ -779,9 +779,9 @@ function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{
 end
 
 
-# ============================================================================
+# ================================================================================
 # Enhanced utility functions using pencil decomposition and SHTns integration
-# ============================================================================
+# ================================================================================
 
 """
     batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T

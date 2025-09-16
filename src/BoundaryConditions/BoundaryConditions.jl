@@ -1,6 +1,6 @@
-# ============================================================================
+# ================================================================================
 # BoundaryConditions Module - Unified Boundary Condition System
-# ============================================================================
+# ================================================================================
 #
 # This module provides a unified interface for handling boundary conditions
 # for all field types in geodynamo simulations:
@@ -18,7 +18,7 @@
 # - Automatic grid interpolation
 # - Comprehensive error handling
 #
-# ============================================================================
+# ================================================================================
 
 module BoundaryConditions
 
@@ -31,9 +31,9 @@ using LinearAlgebra
 using Statistics
 using Base.Threads
 
-# ============================================================================
+# ================================================================================
 # Core Boundary Condition Types and Interfaces
-# ============================================================================
+# ================================================================================
 
 """
     AbstractBoundaryCondition{T}
@@ -76,18 +76,18 @@ Enumeration for different physical field types.
     MAGNETIC = 4
 end
 
-# ============================================================================
+# ================================================================================
 # Export core types and enums
-# ============================================================================
+# ================================================================================
 
 export AbstractBoundaryCondition
 export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
 export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN
 export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 
-# ============================================================================
+# ================================================================================
 # Include specialized boundary condition modules
-# ============================================================================
+# ================================================================================
 
 include("common.jl")           # Common utilities and data structures
 include("netcdf_io.jl")        # NetCDF file I/O functionality
@@ -104,9 +104,9 @@ include("magnetic.jl")         # Magnetic field boundary conditions
 include("integration.jl")      # Integration with field structures
 include("timestepping.jl")     # Integration with timestepping
 
-# ============================================================================
+# ================================================================================
 # Unified Interface Functions
-# ============================================================================
+# ================================================================================
 
 """
     load_boundary_conditions!(field, field_type::FieldType, boundary_specs::Dict)
@@ -243,16 +243,16 @@ function print_boundary_summary(field, field_type::FieldType)
     println("╚═══════════════════════════════════════════════════════════════╝")
 end
 
-# ============================================================================
+# ================================================================================
 # Export unified interface functions
-# ============================================================================
+# ================================================================================
 
 export load_boundary_conditions!, update_time_dependent_boundaries!
 export validate_boundary_files, get_current_boundaries, print_boundary_summary
 
-# ============================================================================
+# ================================================================================
 # Module-wide utilities
-# ============================================================================
+# ================================================================================
 
 """
     get_boundary_module_info()

@@ -1,7 +1,7 @@
-# ============================================================================
+# ================================================================================
 # NetCDF Output Writer - Complete Module for Geodynamo Simulation
 # Spectral for velocity/magnetic, physical for temperature/composition
-# ============================================================================
+# ================================================================================
 
 using MPI
 using NetCDF  
@@ -12,9 +12,9 @@ using Printf
 
 const comm = MPI.COMM_WORLD
 
-# ============================================================================
+# ================================================================================
 # Configuration
-# ============================================================================
+# ================================================================================
 
 @enum OutputSpace begin
     MIXED_FIELDS        # Spectral for velocity/magnetic, physical for temperature/composition
@@ -67,9 +67,9 @@ function default_config()
     )
 end
 
-# ============================================================================
+# ================================================================================
 # Time Tracking
-# ============================================================================
+# ================================================================================
 
 mutable struct TimeTracker
     last_output_time::Float64
@@ -120,9 +120,9 @@ function time_to_next_output(tracker::TimeTracker, current_time::Float64, config
     return min(time_to_output, time_to_restart, config.output_interval)
 end
 
-# ============================================================================
+# ================================================================================
 # Field Information
-# ============================================================================
+# ================================================================================
 
 struct FieldInfo
     # Physical dimensions (for temperature/composition)
@@ -250,9 +250,9 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
                      pencils, config, local_ranges)
 end
 
-# ============================================================================
+# ================================================================================
 # Filename Generation
-# ============================================================================
+# ================================================================================
 
 function generate_filename(config::OutputConfig, time::Float64, step::Int, 
                             rank::Int, file_type::String = "output")
@@ -275,9 +275,9 @@ function generate_filename(config::OutputConfig, time::Float64, step::Int,
     return joinpath(config.output_dir, filename)
 end
 
-# ============================================================================
+# ================================================================================
 # NetCDF File Operations
-# ============================================================================
+# ================================================================================
 
 function create_netcdf_file(filename::String, config::OutputConfig, 
                             field_info::FieldInfo, metadata::Dict{String,Any})
@@ -453,9 +453,9 @@ function setup_diagnostics!(nc_file, diagnostics::Dict{String,Float64}, config::
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Data Writing
-# ============================================================================
+# ================================================================================
 
 function write_coordinates!(nc_file, field_info::FieldInfo)
     # Write coordinate data
@@ -574,9 +574,9 @@ function write_diagnostics!(nc_file, diagnostics::Dict{String,Float64}, config::
 end
 
 
-# ============================================================================
+# ================================================================================
 # Enhanced Parallel I/O Functions  
-# ============================================================================
+# ================================================================================
 
 """
     write_spectral_data_parallel!(nc_file, real_name, imag_name, real_data, imag_data, field_info)
@@ -715,9 +715,9 @@ function write_single_spectral_component!(nc_file, component::String, field_data
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Diagnostics Computation
-# ============================================================================
+# ================================================================================
 
 function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
     diagnostics = Dict{String, Float64}()
@@ -849,9 +849,9 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String,Float64},
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Main Output Function
-# ============================================================================
+# ================================================================================
 
 function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker, 
                         metadata::Dict{String,Any}, config::OutputConfig = default_config(),
@@ -939,9 +939,9 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
     return should_output || should_restart
 end
 
-# ============================================================================
+# ================================================================================
 # Restart Functions
-# ============================================================================
+# ================================================================================
 
 function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker, 
                         metadata::Dict{String,Any}, config::OutputConfig)
@@ -1080,9 +1080,9 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     return restart_data, metadata
 end
 
-# ============================================================================
+# ================================================================================
 # Utility Functions
-# ============================================================================
+# ================================================================================
 
 function find_restart_files(restart_dir::String, target_time::Float64, rank::Int)
     files = readdir(restart_dir)
@@ -1266,9 +1266,9 @@ function get_file_info(filename::String)
 end
 
 
-# ============================================================================
+# ================================================================================
 # Enhanced Configuration and Integration Functions
-# ============================================================================
+# ================================================================================
 
 """
     create_shtns_aware_output_config(shtns_config::SHTnsKitConfig, pencils::NamedTuple; 
@@ -1455,9 +1455,9 @@ end
 
 # Exports are handled by main module
 
-# ============================================================================
+# ================================================================================
 # Complete Usage Example
-# ============================================================================
+# ================================================================================
 
 """
 Complete usage example for mixed field NetCDF output:

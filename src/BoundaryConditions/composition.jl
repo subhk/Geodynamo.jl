@@ -1,6 +1,6 @@
-# ============================================================================
+# ================================================================================
 # Composition Boundary Conditions
-# ============================================================================
+# ================================================================================
 
 # Composition boundary conditions are implemented within the BoundaryConditions module
 # All required types and functions are available within the module scope

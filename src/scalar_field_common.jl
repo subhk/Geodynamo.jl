@@ -1,27 +1,27 @@
-# ============================================================================
+# ================================================================================
 # Common scalar field implementation for thermal and compositional fields
-# ============================================================================
+# ================================================================================
 # This file contains shared functionality between thermal and compositional
 # fields to reduce code duplication and improve maintainability.
-# ============================================================================
+# ================================================================================
 
 using PencilArrays
 using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-# ============================================================================
+# ================================================================================
 # Generic scalar field struct definition
-# ============================================================================
+# ================================================================================
 
 """
 Abstract type for scalar fields (temperature, composition, etc.)
 """
 abstract type AbstractScalarField{T} end
 
-# ============================================================================
+# ================================================================================
 # Pre-computation of spectral derivative operators (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     build_theta_derivative_matrix(::Type{T}, config::SHTnsKitConfig) where T
@@ -100,9 +100,9 @@ function compute_theta_recurrence_coefficients(::Type{T}, config::SHTnsKitConfig
     return coeffs
 end
 
-# ============================================================================
+# ================================================================================
 # Spectral gradient computation (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     compute_theta_gradient_spectral!(field::AbstractScalarField{T}) where T
@@ -332,9 +332,9 @@ function compute_all_gradients_spectral!(field::AbstractScalarField{T}, domain::
     apply_geometric_factors_spectral!(field, domain)
 end
 
-# ============================================================================
+# ================================================================================
 # Batched transform operations (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     transform_field_and_gradients_to_physical!(field::AbstractScalarField{T}) where T
@@ -365,9 +365,9 @@ end
 # This needs to be specialized for each field type
 function get_main_physical_field end
 
-# ============================================================================
+# ================================================================================
 # Local physical space operations (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     compute_scalar_advection_local!(field::AbstractScalarField{T}, vel_fields) where T
@@ -430,9 +430,9 @@ function add_internal_sources_local!(field::AbstractScalarField{T}, domain::Radi
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Diagnostic functions (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     compute_scalar_rms(field::AbstractScalarField{T}, oc_domain::RadialDomain) where T
@@ -496,9 +496,9 @@ function compute_scalar_energy(field::AbstractScalarField{T}, oc_domain::RadialD
     return global_energy / (field.config.nlat * field.config.nlon * oc_domain.N)
 end
 
-# ============================================================================
+# ================================================================================
 # Utility functions (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     zero_scalar_work_arrays!(field::AbstractScalarField{T}) where T
@@ -520,9 +520,9 @@ function zero_scalar_work_arrays!(field::AbstractScalarField{T}) where T
     fill!(parent(field.nonlinear.data_imag), zero(T))
 end
 
-# ============================================================================
+# ================================================================================
 # Boundary Condition Utilities (SHARED)
-# ============================================================================
+# ================================================================================
 
 # Tau method cache structure for efficient boundary condition enforcement
 mutable struct _TauCache
@@ -549,9 +549,9 @@ end
 # Global influence cache dictionary
 const _INFLUENCE_CACHE = IdDict{RadialDomain, _InfluenceCache}()
 
-# ============================================================================
+# ================================================================================
 # Chebyshev Polynomial Utilities
-# ============================================================================
+# ================================================================================
 
 """
     compute_chebyshev_polynomial(n::Int, domain::RadialDomain)
@@ -605,9 +605,9 @@ function evaluate_chebyshev_derivative(n::Int, r::T, domain::RadialDomain) where
     return dTn_dx * dx_dr
 end
 
-# ============================================================================
+# ================================================================================
 # Tau Method Cache Management
-# ============================================================================
+# ================================================================================
 
 """
     _get_tau_cache(domain::RadialDomain)
@@ -631,9 +631,9 @@ function _get_tau_cache(domain::RadialDomain)
     return cache
 end
 
-# ============================================================================
+# ================================================================================
 # Tau Method Implementation
-# ============================================================================
+# ================================================================================
 
 """
     compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T, domain::RadialDomain) where T
@@ -788,9 +788,9 @@ function apply_tau_correction!(profile::Vector{T}, tau_coeffs, domain::RadialDom
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Boundary Condition Utility Functions
-# ============================================================================
+# ================================================================================
 
 """
     compute_boundary_fluxes(profile::Vector{T}, dr_matrix::BandedMatrix{T}, domain::RadialDomain) where T
@@ -915,9 +915,9 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Influence Matrix Method Implementation
-# ============================================================================
+# ================================================================================
 
 """
     compute_influence_functions_flux(oc_domain::RadialDomain)
@@ -1060,9 +1060,9 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Direct Method Implementation (Simple but less accurate)
-# ============================================================================
+# ================================================================================
 
 """
     apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
@@ -1138,9 +1138,9 @@ function modify_for_flux_outer!(spec_real, spec_imag, local_lm, prescribed_flux,
     end
 end
 
-# ============================================================================
+# ================================================================================
 # High-level boundary condition application
-# ============================================================================
+# ================================================================================
 
 """
     apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::RadialDomain;
@@ -1184,9 +1184,9 @@ function apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::R
     end
 end
 
-# ============================================================================
+# ================================================================================
 # MPI utilities (SHARED)
-# ============================================================================
+# ================================================================================
 
 """
     get_comm()

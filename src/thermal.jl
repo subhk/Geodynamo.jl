@@ -1,6 +1,6 @@
-# ===============================================================
-# Temperature  field components with enhanced SHTns transforms
-# ===============================================================
+# ================================================================================
+# Temperature field components with enhanced SHTns transforms
+# ================================================================================
 # For uniform heating from below (l=0, m=0 mode has flux BC)
 # Other modes have fixed temperature
 # bc_type_inner = ones(Int, nlm)
@@ -8,11 +8,11 @@
 # bc_type_inner[1] = 2  # Flux BC for l=0, m=0 at inner boundary
 # bc_type_outer[1] = 2  # Flux BC for l=0, m=0 at outer boundary
 # apply_mixed_boundary_conditions!(temp_field, domain, bc_type_inner, bc_type_outer)
-# ====================================================================================
+# ================================================================================
 
-# ============================================================================
+# ================================================================================
 # Temperature/Thermal field components with full spectral optimization
-# ============================================================================
+# ================================================================================
 
 using PencilArrays
 using SHTnsKit
@@ -144,9 +144,9 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-# ============================================================================
+# ================================================================================
 # Main nonlinear computation with full spectral optimization
-# ============================================================================
+# ================================================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
@@ -190,16 +190,16 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Fully spectral gradient computation (NO COMMUNICATION!)
-# ============================================================================
+# ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
 # NOTE: Batched transform operations moved to scalar_field_common.jl
-# ============================================================================
+# ================================================================================
 
-# ============================================================================
+# ================================================================================
 # Local physical space operations (no communication)
-# ============================================================================
+# ================================================================================
 function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{T}, 
                                              vel_fields) where T
     """
@@ -257,9 +257,9 @@ function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T},
     end
 end
 
-# ============================================================================
+# ================================================================================
 # Boundary conditions in spectral space
-# ============================================================================
+# ================================================================================
 function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemperatureField{T}, 
                                                         domain::RadialDomain) where T
     """
@@ -310,9 +310,9 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
 end
 
 
-# ============================================================================
+# ================================================================================
 # Complete Flux Boundary Condition Implementation for Spectral Methods
-# ============================================================================
+# ================================================================================
 
 """
     apply_flux_bc_spectral_complete!(temp_field, domain)
@@ -326,15 +326,15 @@ function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T},
     apply_scalar_flux_bc_spectral!(temp_field, domain; method=:tau)
 end
 
-# ============================================================================
+# ================================================================================
 # Boundary Condition Implementation - MOVED TO scalar_field_common.jl
-# ============================================================================
+# ================================================================================
 # All flux boundary condition methods (tau, influence matrix, direct) have been
 # moved to scalar_field_common.jl to be shared between thermal and compositional fields.
 # The functions are now generic and work with AbstractScalarField.
 
 # Validation and Testing
-# ============================================================================
+# ================================================================================
 
 function validate_flux_bc(temp_field, domain)
     """
@@ -385,9 +385,9 @@ function validate_flux_bc(temp_field, domain)
 end
 
 
-# ============================================================================
+# ================================================================================
 # Diagnostic functions
-# ============================================================================
+# ================================================================================
 function compute_nusselt_number(temp_field::SHTnsTemperatureField{T}, 
                                domain::RadialDomain) where T
     """
@@ -478,9 +478,9 @@ function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int,
 end
 
 
-# ============================================================================
+# ================================================================================
 # Performance monitoring and statistics
-# ============================================================================
+# ================================================================================
 function get_temperature_statistics(temp_field::SHTnsTemperatureField{T}, 
                                    domain::RadialDomain) where T
     """
@@ -516,9 +516,9 @@ function get_temperature_statistics(temp_field::SHTnsTemperatureField{T},
             energy = energy)
 end
 
-# ============================================================================
+# ================================================================================
 # Utility functions
-# ============================================================================
+# ================================================================================
 function zero_temperature_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
     """
     Efficiently zero all work arrays
@@ -641,9 +641,9 @@ end
 
 # Note: NetCDF boundary condition functions moved to src/BoundaryConditions/thermal.jl
 
-# ============================================================================
+# ================================================================================
 # Export functions
-# ============================================================================
+# ================================================================================
 # export SHTnsTemperatureField, create_shtns_temperature_field
 # export compute_temperature_nonlinear!
 # export compute_nusselt_number, compute_thermal_energy
