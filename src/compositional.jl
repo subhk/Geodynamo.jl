@@ -17,72 +17,12 @@ using LinearAlgebra
 using SparseArrays
 
 import .BoundaryConditions
+import .GeodynamoBall
 
 include("scalar_field_common.jl")
 
 # Specialization for composition field
 get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composition
-
-"""
-    enforce_composition_boundary_values!(field)
-
-Anchor spectral boundary modes to stored Dirichlet values when applicable.
-"""
-function enforce_composition_boundary_values!(field::SHTnsCompositionField{T}) where T
-    spec_real = parent(field.spectral.data_real)
-    spec_imag = parent(field.spectral.data_imag)
-
-    lm_range = range_local(field.config.pencils.spec, 1)
-    r_range  = range_local(field.config.pencils.spec, 3)
-
-    has_inner = 1 in r_range && field.domain.r[1, 4] > 0
-    has_outer = field.domain.N in r_range
-
-    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
-    outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
-
-    dirichlet = Int(BoundaryConditions.DIRICHLET)
-
-    for lm_idx in lm_range
-        if lm_idx <= field.config.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-
-            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && field.bc_type_inner[lm_idx] == dirichlet
-                spec_real[local_lm, 1, inner_idx] = field.boundary_values[1, lm_idx]
-                spec_imag[local_lm, 1, inner_idx] = zero(T)
-            end
-
-            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && field.bc_type_outer[lm_idx] == dirichlet
-                spec_real[local_lm, 1, outer_idx] = field.boundary_values[2, lm_idx]
-                spec_imag[local_lm, 1, outer_idx] = zero(T)
-            end
-        end
-    end
-
-    return field
-end
-
-"""
-    apply_composition_boundary_conditions!(field; time_index=nothing)
-
-Refresh composition boundary values from the BoundaryConditions subsystem and
-enforce Dirichlet data in spectral space.
-"""
-function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
-                                                 time_index::Union{Nothing,Int}=nothing) where T
-    if field.boundary_condition_set === nothing
-        return field
-    end
-
-    if time_index === nothing
-        BoundaryConditions.apply_composition_boundary_conditions!(field)
-    else
-        BoundaryConditions.apply_composition_boundary_conditions!(field, time_index)
-    end
-
-    enforce_composition_boundary_values!(field)
-    return field
-end
 
 mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
@@ -208,6 +148,72 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         boundary_condition_set, boundary_cache, boundary_time_index,
         oc_domain
     )
+end
+
+"""
+    enforce_composition_boundary_values!(field)
+
+Anchor spectral boundary modes to stored Dirichlet values when applicable.
+"""
+function enforce_composition_boundary_values!(field::SHTnsCompositionField{T}) where T
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+
+    lm_range = range_local(field.config.pencils.spec, 1)
+    r_range  = range_local(field.config.pencils.spec, 3)
+
+    has_inner = 1 in r_range && field.domain.r[1, 4] > 0
+    has_outer = field.domain.N in r_range
+
+    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
+
+    dirichlet = Int(BoundaryConditions.DIRICHLET)
+
+    for lm_idx in lm_range
+        if lm_idx <= field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && field.bc_type_inner[lm_idx] == dirichlet
+                spec_real[local_lm, 1, inner_idx] = field.boundary_values[1, lm_idx]
+                spec_imag[local_lm, 1, inner_idx] = zero(T)
+            end
+
+            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && field.bc_type_outer[lm_idx] == dirichlet
+                spec_real[local_lm, 1, outer_idx] = field.boundary_values[2, lm_idx]
+                spec_imag[local_lm, 1, outer_idx] = zero(T)
+            end
+        end
+    end
+
+    return field
+end
+
+"""
+    apply_composition_boundary_conditions!(field; time_index=nothing)
+
+Refresh composition boundary values from the BoundaryConditions subsystem and
+enforce Dirichlet data in spectral space.
+"""
+function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
+                                                 time_index::Union{Nothing,Int}=nothing) where T
+    if field.boundary_condition_set === nothing
+        return field
+    end
+
+    if time_index === nothing
+        BoundaryConditions.apply_composition_boundary_conditions!(field)
+    else
+        BoundaryConditions.apply_composition_boundary_conditions!(field, time_index)
+    end
+
+    enforce_composition_boundary_values!(field)
+
+    if field.domain.r[1, 4] == 0.0
+        GeodynamoBall.apply_ball_composition_regularity!(field)
+    end
+
+    return field
 end
 
 function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T}, 

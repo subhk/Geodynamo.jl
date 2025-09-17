@@ -235,6 +235,10 @@ function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
     end
 
     enforce_magnetic_boundary_values!(fields)
+
+    if fields.outer_domain.r[1, 4] == 0.0
+        GeodynamoBall.enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+    end
     return fields
 end
 
