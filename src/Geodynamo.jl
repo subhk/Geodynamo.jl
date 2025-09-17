@@ -1,5 +1,12 @@
 module Geodynamo
 
+    # Ensure local development version of SHTnsKit is discoverable when it lives
+    # next to Geodynamo (e.g. ../SHTnsKit.jl).
+    const _LOCAL_SHTNSKIT_PATH = abspath(joinpath(@__DIR__, "..", "SHTnsKit.jl"))
+    if isdir(_LOCAL_SHTNSKIT_PATH) && !any(x -> abspath(x) == _LOCAL_SHTNSKIT_PATH, LOAD_PATH)
+        pushfirst!(LOAD_PATH, _LOCAL_SHTNSKIT_PATH)
+    end
+
     using LinearAlgebra
     using SparseArrays
     using SHTnsKit   # Load SHTnsKit before MPI to avoid eager extension load during precompile

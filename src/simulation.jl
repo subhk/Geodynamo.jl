@@ -1277,6 +1277,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
     end
 
+    apply_velocity_boundary_conditions!(state.velocity)
+
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)

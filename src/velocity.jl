@@ -40,6 +40,7 @@ mutable struct SHTnsVelocityFields{T}
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
+    domain::RadialDomain
     boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
     boundary_time_index::Ref{Int}
@@ -80,8 +81,14 @@ function set_velocity_workspace!(ws)
     return ws
 end
 
-function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T},
-                                            domain::RadialDomain) where T
+"""
+    enforce_velocity_boundary_values!(fields)
+
+Anchor toroidal and poloidal spectral coefficients to the currently cached
+Dirichlet boundary values on the inner and outer radial surfaces.
+"""
+function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where T
+    domain = fields.domain
     tor_real = parent(fields.toroidal.data_real)
     tor_imag = parent(fields.toroidal.data_imag)
     pol_real = parent(fields.poloidal.data_real)
@@ -99,27 +106,29 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T},
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
     outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
 
+    dirichlet_code = Int(BoundaryConditions.DIRICHLET)
+
     for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
             if has_inner && 1 <= inner_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_inner[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                if fields.toroidal.bc_type_inner[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
                     tor_imag[local_lm, 1, inner_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_inner[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                if fields.poloidal.bc_type_inner[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
                     pol_imag[local_lm, 1, inner_idx] = zero(T)
                 end
             end
 
             if has_outer && 1 <= outer_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_outer[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                if fields.toroidal.bc_type_outer[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
                     tor_imag[local_lm, 1, outer_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_outer[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                if fields.poloidal.bc_type_outer[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
                     pol_imag[local_lm, 1, outer_idx] = zero(T)
                 end
@@ -130,8 +139,13 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T},
     return fields
 end
 
-function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
-                                              domain::RadialDomain;
+"""
+    apply_velocity_boundary_conditions!(fields; time_index=nothing)
+
+Refresh velocity boundary data from the BoundaryConditions subsystem and
+immediately enforce Dirichlet constraints in spectral space.
+"""
+function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
     if fields.boundary_condition_set === nothing
         return fields
@@ -143,7 +157,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
         BoundaryConditions.apply_velocity_boundary_conditions!(fields, time_index)
     end
 
-    enforce_velocity_boundary_values!(fields, domain)
+    enforce_velocity_boundary_values!(fields)
     return fields
 end
 
@@ -280,6 +294,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   advection_physical,
                                   l_factors, coriolis_factors,
                                   dr_matrix, d2r_matrix, laplacian_matrix,
+                                  oc_domain,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
