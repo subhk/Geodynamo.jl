@@ -1,0 +1,52 @@
+using Test
+using Geodynamo
+
+@testset "ERK2 staged update" begin
+    cfg = Geodynamo.create_shtnskit_config(lmax=0, mmax=0, nlat=2, nlon=2, optimize_decomp=false)
+    dom = Geodynamo.create_radial_domain(1)
+
+    u_field = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    nl_field = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+
+    u0 = 0.3
+    c = 0.2
+    parent(u_field.data_real)[1, 1, 1] = u0
+    parent(u_field.data_imag)[1, 1, 1] = 0.0
+    parent(nl_field.data_real)[1, 1, 1] = c
+    parent(nl_field.data_imag)[1, 1, 1] = 0.0
+
+    dt = 0.1
+    lambda = 0.5
+    z = -lambda * dt
+
+    E_half = exp(z / 2)
+    E_full = exp(z)
+    phi1_half = (E_half - 1) / (z / 2)
+    phi1_full = (E_full - 1) / z
+    phi2_full = (E_full - 1 - z) / (z^2)
+
+    cache = Geodynamo.ERK2Cache{Float64}(
+        dt,
+        [cfg.l_values[1]],
+        [Matrix{Float64}([E_half])],
+        [Matrix{Float64}([E_full])],
+        [Matrix{Float64}([phi1_half])],
+        [Matrix{Float64}([phi1_full])],
+        [Matrix{Float64}([phi2_full])],
+        false,
+        20,
+        1e-8,
+        true,
+    )
+
+    buffers = Geodynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    Geodynamo.erk2_prepare_field!(buffers, u_field, nl_field, cache, cfg, dt)
+    Geodynamo.erk2_apply_stage!(buffers, u_field)
+    Geodynamo.erk2_store_stage_nonlinear!(buffers, nl_field)
+    Geodynamo.erk2_finalize_field!(buffers, u_field, cache, cfg, dt)
+
+    u_real = parent(u_field.data_real)[1, 1, 1]
+    expected = exp(-lambda * dt) * u0 + (1 - exp(-lambda * dt)) * c / lambda
+    @test u_real ≈ expected atol=1e-12
+    @test parent(u_field.data_imag)[1, 1, 1] ≈ 0.0 atol=1e-14
+end
