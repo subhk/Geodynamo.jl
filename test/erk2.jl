@@ -49,4 +49,27 @@ using Geodynamo
     expected = exp(-lambda * dt) * u0 + (1 - exp(-lambda * dt)) * c / lambda
     @test u_real ≈ expected atol=1e-12
     @test parent(u_field.data_imag)[1, 1, 1] ≈ 0.0 atol=1e-14
+
+    # Scenario 2: linear nonlinearity N(u) = beta * u requiring stage recomputation
+    u0_linear = 0.45
+    beta = 0.15
+    parent(u_field.data_real)[1, 1, 1] = u0_linear
+    parent(u_field.data_imag)[1, 1, 1] = 0.0
+    parent(nl_field.data_real)[1, 1, 1] = beta * u0_linear
+    parent(nl_field.data_imag)[1, 1, 1] = 0.0
+
+    buffers_linear = Geodynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    Geodynamo.erk2_prepare_field!(buffers_linear, u_field, nl_field, cache, cfg, dt)
+    Geodynamo.erk2_apply_stage!(buffers_linear, u_field)
+
+    # Emulate stage nonlinear evaluation: N(u_stage) = beta * u_stage
+    u_stage = parent(u_field.data_real)[1, 1, 1]
+    parent(nl_field.data_real)[1, 1, 1] = beta * u_stage
+    Geodynamo.erk2_store_stage_nonlinear!(buffers_linear, nl_field)
+
+    Geodynamo.erk2_finalize_field!(buffers_linear, u_field, cache, cfg, dt)
+    u_linear = parent(u_field.data_real)[1, 1, 1]
+    expected_linear = exp((beta - lambda) * dt) * u0_linear
+    @test u_linear ≈ expected_linear atol=1e-12
+    @test parent(u_field.data_imag)[1, 1, 1] ≈ 0.0 atol=1e-14
 end
