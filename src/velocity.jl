@@ -80,6 +80,73 @@ function set_velocity_workspace!(ws)
     return ws
 end
 
+function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T},
+                                            domain::RadialDomain) where T
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+
+    tor_bc = fields.toroidal.boundary_values
+    pol_bc = fields.poloidal.boundary_values
+
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+
+    has_inner = 1 in r_range && domain.r[1, 4] > 0
+    has_outer = domain.N in r_range
+
+    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
+
+    for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            if has_inner && 1 <= inner_idx <= size(tor_real, 3)
+                if fields.toroidal.bc_type_inner[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                    tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
+                    tor_imag[local_lm, 1, inner_idx] = zero(T)
+                end
+                if fields.poloidal.bc_type_inner[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                    pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
+                    pol_imag[local_lm, 1, inner_idx] = zero(T)
+                end
+            end
+
+            if has_outer && 1 <= outer_idx <= size(tor_real, 3)
+                if fields.toroidal.bc_type_outer[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                    tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
+                    tor_imag[local_lm, 1, outer_idx] = zero(T)
+                end
+                if fields.poloidal.bc_type_outer[lm_idx] == Int(BoundaryConditions.DIRICHLET)
+                    pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
+                    pol_imag[local_lm, 1, outer_idx] = zero(T)
+                end
+            end
+        end
+    end
+
+    return fields
+end
+
+function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T},
+                                              domain::RadialDomain;
+                                              time_index::Union{Nothing,Int}=nothing) where T
+    if fields.boundary_condition_set === nothing
+        return fields
+    end
+
+    if time_index === nothing
+        BoundaryConditions.apply_velocity_boundary_conditions!(fields)
+    else
+        BoundaryConditions.apply_velocity_boundary_conditions!(fields, time_index)
+    end
+
+    enforce_velocity_boundary_values!(fields, domain)
+    return fields
+end
+
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                                           domain::RadialDomain,
                                           ws::VelocityWorkspace{T}) where T

@@ -363,6 +363,20 @@ function create_velocity_interpolation_cache(boundary_set::BoundaryConditionSet,
 end
 
 """
+    infer_velocity_bc_type(boundary::BoundaryData)
+
+Infer boundary condition type (Dirichlet or Neumann) from boundary metadata.
+"""
+function infer_velocity_bc_type(boundary::BoundaryData)
+    desc = lowercase(boundary.description)
+    if occursin("stress-free", desc)
+        return Int(NEUMANN)
+    else
+        return Int(DIRICHLET)
+    end
+end
+
+"""
     apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
 
 Apply velocity boundary conditions to the field.
@@ -410,19 +424,28 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # but in QST decomposition: "poloidal" → Q (radial), "toroidal" → T (tangential toroidal)
 
     # Q component (radial) - stored in "poloidal" field for backward compatibility
-    velocity_field.poloidal.boundary_values[1, :] = inner_Q  # Inner boundary (radial component)
-    velocity_field.poloidal.boundary_values[2, :] = outer_Q  # Outer boundary (radial component)
+    velocity_field.poloidal.boundary_values[1, :] .= inner_Q  # Inner boundary (radial component)
+    velocity_field.poloidal.boundary_values[2, :] .= outer_Q  # Outer boundary (radial component)
 
     # T component (tangential toroidal) - stored in "toroidal" field
-    velocity_field.toroidal.boundary_values[1, :] = inner_T  # Inner boundary (toroidal component)
-    velocity_field.toroidal.boundary_values[2, :] = outer_T  # Outer boundary (toroidal component)
+    velocity_field.toroidal.boundary_values[1, :] .= inner_T  # Inner boundary (toroidal component)
+    velocity_field.toroidal.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
+
+    # Update boundary condition type metadata based on pattern descriptions
+    inner_bc_type = infer_velocity_bc_type(boundary_set.inner_boundary)
+    outer_bc_type = infer_velocity_bc_type(boundary_set.outer_boundary)
+
+    fill!(velocity_field.toroidal.bc_type_inner, inner_bc_type)
+    fill!(velocity_field.toroidal.bc_type_outer, outer_bc_type)
+    fill!(velocity_field.poloidal.bc_type_inner, inner_bc_type)
+    fill!(velocity_field.poloidal.bc_type_outer, outer_bc_type)
 
     # S component (tangential spheroidal) - would need separate field if fully implemented
     # For now, this is handled implicitly in the T component or would need field restructure
     
     # Update time index
     velocity_field.boundary_time_index[] = time_index
-    
+
     return velocity_field
 end
 
