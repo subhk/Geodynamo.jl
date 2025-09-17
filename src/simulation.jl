@@ -1040,10 +1040,98 @@ function compute_composition_nonlinear_master!(state, velocity, domain)
     end
 end
 
-function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
-    # Task-based time integration
-    task_graph = create_task_graph()
+function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where T
+    # Prepare caches and stage buffers for all active fields
+    temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, 1.0/d_Pr, T,
+                                 state.shtns_config, state.oc_domain, dt; use_krylov=false)
+    temp_buffers = ERK2FieldBuffers(state.temperature.spectral, state.temperature.nonlinear, temp_cache)
+    erk2_prepare_field!(temp_buffers, state.temperature.spectral, state.temperature.nonlinear,
+                        temp_cache, state.shtns_config, dt)
 
+    vel_tor_cache = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_E, T,
+                                    state.shtns_config, state.oc_domain, dt; use_krylov=false)
+    vel_tor_buffers = ERK2FieldBuffers(state.velocity.toroidal, state.velocity.nl_toroidal, vel_tor_cache)
+    erk2_prepare_field!(vel_tor_buffers, state.velocity.toroidal, state.velocity.nl_toroidal,
+                        vel_tor_cache, state.shtns_config, dt)
+
+    vel_pol_cache = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_E, T,
+                                    state.shtns_config, state.oc_domain, dt; use_krylov=false)
+    vel_pol_buffers = ERK2FieldBuffers(state.velocity.poloidal, state.velocity.nl_poloidal, vel_pol_cache)
+    erk2_prepare_field!(vel_pol_buffers, state.velocity.poloidal, state.velocity.nl_poloidal,
+                        vel_pol_cache, state.shtns_config, dt)
+
+    mag_tor_buffers = nothing
+    mag_pol_buffers = nothing
+    mag_tor_cache = nothing
+    mag_pol_cache = nothing
+    if i_B == 1 && state.magnetic !== nothing
+        mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0/d_Pm, T,
+                                        state.shtns_config, state.oc_domain, dt; use_krylov=false)
+        mag_tor_buffers = ERK2FieldBuffers(state.magnetic.toroidal, state.magnetic.nl_toroidal, mag_tor_cache)
+        erk2_prepare_field!(mag_tor_buffers, state.magnetic.toroidal, state.magnetic.nl_toroidal,
+                            mag_tor_cache, state.shtns_config, dt)
+
+        mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0/d_Pm, T,
+                                        state.shtns_config, state.oc_domain, dt; use_krylov=false)
+        mag_pol_buffers = ERK2FieldBuffers(state.magnetic.poloidal, state.magnetic.nl_poloidal, mag_pol_cache)
+        erk2_prepare_field!(mag_pol_buffers, state.magnetic.poloidal, state.magnetic.nl_poloidal,
+                            mag_pol_cache, state.shtns_config, dt)
+    end
+
+    comp_buffers = nothing
+    comp_cache = nothing
+    if state.composition !== nothing
+        comp_cache = get_erk2_cache!(state.erk2_caches, :composition, 1.0/d_Sc, T,
+                                     state.shtns_config, state.oc_domain, dt; use_krylov=false)
+        comp_buffers = ERK2FieldBuffers(state.composition.spectral, state.composition.nonlinear, comp_cache)
+        erk2_prepare_field!(comp_buffers, state.composition.spectral, state.composition.nonlinear,
+                            comp_cache, state.shtns_config, dt)
+    end
+
+    # Apply stage solution to all fields
+    erk2_apply_stage!(temp_buffers, state.temperature.spectral)
+    erk2_apply_stage!(vel_tor_buffers, state.velocity.toroidal)
+    erk2_apply_stage!(vel_pol_buffers, state.velocity.poloidal)
+    if mag_tor_buffers !== nothing
+        erk2_apply_stage!(mag_tor_buffers, state.magnetic.toroidal)
+        erk2_apply_stage!(mag_pol_buffers, state.magnetic.poloidal)
+    end
+    if comp_buffers !== nothing
+        erk2_apply_stage!(comp_buffers, state.composition.spectral)
+    end
+
+    # Evaluate nonlinear terms at the stage state for all coupled equations
+    compute_all_nonlinear_terms!(state)
+
+    # Store stage nonlinearities for later correction
+    erk2_store_stage_nonlinear!(temp_buffers, state.temperature.nonlinear)
+    erk2_store_stage_nonlinear!(vel_tor_buffers, state.velocity.nl_toroidal)
+    erk2_store_stage_nonlinear!(vel_pol_buffers, state.velocity.nl_poloidal)
+    if mag_tor_buffers !== nothing
+        erk2_store_stage_nonlinear!(mag_tor_buffers, state.magnetic.nl_toroidal)
+        erk2_store_stage_nonlinear!(mag_pol_buffers, state.magnetic.nl_poloidal)
+    end
+    if comp_buffers !== nothing
+        erk2_store_stage_nonlinear!(comp_buffers, state.composition.nonlinear)
+    end
+
+    # Finalize each field using stage data
+    erk2_finalize_field!(temp_buffers, state.temperature.spectral, temp_cache, state.shtns_config, dt)
+    erk2_finalize_field!(vel_tor_buffers, state.velocity.toroidal, vel_tor_cache, state.shtns_config, dt)
+    erk2_finalize_field!(vel_pol_buffers, state.velocity.poloidal, vel_pol_cache, state.shtns_config, dt)
+    if mag_tor_buffers !== nothing
+        erk2_finalize_field!(mag_tor_buffers, state.magnetic.toroidal, mag_tor_cache, state.shtns_config, dt)
+        erk2_finalize_field!(mag_pol_buffers, state.magnetic.poloidal, mag_pol_cache, state.shtns_config, dt)
+    end
+    if comp_buffers !== nothing
+        erk2_finalize_field!(comp_buffers, state.composition.spectral, comp_cache, state.shtns_config, dt)
+    end
+
+    # Refresh nonlinear terms at the new solution for the next step
+    compute_all_nonlinear_terms!(state)
+end
+
+function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # For CNAB2 and ERK2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
     if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.step == 0
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
@@ -1068,8 +1156,13 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     current_time = state.timestep_state.step * dt
     update_time_dependent_temperature_boundaries!(state.temperature, current_time)
     
-    # Create tasks for parallel implicit solve
-    temp_task = add_task!(task_graph, () -> begin
+    if ts_scheme === :erk2
+        erk2_integrate_full_step!(state, dt)
+    else
+        # Task-based time integration for other schemes
+        task_graph = create_task_graph()
+
+        temp_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
                              state.temperature.nonlinear, state.temperature.prev_nonlinear, dt)
@@ -1083,13 +1176,6 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             end
             eab2_update!(state.temperature.spectral, state.temperature.nonlinear,
                          state.temperature.prev_nonlinear, etd, state.shtns_config, dt)
-        elseif ts_scheme === :erk2
-            # ERK2 (Exponential 2nd order Runge-Kutta) method
-            erk2_cache = get_erk2_cache!(state.erk2_caches, :temperature, 1.0/d_Pr, T, 
-                                       state.shtns_config, state.oc_domain, dt; 
-                                       use_krylov=(i_N > 64))  # Use Krylov for large problems
-            erk2_step!(state.temperature.spectral, state.temperature.nonlinear,
-                      state.temperature.prev_nonlinear, erk2_cache, state.shtns_config, dt)
         else
             solve_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
                                  state.implicit_matrices[:temperature])
@@ -1108,12 +1194,6 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                        state.velocity.prev_nl_toroidal, alu_map, state.oc_domain, d_E,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
-        elseif ts_scheme === :erk2
-            # ERK2 for velocity toroidal component
-            erk2_cache_tor = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_E, T,
-                                           state.shtns_config, state.oc_domain, dt; use_krylov=(i_N > 64))
-            erk2_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
-                      state.velocity.prev_nl_toroidal, erk2_cache_tor, state.shtns_config, dt)
         else
             solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                  state.implicit_matrices[:velocity])
@@ -1131,12 +1211,6 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                        state.velocity.prev_nl_poloidal, alu_map, state.oc_domain, d_E,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
-        elseif ts_scheme === :erk2
-            # ERK2 for velocity poloidal component
-            erk2_cache_pol = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_E, T,
-                                           state.shtns_config, state.oc_domain, dt; use_krylov=(i_N > 64))
-            erk2_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
-                      state.velocity.prev_nl_poloidal, erk2_cache_pol, state.shtns_config, dt)
         else
             solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                  state.implicit_matrices[:velocity])
@@ -1156,12 +1230,6 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                            state.magnetic.prev_nl_toroidal, alu_map, state.oc_domain, 1.0/d_Pm,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
-            elseif ts_scheme === :erk2
-                # ERK2 for magnetic toroidal component
-                erk2_cache_mag_tor = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0/d_Pm, T,
-                                                   state.shtns_config, state.oc_domain, dt; use_krylov=(i_N > 64))
-                erk2_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
-                          state.magnetic.prev_nl_toroidal, erk2_cache_mag_tor, state.shtns_config, dt)
             else
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                      state.implicit_matrices[:magnetic])
@@ -1178,12 +1246,6 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                            state.magnetic.prev_nl_poloidal, alu_map, state.oc_domain, 1.0/d_Pm,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
-            elseif ts_scheme === :erk2
-                # ERK2 for magnetic poloidal component
-                erk2_cache_mag_pol = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0/d_Pm, T,
-                                                   state.shtns_config, state.oc_domain, dt; use_krylov=(i_N > 64))
-                erk2_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
-                          state.magnetic.prev_nl_poloidal, erk2_cache_mag_pol, state.shtns_config, dt)
             else
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                      state.implicit_matrices[:magnetic])
@@ -1204,21 +1266,16 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 eab2_update_krylov_cached!(state.composition.spectral, state.composition.nonlinear,
                                            state.composition.prev_nonlinear, alu_map, state.oc_domain, 1.0/d_Sc,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
-            elseif ts_scheme === :erk2
-                # ERK2 for composition
-                erk2_cache_comp = get_erk2_cache!(state.erk2_caches, :composition, 1.0/d_Sc, T,
-                                                state.shtns_config, state.oc_domain, dt; use_krylov=(i_N > 64))
-                erk2_step!(state.composition.spectral, state.composition.nonlinear,
-                          state.composition.prev_nonlinear, erk2_cache_comp, state.shtns_config, dt)
             else
                 solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
                                      state.implicit_matrices[:composition])
             end
         end)
     end
-    
-    # Execute all tasks in parallel
-    execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
+        
+        # Execute all tasks in parallel
+        execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
+    end
 
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
