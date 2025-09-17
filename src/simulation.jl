@@ -423,17 +423,11 @@ function run_enhanced_simulation!(state::EnhancedSimulationState{T}) where T
         io_start = MPI.Wtime()
         
         if should_output_now(time_tracker, simulation_time, output_config)
-            # Prepare fields for output
             fields = extract_all_fields(state)
             metadata = create_enhanced_metadata(state, simulation_time, step)
-            
-            # Asynchronous write (overlaps with next timestep)
-            async_write_fields!(state.hybrid_parallelizer.io_optimizer, fields, 
-                               generate_filename(output_config, simulation_time, step, rank))
-            
-            update_tracker!(time_tracker, simulation_time, output_config, true, false)
-            
-            if rank == 0
+            did_write = write_fields!(fields, time_tracker, metadata, output_config,
+                                      state.shtns_config, state.shtns_config.pencils)
+            if did_write && rank == 0
                 println("Step $step: t=$(round(simulation_time, digits=4)), " *
                        "compute=$(round(compute_time*1000, digits=1))ms, " *
                        "integrate=$(round(integrate_time*1000, digits=1))ms")
@@ -588,17 +582,12 @@ function run_simulation!(state::SimulationState{T}) where T
         io_start = MPI.Wtime()
         
         if should_output_now(time_tracker, simulation_time, output_config)
-            # Prepare fields for output with optimal memory layout
             fields = extract_all_fields_enhanced(state)
             metadata = create_enhanced_metadata(state, simulation_time, step)
+            did_write = write_fields!(fields, time_tracker, metadata, output_config,
+                                      state.shtns_config, state.shtns_config.pencils)
             
-            # Asynchronous write with NUMA-aware I/O
-            async_write_fields!(state.master_parallelizer.io_optimizer, fields, 
-                               generate_filename(output_config, simulation_time, step, rank))
-            
-            update_tracker!(time_tracker, simulation_time, output_config, true, false)
-            
-            if rank == 0
+            if did_write && rank == 0
                 cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
                 cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
                 memory_bw = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
@@ -1019,7 +1008,6 @@ get_parallel_efficiency(monitor) = 0.85
 get_thread_utilization(threading) = 0.92
 finalize_enhanced_simulation!(state) = nothing
 finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
-generate_filename(config, time, step, rank) = "output_$(rank)_$(step).h5"
 update_tracker!(tracker, time, config, output, restart) = nothing
 
 # Advanced computation functions
