@@ -576,7 +576,7 @@ end
     velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
 
 Convert physical velocity components (v_r, v_θ, v_φ) to QST spectral coefficients
-using proper SHTnsKit decomposition.
+by using proper SHTnsKit decomposition.
 
 The QST decomposition used by SHTnsKit:
 - Q: Radial component coefficients (transforms like scalar field)

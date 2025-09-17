@@ -762,21 +762,21 @@ Stores precomputed matrix exponentials and φ functions for each spherical harmo
 struct ERK2Cache{T}
     dt::Float64
     l_values::Vector{Int}
-    
+
     # Matrix exponentials: exp(dt/2 * A_l) and exp(dt * A_l)
     E_half::Vector{Matrix{T}}     # exp(dt/2 * A_l) per l
     E_full::Vector{Matrix{T}}     # exp(dt * A_l) per l
-    
-    # φ functions for ERK2
+
+    # φ functions for ERK2 (both φ1 and φ2 needed for correct formula)
     phi1_half::Vector{Matrix{T}}  # φ1(dt/2 * A_l) per l
-    phi1_full::Vector{Matrix{T}}  # φ1(dt * A_l) per l  
+    phi1_full::Vector{Matrix{T}}  # φ1(dt * A_l) per l
     phi2_full::Vector{Matrix{T}}  # φ2(dt * A_l) per l
-    
+
     # Krylov method parameters
     use_krylov::Bool
     krylov_m::Int
     krylov_tol::Float64
-    
+
     # MPI-aware caching for distributed operations
     mpi_consistent::Bool
 end
@@ -839,10 +839,11 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
             phi1_full_l = compute_phi1_function(Adt_full, E_full_l)
             push!(phi1_half, Matrix{T}(phi1_half_l))
             push!(phi1_full, Matrix{T}(phi1_full_l))
-            
+
             # Compute φ2 function: φ2(z) = (exp(z) - I - z) / z²
             phi2_full_l = compute_phi2_function(Adt_full, E_full_l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
+            
         end
     end
     
@@ -872,18 +873,17 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     # Check if A is close to zero matrix - use series expansion
     A_norm = opnorm(A)
     if A_norm < 1e-2
-        # Use Taylor series: φ1(A) = I + A/2 + A²/6 + A³/24 + ...
-        result = I_mat + A/2
-        A_power = A * A
-        factorial = 6
-        for k in 2:10  # Use enough terms for good accuracy
-            term = A_power / factorial
+        # Use Taylor series: φ1(A) = Σ(k=0 to ∞) A^k/(k+1)! = I/1! + A/2! + A²/3! + A³/4! + ...
+        result = copy(I_mat)  # k=0: A⁰/1! = I/1!
+        A_power = copy(I_mat)
+        for k in 1:15  # Use enough terms for good accuracy
+            A_power = A_power * A  # A^k
+            factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
+            term = A_power / factorial_k_plus_1
             result += term
             if opnorm(term) < eps(T) * 100
                 break
             end
-            A_power = A_power * A
-            factorial *= (k + 2)
         end
         return result
     end
@@ -898,18 +898,17 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
         # Check condition number
         if rcond(lu_A) < sqrt(eps(T))
             @warn "Ill-conditioned matrix in φ1 computation (rcond = $(rcond(lu_A))), using series expansion"
-            # Fall back to series expansion
-            result = I_mat + A/2
-            A_power = A * A
-            factorial = 6
-            for k in 2:15
-                term = A_power / factorial
+            # Fall back to series expansion: φ1(A) = Σ(k=0 to ∞) A^k/(k+1)!
+            result = copy(I_mat)  # k=0: A⁰/1!
+            A_power = copy(I_mat)
+            for k in 1:15
+                A_power = A_power * A  # A^k
+                factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
+                term = A_power / factorial_k_plus_1
                 result += term
                 if opnorm(term) < eps(T) * 100
                     break
                 end
-                A_power = A_power * A
-                factorial *= (k + 2)
             end
             return result
         else
@@ -938,18 +937,17 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     catch e
         @warn "LU factorization failed in φ1 computation: $e, using series expansion"
         try
-            # Fall back to series expansion
-            result = I_mat + A/2
-            A_power = A * A
-            factorial = 6
-            for k in 2:15
-                term = A_power / factorial
+            # Fall back to series expansion: φ1(A) = Σ(k=0 to ∞) A^k/(k+1)!
+            result = copy(I_mat)  # k=0: A⁰/1!
+            A_power = copy(I_mat)
+            for k in 1:15
+                A_power = A_power * A  # A^k
+                factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
+                term = A_power / factorial_k_plus_1
                 result += term
                 if opnorm(term) < eps(T) * 100
                     break
                 end
-                A_power = A_power * A
-                factorial *= (k + 2)
             end
             return result
         catch e2
@@ -1069,293 +1067,6 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
     end
 end
 
-"""
-    erk2_step!(u, nl_current, nl_prev, cache, config, dt)
-
-Perform one ERK2 timestep: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt*φ2(dt*A)*(nl^n - nl^{n-1})
-
-This implements the exponential 2nd order Runge-Kutta method with MPI and PencilArrays support.
-"""
-function erk2_step!(u::SHTnsSpectralField{T}, nl_current::SHTnsSpectralField{T},
-                   nl_prev::SHTnsSpectralField{T}, cache::ERK2Cache{T},
-                   config::SHTnsKitConfig, dt::Float64) where T
-    
-    u_real = parent(u.data_real)
-    u_imag = parent(u.data_imag)
-    nl_real = parent(nl_current.data_real)
-    nl_imag = parent(nl_current.data_imag)
-    np_real = parent(nl_prev.data_real)
-    np_imag = parent(nl_prev.data_imag)
-    
-    lm_range = get_local_range(u.pencil, 1)
-    r_range = get_local_range(u.pencil, 3)
-    nr = size(u_real, 3)
-    
-    comm = get_comm()
-    multi = MPI.Comm_size(comm) > 1
-    
-    # Process each spherical harmonic mode
-    for lm_idx in lm_range
-        if lm_idx <= u.nlm
-            l = config.l_values[lm_idx]
-            ll = lm_idx - first(lm_range) + 1
-            
-            # Find cache index for this l
-            cache_idx = findfirst(==(l), cache.l_values)
-            if cache_idx === nothing
-                continue
-            end
-            
-            # Assemble full radial profiles
-            ur = zeros(T, nr); ui = zeros(T, nr)
-            nr_cur = zeros(T, nr); ni_cur = zeros(T, nr)
-            nr_prev = zeros(T, nr); ni_prev = zeros(T, nr)
-            
-            @inbounds for r in r_range
-                lr = r - first(r_range) + 1
-                if lr <= size(u_real, 3)
-                    ur[r] = u_real[ll, 1, lr]
-                    ui[r] = u_imag[ll, 1, lr]
-                    nr_cur[r] = nl_real[ll, 1, lr]
-                    ni_cur[r] = nl_imag[ll, 1, lr]
-                    nr_prev[r] = np_real[ll, 1, lr]
-                    ni_prev[r] = np_imag[ll, 1, lr]
-                end
-            end
-            
-            # MPI synchronization for distributed data
-            if multi
-                MPI.Allreduce!(ur, MPI.SUM, comm)
-                MPI.Allreduce!(ui, MPI.SUM, comm)
-                MPI.Allreduce!(nr_cur, MPI.SUM, comm)
-                MPI.Allreduce!(ni_cur, MPI.SUM, comm)
-                MPI.Allreduce!(nr_prev, MPI.SUM, comm)
-                MPI.Allreduce!(ni_prev, MPI.SUM, comm)
-            end
-            
-            # Apply ERK2 formula
-            if cache.use_krylov
-                # Use Krylov-based ERK2 for large problems
-                ur_new, ui_new = erk2_krylov_step(ur, ui, nr_cur, ni_cur, nr_prev, ni_prev,
-                                                 cache.E_full[cache_idx], dt, cache.krylov_m, cache.krylov_tol)
-            else
-                # Use precomputed matrices for ERK2
-                ur_new, ui_new = erk2_matrix_step(ur, ui, nr_cur, ni_cur, nr_prev, ni_prev,
-                                                 cache.E_full[cache_idx], cache.phi1_full[cache_idx], 
-                                                 cache.phi2_full[cache_idx], dt)
-            end
-            
-            # Scatter back to local data
-            @inbounds for r in r_range
-                lr = r - first(r_range) + 1
-                if lr <= size(u_real, 3)
-                    u_real[ll, 1, lr] = ur_new[r]
-                    u_imag[ll, 1, lr] = ui_new[r]
-                end
-            end
-        end
-    end
-    
-    # Synchronize across PencilArrays
-    synchronize_pencil_transforms!(u)
-    
-    return u
-end
-
-"""
-    erk2_matrix_step(u_r, u_i, nl_r, nl_i, np_r, np_i, E, phi1, phi2, dt)
-
-ERK2 step using precomputed matrix exponentials.
-"""
-function erk2_matrix_step(u_r::Vector{T}, u_i::Vector{T}, 
-                         nl_r::Vector{T}, nl_i::Vector{T},
-                         np_r::Vector{T}, np_i::Vector{T},
-                         E::Matrix{T}, phi1::Matrix{T}, phi2::Matrix{T}, dt::Float64) where T
-    
-    # ERK2 formula: u^{n+1} = exp(dt*A)*u^n + dt*φ1(dt*A)*nl^n + dt*φ2(dt*A)*(nl^n - nl^{n-1})
-    
-    # Linear part: exp(dt*A) * u^n
-    ur_new = E * u_r
-    ui_new = E * u_i
-    
-    # First nonlinear part: dt * φ1(dt*A) * nl^n
-    @. ur_new += dt * (phi1 * nl_r)
-    @. ui_new += dt * (phi1 * nl_i)
-    
-    # Second nonlinear part: dt * φ2(dt*A) * (nl^n - nl^{n-1})
-    diff_r = nl_r .- np_r
-    diff_i = nl_i .- np_i
-    @. ur_new += dt * (phi2 * diff_r)
-    @. ui_new += dt * (phi2 * diff_i)
-    
-    return ur_new, ui_new
-end
-
-"""
-    erk2_krylov_step(u_r, u_i, nl_r, nl_i, np_r, np_i, A, dt, m, tol)
-
-ERK2 step using Krylov methods for matrix function actions.
-"""
-function erk2_krylov_step(u_r::Vector{T}, u_i::Vector{T},
-                         nl_r::Vector{T}, nl_i::Vector{T}, 
-                         np_r::Vector{T}, np_i::Vector{T},
-                         A::Matrix{T}, dt::Float64, m::Int, tol::Float64) where T
-    
-    nr = length(u_r)
-    
-    # Define operator action for A
-    function Aop!(out, v)
-        mul!(out, A, v)
-        return nothing
-    end
-    
-    # Compute exp(dt*A) * u using Krylov method
-    ur_new = exp_action_krylov(Aop!, u_r, dt; m, tol)
-    ui_new = exp_action_krylov(Aop!, u_i, dt; m, tol)
-    
-    # Compute φ1(dt*A) * nl using Krylov method
-    phi1_nl_r = phi1_action_krylov(Aop!, nothing, nl_r, dt; m, tol)
-    phi1_nl_i = phi1_action_krylov(Aop!, nothing, nl_i, dt; m, tol)
-    
-    # Add first nonlinear contribution
-    @. ur_new += dt * phi1_nl_r
-    @. ui_new += dt * phi1_nl_i
-    
-    # Compute φ2(dt*A) * (nl - np) using Krylov method
-    diff_r = nl_r .- np_r
-    diff_i = nl_i .- np_i
-    phi2_diff_r = phi2_action_krylov(Aop!, nothing, diff_r, dt; m, tol)
-    phi2_diff_i = phi2_action_krylov(Aop!, nothing, diff_i, dt; m, tol)
-    
-    # Add second nonlinear contribution
-    @. ur_new += dt * phi2_diff_r
-    @. ui_new += dt * phi2_diff_i
-    
-    return ur_new, ui_new
-end
-
-"""
-    phi1_action_krylov(Aop!, A, v, dt; m=20, tol=1e-8)
-
-Compute φ1(dt*A) * v using Krylov methods where φ1(z) = (exp(z) - I) / z.
-Uses matrix-free approach to avoid explicit matrix inversion.
-"""
-function phi1_action_krylov(Aop!, A::Matrix{T}, v::Vector{T}, dt::Float64;
-                           m::Int=20, tol::Float64=1e-8) where T
-
-    # For small ||dt*A||, use series expansion: φ1(dt*A)*v ≈ v + (dt/2)*A*v + (dt²/6)*A²*v + ...
-    A_norm_est = estimate_operator_norm(Aop!, v, 5)  # Quick norm estimate
-    if dt * A_norm_est < 0.1
-        # Use truncated series expansion
-        result = copy(v)
-        Av = similar(v)
-        Aop!(Av, v)
-        result .+= (dt/2) .* Av
-
-        # Higher order terms
-        A2v = similar(v)
-        Aop!(A2v, Av)
-        result .+= (dt^2/6) .* A2v
-
-        Aop!(Av, A2v)  # Reuse Av for A³v
-        result .+= (dt^3/24) .* Av
-
-        return result
-    end
-
-    # For larger arguments, use the identity: φ1(z) = ∫₀¹ exp(sz) ds
-    # Approximate integral using quadrature
-    n_quad = 8  # Number of quadrature points
-    result = zeros(T, length(v))
-
-    for i in 1:n_quad
-        s = i / n_quad  # Quadrature point in [0,1]
-        weight = 1.0 / n_quad  # Simple uniform weights
-
-        # Compute exp(s*dt*A) * v
-        exp_sv = exp_action_krylov(Aop!, v, s * dt; m, tol)
-        result .+= weight .* exp_sv
-    end
-
-    return result
-end
-
-"""
-    phi2_action_krylov(Aop!, A, v, dt; m=20, tol=1e-8)
-
-Compute φ2(dt*A) * v using Krylov methods where φ2(z) = (exp(z) - I - z) / z².
-Uses matrix-free approach to avoid explicit matrix inversions.
-"""
-function phi2_action_krylov(Aop!, A::Matrix{T}, v::Vector{T}, dt::Float64;
-                           m::Int=20, tol::Float64=1e-8) where T
-
-    # For small ||dt*A||, use series expansion: φ2(dt*A)*v ≈ (v/2) + (dt/6)*A*v + (dt²/24)*A²*v + ...
-    A_norm_est = estimate_operator_norm(Aop!, v, 5)  # Quick norm estimate
-    if dt * A_norm_est < 0.1
-        # Use truncated series expansion
-        result = v ./ 2
-        Av = similar(v)
-        Aop!(Av, v)
-        result .+= (dt/6) .* Av
-
-        # Higher order terms
-        A2v = similar(v)
-        Aop!(A2v, Av)
-        result .+= (dt^2/24) .* A2v
-
-        Aop!(Av, A2v)  # Reuse Av for A³v
-        result .+= (dt^3/120) .* Av
-
-        return result
-    end
-
-    # For larger arguments, use the identity: φ2(z) = ∫₀¹ ∫₀¹ exp(rsz) dr ds
-    # Approximate double integral using quadrature
-    n_quad = 6  # Number of quadrature points per dimension
-    result = zeros(T, length(v))
-
-    for i in 1:n_quad
-        for j in 1:n_quad
-            r = i / n_quad  # First quadrature variable
-            s = j / n_quad  # Second quadrature variable
-            weight = 1.0 / (n_quad^2)  # Weight for double integral
-
-            # Compute exp(r*s*dt*A) * v
-            exp_rsv = exp_action_krylov(Aop!, v, r * s * dt; m, tol)
-            result .+= weight .* exp_rsv
-        end
-    end
-
-    return result
-end
-
-"""
-    estimate_operator_norm(Aop!, v, niter=5)
-
-Estimate the operator norm of A using power iteration with niter iterations.
-"""
-function estimate_operator_norm(Aop!, v::Vector{T}, niter::Int=5) where T
-    if length(v) == 0
-        return zero(T)
-    end
-
-    # Power iteration to estimate ||A||
-    w = v ./ norm(v)  # Normalize initial vector
-    λ_max = zero(T)
-
-    for i in 1:niter
-        Aw = similar(w)
-        Aop!(Aw, w)
-        λ_max = norm(Aw)
-        if λ_max > eps(T)
-            w .= Aw ./ λ_max
-        else
-            break
-        end
-    end
-
-    return λ_max
-end
 
 """
     get_erk2_cache!(caches, key, diffusivity, config, domain, dt; use_krylov=false)
@@ -1394,6 +1105,246 @@ function get_erk2_cache!(caches::Dict{Symbol,Any}, key::Symbol, diffusivity::Flo
     end
     
     return entry[:cache]
+end
+
+# ================================================================================
+# ERK2 helper utilities for staged evaluation
+# ================================================================================
+
+struct ERK2FieldBuffers{T}
+    linear_real::Array{T,3}
+    linear_imag::Array{T,3}
+    k1_real::Array{T,3}
+    k1_imag::Array{T,3}
+    stage_real::Array{T,3}
+    stage_imag::Array{T,3}
+    n_current_real::Array{T,3}
+    n_current_imag::Array{T,3}
+    stage_nl_real::Array{T,3}
+    stage_nl_imag::Array{T,3}
+    cache_lookup::Dict{Int,Int}
+    nr::Int
+end
+
+function ERK2FieldBuffers(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}, cache::ERK2Cache{T}) where T
+    isempty(cache.E_full) && error("ERK2 cache has no precomputed matrices")
+    real_data = parent(u.data_real)
+    imag_data = parent(u.data_imag)
+    nl_real = parent(nl.data_real)
+    nl_imag = parent(nl.data_imag)
+    cache_lookup = Dict{Int,Int}(l => idx for (idx, l) in enumerate(cache.l_values))
+    nr = size(cache.E_full[1], 1)
+    return ERK2FieldBuffers{T}(
+        similar(real_data), similar(imag_data),
+        similar(real_data), similar(imag_data),
+        similar(real_data), similar(imag_data),
+        similar(nl_real), similar(nl_imag),
+        similar(nl_real), similar(nl_imag),
+        cache_lookup, nr
+    )
+end
+
+function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
+                             nl::SHTnsSpectralField{T}, cache::ERK2Cache{T},
+                             config::SHTnsKitConfig, dt::Float64) where T
+    cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
+
+    u_real = parent(u.data_real)
+    u_imag = parent(u.data_imag)
+    nl_real = parent(nl.data_real)
+    nl_imag = parent(nl.data_imag)
+
+    copyto!(buffers.n_current_real, nl_real)
+    copyto!(buffers.n_current_imag, nl_imag)
+
+    lm_range = get_local_range(u.pencil, 1)
+    r_range = get_local_range(u.pencil, 3)
+
+    nr = buffers.nr
+    ur = zeros(T, nr)
+    ui = similar(ur)
+    nr_vec = similar(ur)
+    ni_vec = similar(ur)
+
+    comm = get_comm()
+    multi = MPI.Comm_size(comm) > 1
+
+    linear_real = buffers.linear_real
+    linear_imag = buffers.linear_imag
+    k1_real = buffers.k1_real
+    k1_imag = buffers.k1_imag
+    stage_real = buffers.stage_real
+    stage_imag = buffers.stage_imag
+
+    for lm_idx in lm_range
+        if lm_idx <= u.nlm
+            l = config.l_values[lm_idx]
+            cache_idx = get(buffers.cache_lookup, l, nothing)
+            cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+
+            E = cache.E_full[cache_idx]
+            phi1 = cache.phi1_full[cache_idx]
+
+            fill!(ur, zero(T)); fill!(ui, zero(T))
+            fill!(nr_vec, zero(T)); fill!(ni_vec, zero(T))
+
+            ll = lm_idx - first(lm_range) + 1
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    ur[r] = u_real[ll, 1, lr]
+                    ui[r] = u_imag[ll, 1, lr]
+                    nr_vec[r] = buffers.n_current_real[ll, 1, lr]
+                    ni_vec[r] = buffers.n_current_imag[ll, 1, lr]
+                end
+            end
+
+            if multi
+                MPI.Allreduce!(ur, MPI.SUM, comm)
+                MPI.Allreduce!(ui, MPI.SUM, comm)
+                MPI.Allreduce!(nr_vec, MPI.SUM, comm)
+                MPI.Allreduce!(ni_vec, MPI.SUM, comm)
+            end
+
+            linear_r = E * ur
+            linear_i = E * ui
+            k1_r_vec = phi1 * nr_vec
+            k1_i_vec = phi1 * ni_vec
+            stage_r = linear_r .+ dt .* k1_r_vec
+            stage_i = linear_i .+ dt .* k1_i_vec
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    linear_real[ll, 1, lr] = linear_r[r]
+                    linear_imag[ll, 1, lr] = linear_i[r]
+                    k1_real[ll, 1, lr] = k1_r_vec[r]
+                    k1_imag[ll, 1, lr] = k1_i_vec[r]
+                    stage_real[ll, 1, lr] = stage_r[r]
+                    stage_imag[ll, 1, lr] = stage_i[r]
+                end
+            end
+        end
+    end
+
+    return buffers
+end
+
+erk2_apply_stage!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T}) where T = begin
+    parent(u.data_real) .= buffers.stage_real
+    parent(u.data_imag) .= buffers.stage_imag
+    return u
+end
+
+erk2_store_stage_nonlinear!(buffers::ERK2FieldBuffers{T}, nl::SHTnsSpectralField{T}) where T = begin
+    parent_nl_real = parent(nl.data_real)
+    parent_nl_imag = parent(nl.data_imag)
+    copyto!(buffers.stage_nl_real, parent_nl_real)
+    copyto!(buffers.stage_nl_imag, parent_nl_imag)
+    return buffers
+end
+
+function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
+                              cache::ERK2Cache{T}, config::SHTnsKitConfig, dt::Float64) where T
+    cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
+
+    u_real = parent(u.data_real)
+    u_imag = parent(u.data_imag)
+
+    lm_range = get_local_range(u.pencil, 1)
+    r_range = get_local_range(u.pencil, 3)
+
+    nr = buffers.nr
+    tmp_linear = zeros(T, nr)
+    tmp_k1 = similar(tmp_linear)
+    tmp_Nn = similar(tmp_linear)
+    tmp_stage = similar(tmp_linear)
+    delta = similar(tmp_linear)
+    correction = similar(tmp_linear)
+    result = similar(tmp_linear)
+
+    comm = get_comm()
+    multi = MPI.Comm_size(comm) > 1
+
+    for lm_idx in lm_range
+        if lm_idx <= u.nlm
+            l = config.l_values[lm_idx]
+            cache_idx = get(buffers.cache_lookup, l, nothing)
+            cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+            phi2 = cache.phi2_full[cache_idx]
+            ll = lm_idx - first(lm_range) + 1
+
+            fill!(tmp_linear, zero(T))
+            fill!(tmp_k1, zero(T))
+            fill!(tmp_Nn, zero(T))
+            fill!(tmp_stage, zero(T))
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    tmp_linear[r] = buffers.linear_real[ll, 1, lr]
+                    tmp_k1[r] = buffers.k1_real[ll, 1, lr]
+                    tmp_Nn[r] = buffers.n_current_real[ll, 1, lr]
+                    tmp_stage[r] = buffers.stage_nl_real[ll, 1, lr]
+                end
+            end
+
+            if multi
+                MPI.Allreduce!(tmp_linear, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_k1, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_Nn, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_stage, MPI.SUM, comm)
+            end
+
+            delta .= tmp_stage .- tmp_Nn
+            correction .= phi2 * delta
+            result .= tmp_linear .+ dt .* (tmp_k1 .+ correction)
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    u_real[ll, 1, lr] = result[r]
+                end
+            end
+
+            fill!(tmp_linear, zero(T))
+            fill!(tmp_k1, zero(T))
+            fill!(tmp_Nn, zero(T))
+            fill!(tmp_stage, zero(T))
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_imag, 3)
+                    tmp_linear[r] = buffers.linear_imag[ll, 1, lr]
+                    tmp_k1[r] = buffers.k1_imag[ll, 1, lr]
+                    tmp_Nn[r] = buffers.n_current_imag[ll, 1, lr]
+                    tmp_stage[r] = buffers.stage_nl_imag[ll, 1, lr]
+                end
+            end
+
+            if multi
+                MPI.Allreduce!(tmp_linear, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_k1, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_Nn, MPI.SUM, comm)
+                MPI.Allreduce!(tmp_stage, MPI.SUM, comm)
+            end
+
+            delta .= tmp_stage .- tmp_Nn
+            correction .= phi2 * delta
+            result .= tmp_linear .+ dt .* (tmp_k1 .+ correction)
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_imag, 3)
+                    u_imag[ll, 1, lr] = result[r]
+                end
+            end
+        end
+    end
+
+    synchronize_pencil_transforms!(u)
+    return u
 end
 
 # Exports are handled by main module

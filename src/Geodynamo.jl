@@ -112,6 +112,12 @@ module Geodynamo
 
     # (deprecated) enhanced/master types removed in favor of unified SimulationState
 
+    # exports InitialConditions.jl
+    export set_temperature_initial_conditions!, set_velocity_initial_conditions!
+    export set_magnetic_initial_conditions!, set_composition_initial_conditions!
+    export generate_random_field, generate_spherical_harmonic_field
+    export load_initial_conditions!, save_initial_conditions
+
     # exports parameters.jl
     export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
     export get_parameters, set_parameters!, initialize_parameters
@@ -119,6 +125,9 @@ module Geodynamo
 
     # Include Parameters system first
     include("parameters.jl")
+
+    # Include InitialConditions module
+    include("InitialConditions.jl")
 
     # Include base modules in dependency order
     include("pencil_decomps.jl")
