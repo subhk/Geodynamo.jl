@@ -40,6 +40,7 @@ mutable struct SHTnsVelocityFields{T}
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
+    config::SHTnsKitConfig
     domain::RadialDomain
     boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
@@ -294,6 +295,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   advection_physical,
                                   l_factors, coriolis_factors,
                                   dr_matrix, d2r_matrix, laplacian_matrix,
+                                  config,
                                   oc_domain,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
 end

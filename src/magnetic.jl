@@ -50,6 +50,7 @@ mutable struct SHTnsMagneticFields{T}
     
     # Imposed field (if any)
     imposed_field::Union{SHTnsVectorField{T}, Nothing}
+    config::SHTnsKitConfig
     outer_domain::RadialDomain
     boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
@@ -116,6 +117,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 induction_physical,
                                 l_factors,
                                 imposed_field,
+                                config,
                                 domain_oc,
                                 boundary_condition_set, boundary_cache, boundary_time_index)
 end
@@ -152,6 +154,87 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
     end
     
     # Note: The nonlinear terms are now in mag_fields.nl_toroidal/poloidal
+end
+
+"""
+    enforce_magnetic_boundary_values!(fields)
+
+Anchor magnetic toroidal/poloidal spectral data to cached Dirichlet boundary
+values on the inner and outer radial surfaces.
+"""
+function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where T
+    domain = fields.outer_domain
+
+    tor_real = parent(fields.toroidal.data_real)
+    tor_imag = parent(fields.toroidal.data_imag)
+    pol_real = parent(fields.poloidal.data_real)
+    pol_imag = parent(fields.poloidal.data_imag)
+
+    tor_bc = fields.toroidal.boundary_values
+    pol_bc = fields.poloidal.boundary_values
+
+    lm_range = get_local_range(fields.toroidal.pencil, 1)
+    r_range = get_local_range(fields.toroidal.pencil, 3)
+
+    has_inner = 1 in r_range && domain.r[1, 4] > 0
+    has_outer = domain.N in r_range
+
+    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
+
+    dirichlet_code = Int(BoundaryConditions.DIRICHLET)
+
+    for lm_idx in lm_range
+        if lm_idx <= fields.toroidal.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            if has_inner && 1 <= inner_idx <= size(tor_real, 3)
+                if fields.toroidal.bc_type_inner[lm_idx] == dirichlet_code
+                    tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
+                    tor_imag[local_lm, 1, inner_idx] = zero(T)
+                end
+                if fields.poloidal.bc_type_inner[lm_idx] == dirichlet_code
+                    pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
+                    pol_imag[local_lm, 1, inner_idx] = zero(T)
+                end
+            end
+
+            if has_outer && 1 <= outer_idx <= size(tor_real, 3)
+                if fields.toroidal.bc_type_outer[lm_idx] == dirichlet_code
+                    tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
+                    tor_imag[local_lm, 1, outer_idx] = zero(T)
+                end
+                if fields.poloidal.bc_type_outer[lm_idx] == dirichlet_code
+                    pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
+                    pol_imag[local_lm, 1, outer_idx] = zero(T)
+                end
+            end
+        end
+    end
+
+    return fields
+end
+
+"""
+    apply_magnetic_boundary_conditions!(fields; time_index=nothing)
+
+Refresh magnetic boundary data from the BoundaryConditions subsystem and
+enforce the corresponding Dirichlet values in spectral space.
+"""
+function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
+                                              time_index::Union{Nothing,Int}=nothing) where T
+    if fields.boundary_condition_set === nothing
+        return fields
+    end
+
+    if time_index === nothing
+        BoundaryConditions.apply_magnetic_boundary_conditions!(fields)
+    else
+        BoundaryConditions.apply_magnetic_boundary_conditions!(fields, time_index)
+    end
+
+    enforce_magnetic_boundary_values!(fields)
+    return fields
 end
 
 

@@ -1278,6 +1278,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     end
 
     apply_velocity_boundary_conditions!(state.velocity)
+    if i_B == 1 && state.magnetic !== nothing
+        apply_magnetic_boundary_conditions!(state.magnetic)
+    end
 
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
