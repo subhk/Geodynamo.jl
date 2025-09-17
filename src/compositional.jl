@@ -358,6 +358,10 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
         # Use the robust tau method for flux boundary conditions
         apply_scalar_flux_bc_spectral!(comp_field, domain; method=:tau)
     end
+
+    if domain.r[1, 4] == 0.0
+        GeodynamoBall.apply_ball_composition_regularity!(comp_field)
+    end
 end
 
 # ================================================================================

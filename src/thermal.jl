@@ -307,6 +307,10 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     if any(temp_field.bc_type_inner .== 2) || any(temp_field.bc_type_outer .== 2)
         apply_flux_bc_spectral!(temp_field, domain)
     end
+
+    if domain.r[1, 4] == 0.0
+        GeodynamoBall.apply_ball_temperature_regularity!(temp_field)
+    end
 end
 
 

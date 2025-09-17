@@ -1,4 +1,5 @@
 import .BoundaryConditions
+import .GeodynamoBall
 
 # ================================================================================
 # Physics Modules with SHTns
@@ -159,6 +160,10 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
     end
 
     enforce_velocity_boundary_values!(fields)
+
+    if fields.domain.r[1, 4] == 0.0
+        GeodynamoBall.enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+    end
     return fields
 end
 

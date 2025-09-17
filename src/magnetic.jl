@@ -18,6 +18,7 @@
 #
 #
 import .BoundaryConditions
+import .GeodynamoBall
 
 mutable struct SHTnsMagneticFields{T}
     # Physical space magnetic field
