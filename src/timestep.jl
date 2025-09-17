@@ -1165,6 +1165,9 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
     ui = similar(ur)
     nr_vec = similar(ur)
     ni_vec = similar(ur)
+    linear_tmp = similar(ur)
+    k1_tmp = similar(ur)
+    stage_tmp = similar(ur)
 
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
@@ -1207,22 +1210,31 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
                 MPI.Allreduce!(ni_vec, MPI.SUM, comm)
             end
 
-            linear_r = E * ur
-            linear_i = E * ui
-            k1_r_vec = phi1 * nr_vec
-            k1_i_vec = phi1 * ni_vec
-            stage_r = linear_r .+ dt .* k1_r_vec
-            stage_i = linear_i .+ dt .* k1_i_vec
+            mul!(linear_tmp, E, ur)
+            mul!(k1_tmp, phi1, nr_vec)
+            stage_tmp .= linear_tmp
+            @. stage_tmp = stage_tmp + dt * k1_tmp
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    linear_real[ll, 1, lr] = linear_r[r]
-                    linear_imag[ll, 1, lr] = linear_i[r]
-                    k1_real[ll, 1, lr] = k1_r_vec[r]
-                    k1_imag[ll, 1, lr] = k1_i_vec[r]
-                    stage_real[ll, 1, lr] = stage_r[r]
-                    stage_imag[ll, 1, lr] = stage_i[r]
+                    linear_real[ll, 1, lr] = linear_tmp[r]
+                    k1_real[ll, 1, lr] = k1_tmp[r]
+                    stage_real[ll, 1, lr] = stage_tmp[r]
+                end
+            end
+
+            mul!(linear_tmp, E, ui)
+            mul!(k1_tmp, phi1, ni_vec)
+            stage_tmp .= linear_tmp
+            @. stage_tmp = stage_tmp + dt * k1_tmp
+
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_imag, 3)
+                    linear_imag[ll, 1, lr] = linear_tmp[r]
+                    k1_imag[ll, 1, lr] = k1_tmp[r]
+                    stage_imag[ll, 1, lr] = stage_tmp[r]
                 end
             end
         end
@@ -1297,9 +1309,12 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
                 MPI.Allreduce!(tmp_stage, MPI.SUM, comm)
             end
 
-            delta .= tmp_stage .- tmp_Nn
-            correction .= phi2 * delta
-            result .= tmp_linear .+ dt .* (tmp_k1 .+ correction)
+            delta .= tmp_stage
+            @. delta = delta - tmp_Nn
+            mul!(correction, phi2, delta)
+            result .= tmp_k1
+            @. result = result + correction
+            @. result = tmp_linear + dt * result
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
@@ -1330,9 +1345,12 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
                 MPI.Allreduce!(tmp_stage, MPI.SUM, comm)
             end
 
-            delta .= tmp_stage .- tmp_Nn
-            correction .= phi2 * delta
-            result .= tmp_linear .+ dt .* (tmp_k1 .+ correction)
+            delta .= tmp_stage
+            @. delta = delta - tmp_Nn
+            mul!(correction, phi2, delta)
+            result .= tmp_k1
+            @. result = result + correction
+            @. result = tmp_linear + dt * result
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
