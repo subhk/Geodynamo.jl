@@ -435,6 +435,9 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
     nr_full = size(etd.E[1], 1)
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
+    linear_r_work = zeros(T, nr_full)
+    linear_i_work = similar(linear_r_work)
+    phi_tmp = similar(linear_r_work)
     # Build map from lm_idx to l index in etd
     for lm_idx in lm_range
         if lm_idx <= u.nlm
@@ -461,14 +464,19 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                 MPI.Allreduce!(nrn, MPI.SUM, comm)
                 MPI.Allreduce!(nin, MPI.SUM, comm)
             end
-            ur_new = E*ur + dt*(P1*nrn)
-            ui_new = E*ui + dt*(P1*nin)
+            mul!(linear_r_work, E, ur)
+            mul!(phi_tmp, P1, nrn)
+            @. linear_r_work = linear_r_work + dt * phi_tmp
+
+            mul!(linear_i_work, E, ui)
+            mul!(phi_tmp, P1, nin)
+            @. linear_i_work = linear_i_work + dt * phi_tmp
             # Scatter back to local slab
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    u_real[ll,1,lr] = ur_new[r]
-                    u_imag[ll,1,lr] = ui_new[r]
+                    u_real[ll,1,lr] = linear_r_work[r]
+                    u_imag[ll,1,lr] = linear_i_work[r]
                 end
             end
         end
