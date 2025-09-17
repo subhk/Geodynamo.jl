@@ -70,7 +70,7 @@ module Geodynamo
     export compute_composition_rms, compute_composition_energy
     export get_composition_statistics, zero_composition_work_arrays!
     export set_composition_ic!, set_composition_boundary_conditions!
-    export apply_composition_boundary_conditions_spectral!
+    export apply_composition_boundary_conditions!, apply_composition_boundary_conditions_spectral!
     
     # exports BoundaryConditions module
     export AbstractBoundaryCondition

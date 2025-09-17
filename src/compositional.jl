@@ -16,12 +16,75 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
+import .BoundaryConditions
+
 include("scalar_field_common.jl")
 
 # Specialization for composition field
 get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composition
 
-struct SHTnsCompositionField{T} <: AbstractScalarField{T}
+"""
+    enforce_composition_boundary_values!(field)
+
+Anchor spectral boundary modes to stored Dirichlet values when applicable.
+"""
+function enforce_composition_boundary_values!(field::SHTnsCompositionField{T}) where T
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+
+    lm_range = range_local(field.config.pencils.spec, 1)
+    r_range  = range_local(field.config.pencils.spec, 3)
+
+    has_inner = 1 in r_range && field.domain.r[1, 4] > 0
+    has_outer = field.domain.N in r_range
+
+    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
+
+    dirichlet = Int(BoundaryConditions.DIRICHLET)
+
+    for lm_idx in lm_range
+        if lm_idx <= field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && field.bc_type_inner[lm_idx] == dirichlet
+                spec_real[local_lm, 1, inner_idx] = field.boundary_values[1, lm_idx]
+                spec_imag[local_lm, 1, inner_idx] = zero(T)
+            end
+
+            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && field.bc_type_outer[lm_idx] == dirichlet
+                spec_real[local_lm, 1, outer_idx] = field.boundary_values[2, lm_idx]
+                spec_imag[local_lm, 1, outer_idx] = zero(T)
+            end
+        end
+    end
+
+    return field
+end
+
+"""
+    apply_composition_boundary_conditions!(field; time_index=nothing)
+
+Refresh composition boundary values from the BoundaryConditions subsystem and
+enforce Dirichlet data in spectral space.
+"""
+function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
+                                                 time_index::Union{Nothing,Int}=nothing) where T
+    if field.boundary_condition_set === nothing
+        return field
+    end
+
+    if time_index === nothing
+        BoundaryConditions.apply_composition_boundary_conditions!(field)
+    else
+        BoundaryConditions.apply_composition_boundary_conditions!(field, time_index)
+    end
+
+    enforce_composition_boundary_values!(field)
+    return field
+end
+
+mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
     composition::SHTnsPhysicalField{T}
     gradient::SHTnsVectorField{T}
@@ -64,6 +127,10 @@ struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Performance tracking
     computation_time::Ref{Float64}
     transform_time::Ref{Float64}
+    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_interpolation_cache::Dict{String, Any}
+    boundary_time_index::Ref{Int}
+    domain::RadialDomain
 end
 
 # ================================================================================
@@ -124,6 +191,10 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
     
+    boundary_condition_set = nothing
+    boundary_cache = Dict{String, Any}()
+    boundary_time_index = Ref{Int}(1)
+
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
@@ -133,7 +204,9 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
-        Ref{Float64}(0.0), Ref{Float64}(0.0)
+        Ref{Float64}(0.0), Ref{Float64}(0.0),
+        boundary_condition_set, boundary_cache, boundary_time_index,
+        oc_domain
     )
 end
 
@@ -171,6 +244,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
+    apply_composition_boundary_conditions!(comp_field)
     apply_composition_boundary_conditions_spectral!(comp_field, oc_domain)
     
     if ENABLE_TIMING[]

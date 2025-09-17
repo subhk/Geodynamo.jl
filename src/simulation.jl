@@ -1281,6 +1281,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     if i_B == 1 && state.magnetic !== nothing
         apply_magnetic_boundary_conditions!(state.magnetic)
     end
+    if state.composition !== nothing
+        apply_composition_boundary_conditions!(state.composition)
+    end
 
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
