@@ -3,12 +3,15 @@
 # ================================================================================
     
 # Field types that work with PencilArrays using SHTnsKit
-struct SHTnsSpectralField{T<:Number}
+mutable struct SHTnsSpectralField{T<:Number}
     config::SHTnsKitConfig
     nlm::Int
     data_real::PencilArray{T,3}
     data_imag::PencilArray{T,3}
     pencil::Pencil{3}  # Store pencil for local range info
+    bc_type_inner::Vector{Int}
+    bc_type_outer::Vector{Int}
+    boundary_values::Matrix{T}          # [2, nlm] inner/outer boundary spectral values
 end
 
 # Physical field on SHTnsKit grid
@@ -53,13 +56,18 @@ function create_shtns_spectral_field(::Type{T}, config::SHTnsKitConfig,
     # Create PencilArrays with the given pencil
     data_real = PencilArray{T}(undef, pencil_spec)
     data_imag = PencilArray{T}(undef, pencil_spec)
-    
+
     # Initialize to zero
     fill!(parent(data_real), zero(T))
     fill!(parent(data_imag), zero(T))
-    
-    return SHTnsSpectralField{T}(config, nlm, 
-                        data_real, data_imag, pencil_spec)
+
+    bc_inner = ones(Int, nlm)
+    bc_outer = ones(Int, nlm)
+    boundary_vals = zeros(T, 2, nlm)
+
+    return SHTnsSpectralField{T}(config, nlm,
+                        data_real, data_imag, pencil_spec,
+                        bc_inner, bc_outer, boundary_vals)
 end
 
 

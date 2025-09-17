@@ -1,10 +1,11 @@
+import .BoundaryConditions
+
 # ================================================================================
 # Physics Modules with SHTns
 # ================================================================================
 
-
 # Velocity field components with SHTns
-struct SHTnsVelocityFields{T}
+mutable struct SHTnsVelocityFields{T}
     # Physical space velocities
     velocity::SHTnsVectorField{T}
     vorticity::SHTnsVectorField{T}
@@ -39,6 +40,9 @@ struct SHTnsVelocityFields{T}
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
+    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_interpolation_cache::Dict{String, Any}
+    boundary_time_index::Ref{Int}
 end
 
 # ---------------------------------
@@ -198,13 +202,18 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
     
+    boundary_condition_set = nothing
+    boundary_cache = Dict{String, Any}()
+    boundary_time_index = Ref{Int}(1)
+
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal,
                                   vort_toroidal, vort_poloidal,
                                   nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   l_factors, coriolis_factors,
-                                  dr_matrix, d2r_matrix, laplacian_matrix)
+                                  dr_matrix, d2r_matrix, laplacian_matrix,
+                                  boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
 
