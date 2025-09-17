@@ -17,7 +17,9 @@
 #                   Add to nonlinear terms
 #
 #
-struct SHTnsMagneticFields{T}
+import .BoundaryConditions
+
+mutable struct SHTnsMagneticFields{T}
     # Physical space magnetic field
     magnetic::SHTnsVectorField{T}
     current::SHTnsVectorField{T}
@@ -48,6 +50,10 @@ struct SHTnsMagneticFields{T}
     
     # Imposed field (if any)
     imposed_field::Union{SHTnsVectorField{T}, Nothing}
+    outer_domain::RadialDomain
+    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_interpolation_cache::Dict{String, Any}
+    boundary_time_index::Ref{Int}
 end
 
 
@@ -98,6 +104,9 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     transpose_plans = create_transpose_plans(pencils)
     
     imposed_field = nothing
+    boundary_condition_set = nothing
+    boundary_cache = Dict{String, Any}()
+    boundary_time_index = Ref{Int}(1)
     
     return SHTnsMagneticFields{T}(magnetic, current, 
                                 toroidal, poloidal,
@@ -106,7 +115,9 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 l_factors,
-                                imposed_field)
+                                imposed_field,
+                                domain_oc,
+                                boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
 
