@@ -115,6 +115,7 @@ module Geodynamo
     # exports InitialConditions.jl
     export set_temperature_initial_conditions!, set_velocity_initial_conditions!
     export set_magnetic_initial_conditions!, set_composition_initial_conditions!
+    export randomize_scalar_field!, randomize_vector_field!, randomize_magnetic_field!
     export generate_random_field, generate_spherical_harmonic_field
     export load_initial_conditions!, save_initial_conditions
 

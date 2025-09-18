@@ -11,10 +11,7 @@
 #   JULIA_NUM_THREADS=8 julia --project examples/ball_mhd_demo.jl
 
 using Geodynamo
-using GeodynamoBall
 using Random
-
-const Ball = GeodynamoBall
 
 # 1) Set parameters (ball geometry and physics)
 params = GeodynamoParameters(
@@ -121,90 +118,14 @@ set_boundary_conditions!(state.temperature;
 println("Setting up random initial conditions...")
 Random.seed!(1234)
 
-function randomize_scalar_field!(field::SHTnsTemperatureField{T}; amplitude::Float64, lmax::Int) where T
-    spec_real = parent(field.spectral.data_real)
-    spec_imag = parent(field.spectral.data_imag)
-    lm_range = Geodynamo.get_local_range(field.spectral.pencil, 1)
-    r_range  = Geodynamo.get_local_range(field.spectral.pencil, 3)
-    l_values = field.spectral.config.l_values
-    fill!(spec_real, zero(T))
-    fill!(spec_imag, zero(T))
-    for (local_idx, global_idx) in enumerate(lm_range)
-        l = l_values[global_idx]
-        if l <= lmax
-            for r in r_range
-                lr = r - first(r_range) + 1
-                if lr <= size(spec_real, 3)
-                    spec_real[local_idx, 1, lr] = T(amplitude * (rand() - 0.5))
-                    spec_imag[local_idx, 1, lr] = zero(T)
-                end
-            end
-        end
-    end
-    Ball.apply_ball_temperature_regularity!(field)
-    return field
-end
-
-function randomize_vector_field!(field::SHTnsVelocityFields{T}; amplitude::Float64, lmax::Int) where T
-    for component in (field.toroidal, field.poloidal)
-        real = parent(component.data_real)
-        imag = parent(component.data_imag)
-        fill!(real, zero(T))
-        fill!(imag, zero(T))
-        lm_range = Geodynamo.get_local_range(component.pencil, 1)
-        r_range  = Geodynamo.get_local_range(component.pencil, 3)
-        l_values = component.config.l_values
-        for (local_idx, global_idx) in enumerate(lm_range)
-            l = l_values[global_idx]
-            if 1 <= l <= lmax
-                for r in r_range
-                    lr = r - first(r_range) + 1
-                    if lr <= size(real, 3)
-                        real[local_idx, 1, lr] = T(amplitude * (rand() - 0.5))
-                        imag[local_idx, 1, lr] = zero(T)
-                    end
-                end
-            end
-        end
-    end
-    Ball.enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
-    return field
-end
-
-function randomize_magnetic_field!(field::SHTnsMagneticFields{T}; amplitude::Float64, lmax::Int) where T
-    for component in (field.toroidal, field.poloidal)
-        real = parent(component.data_real)
-        imag = parent(component.data_imag)
-        fill!(real, zero(T))
-        fill!(imag, zero(T))
-        lm_range = Geodynamo.get_local_range(component.pencil, 1)
-        r_range  = Geodynamo.get_local_range(component.pencil, 3)
-        l_values = component.config.l_values
-        for (local_idx, global_idx) in enumerate(lm_range)
-            l = l_values[global_idx]
-            if 1 <= l <= lmax
-                for r in r_range
-                    lr = r - first(r_range) + 1
-                    if lr <= size(real, 3)
-                        real[local_idx, 1, lr] = T(amplitude * (rand() - 0.5))
-                        imag[local_idx, 1, lr] = zero(T)
-                    end
-                end
-            end
-        end
-    end
-    Ball.enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
-    return field
-end
-
 println("  - Temperature: random perturbations (amplitude=0.01, modes l ≤ 8)")
-randomize_scalar_field!(state.temperature; amplitude=0.01, lmax=8)
+randomize_scalar_field!(state.temperature; amplitude=0.01, lmax=8, domain=state.oc_domain)
 
 println("  - Velocity: small random perturbations (amplitude=1e-5, modes l ≤ 6)")
-randomize_vector_field!(state.velocity; amplitude=1e-5, lmax=6)
+randomize_vector_field!(state.velocity; amplitude=1e-5, lmax=6, domain=state.oc_domain)
 
 println("  - Magnetic field: tiny seed field (amplitude=1e-4, modes l ≤ 4)")
-randomize_magnetic_field!(state.magnetic; amplitude=1e-4, lmax=4)
+randomize_magnetic_field!(state.magnetic; amplitude=1e-4, lmax=4, domain=state.oc_domain)
 
 apply_velocity_boundary_conditions!(state.velocity)
 apply_magnetic_boundary_conditions!(state.magnetic)

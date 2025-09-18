@@ -13,6 +13,118 @@ module InitialConditions
 using LinearAlgebra
 using Random
 
+function _maybe_enforce_ball_scalar!(field, domain)
+    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeodynamoBall)
+        getfield(@__MODULE__, :GeodynamoBall).apply_ball_temperature_regularity!(field)
+    end
+    return field
+end
+
+function _maybe_enforce_ball_vector!(field, domain)
+    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeodynamoBall)
+        getfield(@__MODULE__, :GeodynamoBall).enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
+    end
+    return field
+end
+
+"""
+    randomize_scalar_field!(field; amplitude, lmax, domain=nothing)
+
+Populate a scalar spectral field (temperature/composition) with random perturbations up to degree `lmax`.
+If a radial `domain` is provided and includes r=0, ball regularity is enforced.
+"""
+function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+    spectral = getproperty(field, :spectral)
+    real = parent(spectral.data_real)
+    imag = parent(spectral.data_imag)
+    lm_range = get_local_range(spectral.pencil, 1)
+    r_range  = get_local_range(spectral.pencil, 3)
+    l_values = spectral.config.l_values
+    fill!(real, zero(eltype(real)))
+    fill!(imag, zero(eltype(imag)))
+    amp = Float64(amplitude)
+    for (local_idx, global_idx) in enumerate(lm_range)
+        if global_idx <= length(l_values)
+            l = l_values[global_idx]
+            if l <= lmax
+                for r in r_range
+                    lr = r - first(r_range) + 1
+                    if lr <= size(real, 3)
+                        real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
+                        imag[local_idx, 1, lr] = zero(eltype(imag))
+                    end
+                end
+            end
+        end
+    end
+    return _maybe_enforce_ball_scalar!(field, domain)
+end
+
+"""
+    randomize_vector_field!(field; amplitude, lmax, domain=nothing)
+
+Populate velocity-like toroidal/poloidal fields with random perturbations up to degree `lmax`.
+"""
+function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+    amp = Float64(amplitude)
+    for spectral in (field.toroidal, field.poloidal)
+        real = parent(spectral.data_real)
+        imag = parent(spectral.data_imag)
+        fill!(real, zero(eltype(real)))
+        fill!(imag, zero(eltype(imag)))
+        lm_range = get_local_range(spectral.pencil, 1)
+        r_range  = get_local_range(spectral.pencil, 3)
+        l_values = spectral.config.l_values
+        for (local_idx, global_idx) in enumerate(lm_range)
+            if global_idx <= length(l_values)
+                l = l_values[global_idx]
+                if 1 <= l <= lmax
+                    for r in r_range
+                        lr = r - first(r_range) + 1
+                        if lr <= size(real, 3)
+                            real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
+                            imag[local_idx, 1, lr] = zero(eltype(imag))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return _maybe_enforce_ball_vector!(field, domain)
+end
+
+"""
+    randomize_magnetic_field!(field; amplitude, lmax, domain=nothing)
+
+Populate magnetic toroidal/poloidal fields with random perturbations.
+"""
+function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+    amp = Float64(amplitude)
+    for spectral in (field.toroidal, field.poloidal)
+        real = parent(spectral.data_real)
+        imag = parent(spectral.data_imag)
+        fill!(real, zero(eltype(real)))
+        fill!(imag, zero(eltype(imag)))
+        lm_range = get_local_range(spectral.pencil, 1)
+        r_range  = get_local_range(spectral.pencil, 3)
+        l_values = spectral.config.l_values
+        for (local_idx, global_idx) in enumerate(lm_range)
+            if global_idx <= length(l_values)
+                l = l_values[global_idx]
+                if 1 <= l <= lmax
+                    for r in r_range
+                        lr = r - first(r_range) + 1
+                        if lr <= size(real, 3)
+                            real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
+                            imag[local_idx, 1, lr] = zero(eltype(imag))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return _maybe_enforce_ball_vector!(field, domain)
+end
 """
     randomize_scalar_field!(field::SHTnsTemperatureField{T}; amplitude, lmax)
 
