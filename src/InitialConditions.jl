@@ -12,6 +12,38 @@ module InitialConditions
 
 using LinearAlgebra
 using Random
+
+"""
+    randomize_scalar_field!(field::SHTnsTemperatureField{T}; amplitude, lmax)
+
+Fill a scalar spectral field with small random perturbations up to degree `lmax`
+and enforce ball regularity when the domain includes r=0.
+"""
+function randomize_scalar_field!(field::SHTnsTemperatureField{T}; amplitude::Real, lmax::Int) where T
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+    lm_range = Geodynamo.get_local_range(field.spectral.pencil, 1)
+    r_range  = Geodynamo.get_local_range(field.spectral.pencil, 3)
+    l_values = field.spectral.config.l_values
+    fill!(spec_real, zero(T))
+    fill!(spec_imag, zero(T))
+    for (local_idx, global_idx) in enumerate(lm_range)
+        l = l_values[global_idx]
+        if l <= lmax
+            for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(spec_real, 3)
+                    spec_real[local_idx, 1, lr] = T(amplitude * (rand() - 0.5))
+                    spec_imag[local_idx, 1, lr] = zero(T)
+                end
+            end
+        end
+    end
+    if field.spectral.config.l_values[1] == 0 && field.spectral.domain.r[1,4] == 0.0
+        GeodynamoBall.apply_ball_temperature_regularity!(field)
+    end
+    return field
+end
 using SHTnsKit
 
 # Import field types
