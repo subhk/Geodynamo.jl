@@ -3,6 +3,7 @@
 # ================================================================================
 
 using Dates
+using Printf
 
 """
     GeodynamoParameters
@@ -68,6 +69,50 @@ Base.@kwdef mutable struct GeodynamoParameters
     
     # Geometry selection (:shell or :ball)
     geometry::Symbol = :shell
+end
+
+function print_section(io::IO, title::AbstractString)
+    println(io, "\n" * title)
+    println(io, repeat('-', length(title)))
+end
+
+function print_entry(io::IO, name::Symbol, value)
+    println(io, @sprintf("  %-20s %s", String(name), string(value)))
+end
+
+function Base.show(io::IO, ::MIME"text/plain", params::GeodynamoParameters)
+    println(io, "GeodynamoParameters")
+
+    print_section(io, "Grid")
+    for key in (:geometry, :i_N, :i_Nic, :i_L, :i_M, :i_Th, :i_Ph, :i_KL)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Derived")
+    for key in (:i_L1, :i_M1, :i_H1, :i_pH1, :i_Ma)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Physical")
+    for key in (:d_rratio, :d_R_outer, :d_Ra, :d_E, :d_Pr, :d_Pm, :d_Ro, :d_q, :d_Ra_C, :d_Sc)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Timestepping")
+    for key in (:d_timestep, :d_time, :d_implicit, :d_dterr, :d_courant,
+                :i_maxtstep, :i_save_rate2, :ts_scheme, :i_etd_m, :d_krylov_tol)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Boundary Conditions")
+    for key in (:i_vel_bc, :i_tmp_bc, :i_cmp_bc, :i_poloidal_stress_iters)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Flags")
+    for key in (:b_mag_impose, :i_B)
+        print_entry(io, key, getfield(params, key))
+    end
 end
 
 """
